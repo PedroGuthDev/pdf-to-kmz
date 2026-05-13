@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Parser Walking Skeleton</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: #f4f7f6;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 { color: #2c3e50; margin-top: 0; }
+        .upload-area {
+            border: 2px dashed #3498db;
+            padding: 2rem;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            transition: background-color 0.3s;
+        }
+        .upload-area:hover { background-color: #ebf5fb; }
+        #fileInput { margin-bottom: 1rem; }
+        .status { margin-top: 1rem; padding: 1rem; border-radius: 4px; display: none; }
+        .status.info  { background-color: #e8f4fd; color: #2980b9; display: block; }
+        .status.error { background-color: #fdeaea; color: #c0392b; display: block; }
+        pre { background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Parser Walking Skeleton</h1>
+        <p>Validates OCG layer extraction from INFOVIAS PDFs. Open DevTools (F12) &rarr; Console for full output.</p>
+
+        <div class="upload-area">
+            <input type="file" id="fileInput" accept="application/pdf">
+            <p>Select the INFOVIAS sample PDF to analyse layers and geometry.</p>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div id="results" style="display:none;">
+            <h3>Extraction Summary</h3>
+            <p>Full detail in the browser console (F12).</p>
+            <pre id="outputSummary"></pre>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.mjs';
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.mjs';
+
+        const fileInput     = document.getElementById('fileInput');
+        const statusDiv     = document.getElementById('status');
+        const resultsDiv    = document.getElementById('results');
+        const outputSummary = document.getElementById('outputSummary');
+
+        // Logged at startup — confirms the library loaded (AC1).
+        console.log('pdf.js version:', pdfjsLib.version);
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            showStatus('Processing PDF…', 'info');
+            resultsDiv.style.display = 'none';
+
+            try {
+                await walkingSkeleton(file);
+            } catch (error) {
+                console.error('Walking Skeleton failed:', error);
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        });
+
+        function showStatus(msg, type) {
+            statusDiv.textContent = msg;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // ── OCG iterator helper ────────────────────────────────────────────────
+        // pdf.js 5.x OptionalContentConfig[Symbol.iterator] may yield plain group
+        // objects {id, name, …} or [id, group] Map-style entries. Handle both.
+        function* iterGroups(ocConfig) {
+            for (const item of ocConfig) {
+                if (Array.isArray(item)) {
+                    yield { id: item[0], name: item[1]?.name };
+                } else if (item && typeof item === 'object') {
+                    yield { id: item.id, name: item.name };
+                }
+            }
+        }
+
+        // ── Walking Skeleton ───────────────────────────────────────────────────
+        async function walkingSkeleton(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+            console.log('PDF Loaded:', pdf.numPages, 'pages');
+
+            // 1. OCG layer enumeration
+            const ocConfig = await pdf.getOptionalContentConfig();
+            const allNames = [];
+            const idToName = {};   // groupId → layerName
+
+            for (const { id, name } of iterGroups(ocConfig)) {
+                if (name) {
+                    allNames.push(name);
+                    if (id != null) idToName[id] = name;
+                }
+            }
+            console.log('All OCG layer names:', allNames);
+
+            // A2 — resolve accent variant: find 'Distancia_Poste' or accented form
+            const distLayer = allNames.find(n => /distancia.{0,2}poste/i.test(n)) ?? null;
+            console.log('A2 distance layer name:', distLayer);
+
+            // 2. Page 2: text content with marked content sentinels
+            const pageNum = Math.min(2, pdf.numPages);
+            const page = await pdf.getPage(pageNum);
+            const textContent = await page.getTextContent({ includeMarkedContent: true });
+
+            let hasBeginMarked  = false;
+            let currentLayerTxt = null;
+            const textoItems    = [];
+
+            for (const item of textContent.items) {
+                if (item.type === 'beginMarkedContentProps') {
+                    hasBeginMarked = true;
+                    if (item.id != null) currentLayerTxt = idToName[item.id] ?? null;
+                } else if (item.type === 'beginMarkedContent') {
+                    hasBeginMarked = true;
+                } else if (item.type === 'endMarkedContent') {
+                    currentLayerTxt = null;
+                } else if (item.str != null && currentLayerTxt === 'TEXTO') {
+                    const s = item.str.trim();
+                    if (s) textoItems.push(s);
+                }
+            }
+
+            console.log('AC3 hasBeginMarked:', hasBeginMarked);
+            console.log('AC4 TEXTO items:', textoItems);
+
+            // 3. Page 2: operator list for graphics layer tracking
+            //    fn=70  beginMarkedContentProps   args: [tag, {id: groupId}]
+            //    fn=74  endMarkedContent
+            //    fn=91  constructPath             args: [ops[], coords[]]
+            const opList = await page.getOperatorList();
+            const { fnArray, argsArray } = opList;
+
+            const FN_BEGIN_MCP = 70;
+            const FN_END_MC    = 74;
+            const FN_CONSTRUCT = 91;
+
+            let currentLayerGfx      = null;
+            let postConstructCount   = 0;
+            let firstPostConstructOps = null;
+
+            // Debug accumulators (used only if Numero_Poste tracking yields nothing)
+            const allMcpArgs          = [];
+            let   totalConstructCount = 0;
+
+            for (let i = 0; i < fnArray.length; i++) {
+                const fn   = fnArray[i];
+                const args = argsArray[i];
+
+                if (fn === FN_BEGIN_MCP) {
+                    const props = args?.[1];
+                    if (props && typeof props === 'object') {
+                        const gid = props.id ?? props['OCGID'] ?? null;
+                        currentLayerGfx = (gid != null) ? (idToName[gid] ?? null) : null;
+                    }
+                    if (allMcpArgs.length < 6) allMcpArgs.push(args);
+                } else if (fn === FN_END_MC) {
+                    currentLayerGfx = null;
+                } else if (fn === FN_CONSTRUCT) {
+                    totalConstructCount++;
+                    if (currentLayerGfx === 'Numero_Poste') {
+                        postConstructCount++;
+                        if (firstPostConstructOps === null) firstPostConstructOps = args;
+                    }
+                }
+            }
+
+            console.log('AC5 Numero_Poste constructPath count:', postConstructCount);
+
+            if (firstPostConstructOps !== null) {
+                console.log('A1 first Numero_Poste constructPath ops:', firstPostConstructOps);
+            } else {
+                console.warn(
+                    'A1 WARNING: no constructPath found inside Numero_Poste layer.\n' +
+                    'Layer tracking may need adjustment. Check debug output below.'
+                );
+                console.log('A1 Debug — total constructPath ops on page:', totalConstructCount);
+                console.log('A1 Debug — first 3 constructPath full args:',
+                    fnArray.reduce((acc, fn, i) => {
+                        if (fn === FN_CONSTRUCT && acc.length < 3) acc.push(argsArray[i]);
+                        return acc;
+                    }, [])
+                );
+                console.log('A1 Debug — beginMarkedContentProps sample args (up to 6):', allMcpArgs);
+                console.log('A1 Debug — idToName map:', idToName);
+            }
+
+            // 4. UI summary
+            showStatus('Analysis complete! Check console (F12) for full output.', 'info');
+            resultsDiv.style.display = 'block';
+            outputSummary.textContent = JSON.stringify({
+                'pdf.js version':                         pdfjsLib.version,
+                pages:                                    pdf.numPages,
+                'All OCG layer names':                    allNames,
+                'AC3 hasBeginMarked':                     hasBeginMarked,
+                'AC4 TEXTO items (first 10)':             textoItems.slice(0, 10),
+                'AC5 Numero_Poste constructPath count':   postConstructCount,
+                'A1 firstPostConstructOps':               firstPostConstructOps,
+                'A2 distance layer name':                 distLayer,
+            }, null, 2);
+        }
+    </script>
+</body>
+</html>
