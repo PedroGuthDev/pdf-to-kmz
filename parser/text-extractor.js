@@ -36,6 +36,22 @@ function matMul(old, na, nb, nc, nd, ne, nf) {
   };
 }
 
+// Read 6 matrix values from operator args.
+// pdf.js 5.x may pack matrix args as a single Array/Float32Array in args[0]
+// rather than 6 individual numbers. Handles both formats transparently.
+let _diagMatrixFormat = null;
+function readMatrix6(args) {
+  if (typeof args[0] === 'number') return args;
+  if (args[0] != null && typeof args[0].length === 'number') {
+    if (_diagMatrixFormat !== 'packed') {
+      _diagMatrixFormat = 'packed';
+      console.debug('[textExtractor] packed matrix args detected — type:', args[0]?.constructor?.name, 'length:', args[0]?.length);
+    }
+    return args[0];
+  }
+  return null;
+}
+
 /**
  * Extract text items per OCG layer.
  *
@@ -72,9 +88,11 @@ export async function extractLayerText(page, idToName) {
         if (ctmStack.length > 0) ctm = ctmStack.pop();
         break;
 
-      case OPS_TRANSFORM:
-        ctm = matMul(ctm, args[0], args[1], args[2], args[3], args[4], args[5]);
+      case OPS_TRANSFORM: {
+        const m = readMatrix6(args);
+        if (m) ctm = matMul(ctm, m[0], m[1], m[2], m[3], m[4], m[5]);
         break;
+      }
 
       case OPS_BEGIN_MARKED:
         if (args && args[1] && args[1].id != null) {
@@ -95,9 +113,12 @@ export async function extractLayerText(page, idToName) {
 
       case OPS_SET_TEXT_MATRIX: {
         // Tm a b c d e f: replace text matrix AND line matrix.
-        const [ma, mb, mc, md, me, mf] = args;
-        tm  = { a: ma, b: mb, c: mc, d: md, e: me, f: mf };
-        tlm = { a: ma, b: mb, c: mc, d: md, e: me, f: mf };
+        const m = readMatrix6(args);
+        if (m) {
+          const [ma, mb, mc, md, me, mf] = m;
+          tm  = { a: ma, b: mb, c: mc, d: md, e: me, f: mf };
+          tlm = { a: ma, b: mb, c: mc, d: md, e: me, f: mf };
+        }
         break;
       }
 

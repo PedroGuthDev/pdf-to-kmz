@@ -11,6 +11,21 @@
 
 import { parseConstructPath } from './construct-path-parser.js';
 
+// Read 6 matrix values from operator args — handles both standard (6 individual
+// numbers) and packed (single Array/Float32Array in args[0]) formats.
+let _diagMatrixFormat = null;
+function readMatrix6(args) {
+  if (typeof args[0] === 'number') return args;
+  if (args[0] != null && typeof args[0].length === 'number') {
+    if (_diagMatrixFormat !== 'packed') {
+      _diagMatrixFormat = 'packed';
+      console.debug('[gfxExtractor] packed matrix args detected — type:', args[0]?.constructor?.name, 'length:', args[0]?.length);
+    }
+    return args[0];
+  }
+  return null;
+}
+
 // pdf.js OPS constants (same as text-extractor.js):
 const OPS_SAVE = 10;
 const OPS_RESTORE = 11;
@@ -64,12 +79,12 @@ export async function extractLayerGraphics(page, idToName) {
         break;
 
       case OPS_TRANSFORM: {
-        // Full 2D affine concatenation (same formula as text-extractor.js).
-        const [na, nb, nc, nd, ne, nf] = args;
+        const m = readMatrix6(args);
+        if (!m) break;
+        const [na, nb, nc, nd, ne, nf] = m;
         const prevA = ctm.a, prevB = ctm.b;
         const prevC = ctm.c, prevD = ctm.d;
         const prevE = ctm.e, prevF = ctm.f;
-
         ctm = {
           a: prevA * na + prevB * nc,
           b: prevA * nb + prevB * nd,
@@ -98,8 +113,10 @@ export async function extractLayerGraphics(page, idToName) {
           if (activeLayer === LAYER_NUMERO_POSTE) {
             // Per SKELETON.md A1: circle local center = (0, 0) in local coords.
             // CTM (e, f) at fn=91 call IS the page-space position of the circle center.
-            // flipY is applied in pdf-parser.js, NOT here.
-            circles.push({ x: ctm.e, y: ctm.f });
+            // Only push when CTM is valid — NaN means CTM tracking failed for this section.
+            if (isFinite(ctm.e) && isFinite(ctm.f)) {
+              circles.push({ x: ctm.e, y: ctm.f });
+            }
           } else if (activeLayer === LAYER_CABO_PROJETADO) {
             cablePaths.push(parseConstructPath(args));
           } else {

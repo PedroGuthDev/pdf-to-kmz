@@ -122,46 +122,61 @@ export async function parsePdf(arrayBuffer) {
       }
     }
 
-    // ── Fallback: if CTM correlation yielded nothing, use all-page text ──────
-    // Handles cases where OCG layer IDs don't resolve or getTextContent positions
-    // don't match within tolerance. Mirrors the skeleton's all-page approach.
+    // ── All-page text fallback ───────────────────────────────────────────────
+    // CTM tracking fails for some pages (engineering coordinate transforms),
+    // so we always scan all pages for distance labels to ensure full coverage.
+    // TEXTO fallback only triggers when layer extraction found nothing.
     const needTextoFallback = allTextoItems.length === 0;
-    const needDistFallback  = allDistItems.length === 0;
-    if (needTextoFallback || needDistFallback) {
+    if (needTextoFallback) {
       warnings.push(
         'Layer-specific text extraction yielded no results; using all-page text fallback.'
       );
-      for (const { page, pageHeight } of pageCache) {
-        const textContent = await page.getTextContent();
-        for (const item of textContent.items) {
-          if (item.str == null) continue;
-          const str = item.str.trim();
-          if (!str) continue;
-          const tx = item.transform[4];
-          const ty = item.transform[5];
-          const yFlipped = pageHeight - ty;
-          if (needTextoFallback && /^\d{1,3}$/.test(str)) {
-            allTextoItems.push({ str, x: tx, y: yFlipped });
-          }
-          if (needDistFallback) {
-            const norm = str.replace(',', '.');
-            // Accept any numeric value; distance-associator will filter by
-            // proximity to post-pair midpoints, rejecting stray integers.
-            if (/^\d+(\.\d+)?$/.test(norm)) {
-              allDistItems.push({ str, x: tx, y: yFlipped });
-            }
-          }
+    }
+    for (const { page, pageHeight } of pageCache) {
+      const textContent = await page.getTextContent();
+      for (const item of textContent.items) {
+        if (item.str == null) continue;
+        const str = item.str.trim();
+        if (!str) continue;
+        const tx = item.transform[4];
+        const ty = item.transform[5];
+        const yFlipped = pageHeight - ty;
+        if (needTextoFallback && /^\d{1,3}$/.test(str)) {
+          allTextoItems.push({ str, x: tx, y: yFlipped });
+        }
+        // Always collect distances — CTM tracking misses some pages, so layer-
+        // specific allDistItems may be incomplete. Proximity matching handles duplicates.
+        const norm = str.replace(',', '.');
+        if (/^\d+(\.\d+)?$/.test(norm)) {
+          allDistItems.push({ str, x: tx, y: yFlipped });
         }
       }
     }
 
     // ── Assemble posts from TEXTO items + circle centroids ───────────────────
+    // Filter NaN circles — CTM tracking may have failed for some Numero_Poste sections.
+    const validCircles = allCircles.filter(c => isFinite(c.x) && isFinite(c.y));
     const { posts: rawPosts, warnings: aw } =
-      assemblePostData(allTextoItems, allCircles, []);
+      assemblePostData(allTextoItems, validCircles, []);
     warnings.push(...aw);
 
-    // ── Deduplicate posts across pages (D-13) ────────────────────────────────
-    const posts = deduplicatePosts(rawPosts);
+    // ── Post fallback: if circle matching failed, use text positions directly ─
+    // Happens when all circle CTMs were NaN (engineering coordinate sections).
+    let posts;
+    if (rawPosts.length === 0 && allTextoItems.length > 0) {
+      warnings.push('Post-circle matching yielded no results; using text label positions as post locations.');
+      const textPosts = [];
+      for (const item of allTextoItems) {
+        const trimmed = item.str.trim();
+        if (!/^\d{1,3}$/.test(trimmed)) continue;
+        textPosts.push({ number: parseInt(trimmed, 10), x: item.x, y: item.y });
+      }
+      posts = deduplicatePosts(textPosts);
+    } else {
+      posts = deduplicatePosts(rawPosts);
+    }
+
+    // ── Deduplicate posts across pages (D-13) already done in both branches ──
 
     // ── Associate inter-post distances (D-10) ────────────────────────────────
     const { distances, warnings: dw } =
