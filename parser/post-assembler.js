@@ -9,6 +9,10 @@
 // 50 pt gives enough margin to match the number label positioned near the circle.
 const PROXIMITY_THRESHOLD = 50;
 
+// Cross-page penalty: added to distance when text and circle are on different pages.
+// Large enough to always prefer a same-page match over any cross-page match (CR-03).
+const CROSS_PAGE_PENALTY = 1e6;
+
 /**
  * Euclidean distance between two {x, y} points.
  * @param {{ x: number, y: number }} a
@@ -45,15 +49,29 @@ export function assemblePostData(textoItems, circles, warnings = []) {
     if (!/^\d{1,3}$/.test(trimmed)) continue;
 
     let nearestIdx = -1;
-    let nearestDist = Infinity;
+    let nearestDist = Infinity;      // raw geometric distance (for threshold check)
+    let nearestScore = Infinity;     // penalised score (for ranking — same-page preferred)
 
     for (let i = 0; i < circles.length; i++) {
       if (usedCircles.has(i)) continue;
       const d = distance2D(text, circles[i]);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearestIdx = i;
+      // CR-03: penalise cross-page matches so same-page circles always win.
+      const crossPagePenalty =
+        (text.pageNum != null && circles[i].pageNum != null && text.pageNum !== circles[i].pageNum)
+          ? CROSS_PAGE_PENALTY
+          : 0;
+      const score = d + crossPagePenalty;
+      if (score < nearestScore) {
+        nearestScore = score;
+        nearestDist  = d;
+        nearestIdx   = i;
       }
+    }
+
+    // WR-03: log nearest distance to help diagnose threshold issues.
+    if (nearestIdx !== -1) {
+      console.debug(`[postAssembler] "${trimmed}" nearest circle: ${nearestDist.toFixed(1)} pt` +
+        (nearestScore > nearestDist ? ` (cross-page, score=${nearestScore.toFixed(0)})` : ''));
     }
 
     if (nearestIdx === -1 || nearestDist > PROXIMITY_THRESHOLD) {

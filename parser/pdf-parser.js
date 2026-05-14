@@ -86,7 +86,7 @@ export async function parsePdf(arrayBuffer) {
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
       if (pageNum === 1) console.debug('[parsePdf] page 1 view:', page.view);
-      pageCache.push({ page, pageHeight });
+      pageCache.push({ page, pageHeight, pageNum });
 
       const textByLayer = await extractLayerText(page, idToName);
       // gfxResult: { circles: [{x,y}], cablePaths: [PathOp[]], byLayer: {} }
@@ -98,7 +98,8 @@ export async function parsePdf(arrayBuffer) {
         if (normalizeName(layerName) === NORM_TEXTO) {
           for (const item of items) {
             // flipY: PDF origin = bottom-left; output origin = top-left.
-            allTextoItems.push({ ...item, y: pageHeight - item.y });
+            // pageNum attached for cross-page coordinate disambiguation (CR-03).
+            allTextoItems.push({ ...item, y: pageHeight - item.y, pageNum });
           }
         }
       }
@@ -107,14 +108,15 @@ export async function parsePdf(arrayBuffer) {
       for (const [layerName, items] of Object.entries(textByLayer)) {
         if (normalizeName(layerName) === NORM_DIST) {
           for (const item of items) {
-            allDistItems.push({ ...item, y: pageHeight - item.y });
+            allDistItems.push({ ...item, y: pageHeight - item.y, pageNum });
           }
         }
       }
 
       // ── Collect circle positions (apply flipY) ───────────────────────────
       for (const circle of gfxResult.circles) {
-        allCircles.push({ x: circle.x, y: pageHeight - circle.y });
+        // pageNum attached for cross-page coordinate disambiguation (CR-03).
+        allCircles.push({ x: circle.x, y: pageHeight - circle.y, pageNum });
       }
 
       // ── Collect cable paths (apply flipY to all ops) ─────────────────────
@@ -136,7 +138,7 @@ export async function parsePdf(arrayBuffer) {
     }
     const allIntItems = [];
     const allDistItemsFallback = [];
-    for (const { page, pageHeight } of pageCache) {
+    for (const { page, pageHeight, pageNum } of pageCache) {
       const textContent = await page.getTextContent();
       for (const item of textContent.items) {
         if (item.str == null) continue;
@@ -146,11 +148,12 @@ export async function parsePdf(arrayBuffer) {
         const ty = item.transform[5];
         const yFlipped = pageHeight - ty;
         if (/^\d{1,3}$/.test(str)) {
-          allIntItems.push({ str, x: tx, y: yFlipped });
+          // pageNum attached for cross-page coordinate disambiguation (CR-03).
+          allIntItems.push({ str, x: tx, y: yFlipped, pageNum });
         }
         const norm = str.replace(',', '.');
         if (/^\d+(\.\d+)?$/.test(norm)) {
-          allDistItemsFallback.push({ str, x: tx, y: yFlipped });
+          allDistItemsFallback.push({ str, x: tx, y: yFlipped, pageNum });
         }
       }
     }
