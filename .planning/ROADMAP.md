@@ -15,19 +15,20 @@
 
 **Goal:** Build the core PDF parsing engine that extracts post data (IDs, types, distances, positions) from INFOVIAS-format PDFs in the browser
 **Mode:** mvp
-**Plans:** 3 plans
+**Plans:** 4 plans
 
 Plans:
 - [x] 01-01-PLAN.md — Walking Skeleton: prove OCG layer extraction on real PDF, resolve A1/A2 assumptions
-- [ ] 01-02-PLAN.md — Parser modules: all 8 parser/ modules implementing the full PDF extraction pipeline
-- [ ] 01-03-PLAN.md — Browser UI: index.html wiring file input to parsePdf() with result summary display
+- [x] 01-02-PLAN.md — Parser modules: all 8 parser/ modules implementing the full PDF extraction pipeline
+- [x] 01-03-PLAN.md — Browser UI: index.html wiring file input to parsePdf() with result summary display
+- [x] 01-04-PLAN.md — OCR rewrite: replace broken text-proximity with Tesseract.js OCR for post numbers (CONTEXT updated 2026-05-14) ✓ 2026-05-14
 
 **Success Criteria**:
 
 1. PDF file can be loaded and parsed in-browser using pdf.js
-2. Post sequential numbers (01, 02, 03...) are correctly extracted from TEXTO layer
+2. Post sequential numbers (01, 02, 03...) are correctly extracted via OCR (Tesseract.js)
 3. Inter-post distances are extracted from Distância_Poste layer
-4. Post x,y drawing positions are extracted from Numero_Poste layer circles
+4. Post x,y drawing positions are extracted from layer "0" circle centroids
 5. Cable route geometry is extracted from Cabo Projetado layer
 6. parsePdf() returns the SKELETON.md output contract on the real sample PDF
 
