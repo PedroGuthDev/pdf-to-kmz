@@ -124,17 +124,18 @@ export async function parsePdf(arrayBuffer) {
     }
 
     // ── All-page text scan ───────────────────────────────────────────────────
-    // Always collect two sets from getTextContent (positions are authoritative —
-    // no CTM correlation needed):
-    //   allIntItems  — /^\d{1,3}$/ integers → post number candidates
-    //   allDistItems — all numerics         → distance label candidates
-    // Layer-specific allTextoItems is kept for diagnostics only.
+    // Collect allIntItems (post number candidates) and allDistItemsFallback
+    // (distance candidates) from raw getTextContent — no CTM correlation needed.
+    //
+    // allDistItemsFallback is only merged into allDistItems if the layer-filtered
+    // extraction yielded nothing, to avoid doubling distance entries (CR-02).
     if (allTextoItems.length === 0) {
       warnings.push(
         'Layer-specific text extraction yielded no results; using all-page text fallback.'
       );
     }
     const allIntItems = [];
+    const allDistItemsFallback = [];
     for (const { page, pageHeight } of pageCache) {
       const textContent = await page.getTextContent();
       for (const item of textContent.items) {
@@ -149,9 +150,17 @@ export async function parsePdf(arrayBuffer) {
         }
         const norm = str.replace(',', '.');
         if (/^\d+(\.\d+)?$/.test(norm)) {
-          allDistItems.push({ str, x: tx, y: yFlipped });
+          allDistItemsFallback.push({ str, x: tx, y: yFlipped });
         }
       }
+    }
+
+    // Merge distance fallback only when layer-filtered result is empty (CR-02).
+    if (allDistItems.length === 0) {
+      warnings.push(
+        'Layer-specific distance extraction yielded no results; using all-page text fallback for distances.'
+      );
+      allDistItems.push(...allDistItemsFallback);
     }
 
     // ── Assemble posts from circle centroids + all-page integer text ─────────
