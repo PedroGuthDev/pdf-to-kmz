@@ -5,76 +5,64 @@
 /**
  * Decode a constructPath args tuple into an array of typed PathOp objects.
  *
- * @param {[number[]|Uint8Array, number[]|Float32Array]} args
- *   args[0] — array of op codes (13-19)
- *   args[1] — flat array of coordinate values consumed per-op
+ * In pdf.js 5.x, constructPath argsArray[i] is: [renderOp, data, minMax]
+ *   args[0] — rendering op (OPS.stroke=20, OPS.fill=22, etc.) — ignored here
+ *   args[1] — Float32Array with INTERLEAVED DrawOPS codes + coordinates
+ *   args[2] — Float32Array(4) bounding box [minX, minY, maxX, maxY] — ignored here
+ *
+ * DrawOPS interleaved format (from pdf.js DrawOPS enum):
+ *   data[i] = op code, followed by its coordinate values:
+ *   0 moveTo           → 2 coords: x, y
+ *   1 lineTo           → 2 coords: x, y
+ *   2 curveTo          → 6 coords: x1, y1, x2, y2, x3, y3
+ *   3 quadraticCurveTo → 4 coords: x1, y1, x2, y2
+ *   4 closePath        → 0 coords
+ *
+ * @param {[number, Float32Array, Float32Array]} args  constructPath argsArray entry
  * @returns {Array<PathOp>}
  *
- * PathOp types:
+ * PathOp types returned:
  *   { type: 'M',  x, y }
  *   { type: 'L',  x, y }
  *   { type: 'C',  x1, y1, x2, y2, x3, y3 }
  *   { type: 'C2', x1, y1, x2, y2 }
- *   { type: 'C3', x1, y1, x2, y2 }
  *   { type: 'Z' }
- *   { type: 'R',  x, y, w, h }
- *
- * Op code → coord count:
- *   13 M  → 2
- *   14 L  → 2
- *   15 C  → 6
- *   16 C2 → 4
- *   17 C3 → 4
- *   18 Z  → 0
- *   19 R  → 4
  */
 export function parseConstructPath(args) {
-  const ops = args[0];
-  const coords = args[1];
+  const data = args[1]; // interleaved DrawOPS codes + coords
   const result = [];
-  let ci = 0; // coordinate index — advanced per-op (NOT fixed stride)
+  if (!data || data.length === 0) return result;
 
-  for (const op of ops) {
+  for (let i = 0, ii = data.length; i < ii;) {
+    const op = data[i++];
     switch (op) {
-      case 13: // moveTo
-        result.push({ type: 'M', x: coords[ci++], y: coords[ci++] });
+      case 0: // DrawOPS.moveTo
+        result.push({ type: 'M', x: data[i++], y: data[i++] });
         break;
-      case 14: // lineTo
-        result.push({ type: 'L', x: coords[ci++], y: coords[ci++] });
+      case 1: // DrawOPS.lineTo
+        result.push({ type: 'L', x: data[i++], y: data[i++] });
         break;
-      case 15: // curveTo (cubic Bézier — 3 control points + end)
+      case 2: // DrawOPS.curveTo (cubic Bézier)
         result.push({
           type: 'C',
-          x1: coords[ci++], y1: coords[ci++],
-          x2: coords[ci++], y2: coords[ci++],
-          x3: coords[ci++], y3: coords[ci++],
+          x1: data[i++], y1: data[i++],
+          x2: data[i++], y2: data[i++],
+          x3: data[i++], y3: data[i++],
         });
         break;
-      case 16: // curveTo1 (first control point = current; 2 provided)
+      case 3: // DrawOPS.quadraticCurveTo
         result.push({
           type: 'C2',
-          x1: coords[ci++], y1: coords[ci++],
-          x2: coords[ci++], y2: coords[ci++],
+          x1: data[i++], y1: data[i++],
+          x2: data[i++], y2: data[i++],
         });
         break;
-      case 17: // curveTo2 (last control point = end; 2 provided)
-        result.push({
-          type: 'C3',
-          x1: coords[ci++], y1: coords[ci++],
-          x2: coords[ci++], y2: coords[ci++],
-        });
-        break;
-      case 18: // closePath
+      case 4: // DrawOPS.closePath
         result.push({ type: 'Z' });
         break;
-      case 19: // rectangle
-        result.push({
-          type: 'R',
-          x: coords[ci++], y: coords[ci++],
-          w: coords[ci++], h: coords[ci++],
-        });
+      default:
+        // Unknown op — skip to avoid infinite loop; data may be malformed.
         break;
-      // Unknown ops are silently skipped to remain forward-compatible.
     }
   }
 

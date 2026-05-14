@@ -18,8 +18,8 @@
 const OPS_SAVE = 10;                  // fn=10  q   — push graphics state
 const OPS_RESTORE = 11;              // fn=11  Q   — pop graphics state
 const OPS_TRANSFORM = 12;            // fn=12  cm  — concatenate CTM
-const OPS_SHOW_TEXT = 49;            // fn=49  Tj/TJ — text paint
-const OPS_SHOW_SPACED_TEXT = 50;     // fn=50  TJ   — text paint (spaced)
+const OPS_SHOW_TEXT = 44;            // fn=44  Tj — text paint (pdf.js 5.x OPS.showText)
+const OPS_SHOW_SPACED_TEXT = 45;     // fn=45  TJ — text paint spaced (pdf.js 5.x OPS.showSpacedText)
 const OPS_BEGIN_MARKED = 70;         // fn=70  BDC — begin marked content with OCG id
 const OPS_END_MARKED = 71;           // fn=71  EMC — end marked content
 
