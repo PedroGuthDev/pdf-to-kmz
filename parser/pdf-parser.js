@@ -78,10 +78,14 @@ export async function parsePdf(arrayBuffer) {
     const allCircles = [];
     const allCablePaths = [];
 
+    // ── Page cache: avoid calling getPage() twice for the fallback path ────────
+    const pageCache = [];
+
     // ── Process all pages (D-09) ─────────────────────────────────────────────
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
+      pageCache.push({ page, pageHeight });
 
       const textByLayer = await extractLayerText(page, idToName);
       // gfxResult: { circles: [{x,y}], cablePaths: [PathOp[]], byLayer: {} }
@@ -115,6 +119,39 @@ export async function parsePdf(arrayBuffer) {
       // ── Collect cable paths (apply flipY to all ops) ─────────────────────
       for (const pathOps of gfxResult.cablePaths) {
         allCablePaths.push(pathOps.map(op => flipYInOp(op, pageHeight)));
+      }
+    }
+
+    // ── Fallback: if CTM correlation yielded nothing, use all-page text ──────
+    // Handles cases where OCG layer IDs don't resolve or getTextContent positions
+    // don't match within tolerance. Mirrors the skeleton's all-page approach.
+    const needTextoFallback = allTextoItems.length === 0;
+    const needDistFallback  = allDistItems.length === 0;
+    if (needTextoFallback || needDistFallback) {
+      warnings.push(
+        'Layer-specific text extraction yielded no results; using all-page text fallback.'
+      );
+      for (const { page, pageHeight } of pageCache) {
+        const textContent = await page.getTextContent();
+        for (const item of textContent.items) {
+          if (item.str == null) continue;
+          const str = item.str.trim();
+          if (!str) continue;
+          const tx = item.transform[4];
+          const ty = item.transform[5];
+          const yFlipped = pageHeight - ty;
+          if (needTextoFallback && /^\d{1,3}$/.test(str)) {
+            allTextoItems.push({ str, x: tx, y: yFlipped });
+          }
+          if (needDistFallback) {
+            const norm = str.replace(',', '.');
+            // Accept any numeric value; distance-associator will filter by
+            // proximity to post-pair midpoints, rejecting stray integers.
+            if (/^\d+(\.\d+)?$/.test(norm)) {
+              allDistItems.push({ str, x: tx, y: yFlipped });
+            }
+          }
+        }
       }
     }
 
