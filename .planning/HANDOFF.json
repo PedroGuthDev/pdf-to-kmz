@@ -2,55 +2,85 @@
   "version": "1.0",
   "timestamp": "2026-05-14T12:00:00Z",
   "phase": "01",
-  "phase_name": "PDF Parser Engine",
+  "phase_name": "pdf-parser-engine",
   "phase_dir": ".planning/phases/01-pdf-parser-engine",
-  "plan": 3,
-  "task": 2,
-  "total_tasks": 2,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
   "status": "paused",
   "completed_tasks": [
-    {"id": "01-02-t1", "name": "Build utility modules (ocg-map.js, construct-path-parser.js)", "status": "done", "commit": "cfa5900"},
-    {"id": "01-02-t2", "name": "Build extraction modules (text-extractor.js, graphics-extractor.js)", "status": "done", "commit": "a5a2fad"},
-    {"id": "01-02-t3", "name": "Build assembly modules and pdf-parser.js orchestrator", "status": "done", "commit": "e552413"},
-    {"id": "01-03-t1", "name": "Build index.html with file input, size guard, result display", "status": "done", "commit": "5b2827d"},
-    {"id": "fix-ops", "name": "Fix OPS constants (49→44, 50→45) and DrawOPS constructPath format", "status": "done", "commit": "4f072de"},
-    {"id": "fix-fallback", "name": "Add all-page text fallback when CTM correlation yields 0 items", "status": "done", "commit": "ec5771f"}
-  ],
-  "remaining_tasks": [
-    {"id": "01-03-t2", "name": "Verify end-to-end parse on real sample PDF (checkpoint:human-verify)", "status": "awaiting_human"},
-    {"id": "phase-close", "name": "Update ROADMAP and STATE to close Phase 1", "status": "not_started"}
-  ],
-  "blockers": [
     {
-      "description": "User must test index.html in browser after fallback fix (commit ec5771f) and confirm Posts found > 0, Distances found > 0",
-      "type": "human_action",
-      "workaround": "none — human browser test required"
+      "id": 1,
+      "name": "Evidence: run inspect-route-markers.mjs on INFOVIAS Palhoça PDF",
+      "status": "done",
+      "commit": "uncommitted"
+    },
+    {
+      "id": 2,
+      "name": "Parser: route layer + refine inside-digit logic + cable proximity + Poste gfx",
+      "status": "done",
+      "commit": "uncommitted"
     }
   ],
+  "remaining_tasks": [
+    {
+      "id": 3,
+      "name": "Browser UAT: index.html with sample PDF; confirm posts/distances/KMZ pipeline",
+      "status": "not_started"
+    },
+    {
+      "id": 4,
+      "name": "Tune SEQUENTIAL_TEXT_INSIDE_CIRCLE_PT / refine if layer-masked path still misses sheets (e.g. page 8: 20 circles, 0 masked hits in inspect)",
+      "status": "not_started"
+    },
+    {
+      "id": 5,
+      "name": "Optional: extend inspect-route-markers to dump extractLayerText min-dist Texto_3↔circle",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [],
   "human_actions_pending": [
     {
-      "action": "Run `npx serve .` at project root, open browser at localhost, select sample PDF, verify Posts found > 0 AND Distances found > 0",
-      "context": "Plan 01-03 Task 2 checkpoint:human-verify. Warning 'Layer-specific text extraction yielded no results; using all-page text fallback.' is EXPECTED — the fallback is the fix.",
-      "blocking": true
+      "action": "Run browser test on index.html with real PDF after pulling WIP commit",
+      "context": "Validate parsePdf posts/distances; compare warnings to inspect script output",
+      "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "pdf.js 5.x constructPath args are [renderOp_int, interleavedDrawOPS_Float32Array, bbox_Float32Array]",
-      "rationale": "Discovered from actual error 'ops is not iterable' — plan docs had wrong format. Confirmed by reading makePathFromDrawOPS in node_modules/pdfjs-dist/build/pdf.mjs",
+      "decision": "isRouteSequentialNumberLayerName aliases isSequentialPostNumberLayerName (excludes Poste only)",
+      "rationale": "Palhoça PDF tags route text as Texto_3 / TEXTO_80 / txt_moldura_intelig, not literal TEXTO; operator-list whole digits often sit on Articulação or layer 0",
       "phase": "01"
     },
     {
-      "decision": "OPS.showText=44, OPS.showSpacedText=45 in pdf.js 5.x (plan docs said 49/50)",
-      "rationale": "Read from OPS enum in node_modules/pdfjs-dist/build/pdf.mjs lines 283-284",
+      "decision": "Do not use unscoped masked getTextContent for circle inside refine",
+      "rationale": "inspect-route-markers page 2: masked global matched 75/80 near circles (false positives); whole-item gettext 02/03/04 at y~590 vs circles y~200 (legend)",
       "phase": "01"
     },
     {
-      "decision": "All-page text fallback replaces CTM correlation for text layer extraction",
-      "rationale": "pdf.js getTextContent() positions use textState.ctm (includes page initial transform) while operator list walker starts from identity CTM — systematic offset breaks 1.0pt tolerance matching. Fallback uses getTextContent() directly, filters by pattern, relies on proximity matching already in post-assembler and distance-associator.",
+      "decision": "Masked first digit for refine only on textoItems (CTM/OCG correlated route layers)",
+      "rationale": "circlesWithMaskedRouteTextInsideFromLayers — same mask rules, layer-scoped anchors",
+      "phase": "01"
+    },
+    {
+      "decision": "package.json type module + extract_pdf.js ESM so Node can import parser/*.js",
+      "rationale": "inspect-route-markers.mjs needs extractLayerGraphics from repo",
       "phase": "01"
     }
   ],
-  "next_action": "User tests browser (npx serve .) → confirms posts > 0 → type 'approved' → /gsd-execute-phase 01 resumes phase close-out",
-  "context_notes": "Three fixes total: (1) 4f072de: OPS constants 49→44/50→45, DrawOPS constructPath args[1] interleaved format. (2) ec5771f: all-page text fallback in pdf-parser.js triggered when layer-specific extraction yields nothing. Root cause of 0 posts: CTM correlation mismatch between operator-list CTM (starts at identity) and getTextContent position transform (includes page initial transform). Fallback bypasses correlation entirely. After user approves, phase close-out updates ROADMAP.md and STATE.md."
+  "uncommitted_files": [
+    "package.json",
+    "extract_pdf.js",
+    "parser/pdf-parser.js",
+    "parser/layer-sources.js",
+    "parser/cable-builder.js",
+    "parser/graphics-extractor.js",
+    "inspect-route-markers.mjs",
+    ".planning/phases/01-pdf-parser-engine/.continue-here.md",
+    ".planning/HANDOFF.json",
+    "and other modified files per git status"
+  ],
+  "next_action": "Read .planning/phases/01-pdf-parser-engine/.continue-here.md; run `node inspect-route-markers.mjs 2` and `node inspect-route-markers.mjs 8` to verify circle↔digit distances; then browser UAT on index.html.",
+  "context_notes": "Shell/bash available again. inspect-route-markers proved refine must not trust raw getTextContent whole digits or global masked digits near circles."
 }
