@@ -156,6 +156,12 @@ export async function parsePdf(arrayBuffer) {
     // ── Assemble posts from TEXTO items + circle centroids ───────────────────
     // Filter NaN circles — CTM tracking may have failed for some Numero_Poste sections.
     const validCircles = allCircles.filter(c => isFinite(c.x) && isFinite(c.y));
+    console.debug('[parsePdf] allCircles total:', allCircles.length, 'valid:', validCircles.length,
+      'allTextoItems:', allTextoItems.length, 'allDistItems:', allDistItems.length);
+    if (validCircles.length > 0)
+      console.debug('[parsePdf] first 3 circles:', JSON.stringify(validCircles.slice(0, 3)));
+    if (allTextoItems.length > 0)
+      console.debug('[parsePdf] first 5 textoItems:', JSON.stringify(allTextoItems.slice(0, 5)));
     const { posts: rawPosts, warnings: aw } =
       assemblePostData(allTextoItems, validCircles, []);
     warnings.push(...aw);
@@ -175,6 +181,8 @@ export async function parsePdf(arrayBuffer) {
     } else {
       posts = deduplicatePosts(rawPosts);
     }
+    console.debug('[parsePdf] rawPosts:', rawPosts.length, '→ final posts:', posts.length,
+      JSON.stringify(posts.map(p => p.number)));
 
     // ── Deduplicate posts across pages (D-13) already done in both branches ──
 
