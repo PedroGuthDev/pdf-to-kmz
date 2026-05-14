@@ -128,14 +128,10 @@ export async function parsePdf(arrayBuffer) {
     // ── All-page text scan ───────────────────────────────────────────────────
     // Collect allIntItems (post number candidates) and allDistItemsFallback
     // (distance candidates) from raw getTextContent — no CTM correlation needed.
+    // allIntItems is always populated regardless of allTextoItems (CR-04).
     //
     // allDistItemsFallback is only merged into allDistItems if the layer-filtered
     // extraction yielded nothing, to avoid doubling distance entries (CR-02).
-    if (allTextoItems.length === 0) {
-      warnings.push(
-        'Layer-specific text extraction yielded no results; using all-page text fallback.'
-      );
-    }
     const allIntItems = [];
     const allDistItemsFallback = [];
     for (const { page, pageHeight, pageNum } of pageCache) {
@@ -171,6 +167,14 @@ export async function parsePdf(arrayBuffer) {
     // correlation — proximity to circles distinguishes post labels from distances.
     const validCircles = allCircles.filter(c => isFinite(c.x) && isFinite(c.y));
     const postCandidates = allIntItems.length > 0 ? allIntItems : allTextoItems;
+
+    // CR-04: explicit diagnostic when both candidate sources are empty.
+    if (allIntItems.length === 0 && allTextoItems.length === 0) {
+      warnings.push(
+        'CRITICAL: No post number candidates found from any source. ' +
+        'Check that the TEXTO and Numero_Poste layers exist and contain readable text.'
+      );
+    }
     console.debug('[parsePdf] circles:', validCircles.length,
       'intItems:', allIntItems.length, 'distItems:', allDistItems.length);
     if (validCircles.length > 0)
