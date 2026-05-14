@@ -12,24 +12,35 @@
 ---
 
 ### Phase 1: PDF Parser Engine
+
 **Goal:** Build the core PDF parsing engine that extracts post data (IDs, types, distances, positions) from INFOVIAS-format PDFs in the browser
 **Mode:** mvp
-**Success Criteria**:
-1. PDF file can be loaded and parsed in-browser using pdf.js
-2. Post identifiers (e.g., 21169, 21170) are correctly extracted from text layer
-3. Post types (e.g., 10-150, 11-300) are correctly extracted
-4. Inter-post distances (e.g., 34.3m, 37.8m) are extracted from label text
-5. Post x,y drawing positions are extracted to determine spatial layout
-6. Special characters (ç, ã) are handled without breaking parsing
+**Plans:** 3 plans
 
-**Requirements:** PDF-01, PDF-02, PDF-03, PDF-04, PDF-05
+Plans:
+- [x] 01-01-PLAN.md — Walking Skeleton: prove OCG layer extraction on real PDF, resolve A1/A2 assumptions
+- [ ] 01-02-PLAN.md — Parser modules: all 8 parser/ modules implementing the full PDF extraction pipeline
+- [ ] 01-03-PLAN.md — Browser UI: index.html wiring file input to parsePdf() with result summary display
+
+**Success Criteria**:
+
+1. PDF file can be loaded and parsed in-browser using pdf.js
+2. Post sequential numbers (01, 02, 03...) are correctly extracted from TEXTO layer
+3. Inter-post distances are extracted from Distância_Poste layer
+4. Post x,y drawing positions are extracted from Numero_Poste layer circles
+5. Cable route geometry is extracted from Cabo Projetado layer
+6. parsePdf() returns the SKELETON.md output contract on the real sample PDF
+
+**Requirements:** PDF-01, PDF-02, PDF-03, PDF-04
 
 ---
 
 ### Phase 2: Coordinate Calculator
+
 **Goal:** Implement GPS coordinate calculation from a user-provided starting point, using extracted distances and inferred bearings from PDF layout
 **Mode:** mvp
 **Success Criteria**:
+
 1. User can input latitude/longitude for the first post
 2. Bearings between consecutive posts are calculated from PDF x,y positions
 3. GPS coordinates are calculated for all posts using distance + bearing
@@ -41,9 +52,11 @@
 ---
 
 ### Phase 3: KMZ Generator with Customization
+
 **Goal:** Generate downloadable KMZ files with customizable placemarks and connection lines
 **Mode:** mvp
 **Success Criteria**:
+
 1. Valid KML is generated with one placemark per post, labeled "Poste N"
 2. Lines connect consecutive posts along each route segment
 3. KML is packaged into a downloadable .kmz file (ZIP format)
@@ -57,10 +70,12 @@
 ---
 
 ### Phase 4: Web UI & Integration
+
 **Goal:** Build the single-page web interface that ties PDF upload, coordinate input, customization, and KMZ download into a polished user experience
 **Mode:** mvp
 **UI hint**: yes
 **Success Criteria**:
+
 1. User can upload a PDF file via drag-and-drop or file picker
 2. User can input first post GPS coordinates
 3. User can adjust KMZ appearance settings (icons, lines, labels)
@@ -81,5 +96,6 @@ Phase 1 (PDF Parser) → Phase 2 (Coordinates) → Phase 3 (KMZ Gen) → Phase 4
 All phases are sequential — each depends on the previous phase's output.
 
 ---
-*Roadmap created: 2026-05-12*
-*Last updated: 2026-05-12 after initial creation*
+
+_Roadmap created: 2026-05-12_
+_Last updated: 2026-05-13 after adding Plans 01-02 and 01-03_
