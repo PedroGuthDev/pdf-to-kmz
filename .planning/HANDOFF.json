@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-14T01:30:00Z",
+  "timestamp": "2026-05-14T12:00:00Z",
   "phase": "01",
   "phase_name": "PDF Parser Engine",
   "phase_dir": ".planning/phases/01-pdf-parser-engine",
@@ -13,7 +13,8 @@
     {"id": "01-02-t2", "name": "Build extraction modules (text-extractor.js, graphics-extractor.js)", "status": "done", "commit": "a5a2fad"},
     {"id": "01-02-t3", "name": "Build assembly modules and pdf-parser.js orchestrator", "status": "done", "commit": "e552413"},
     {"id": "01-03-t1", "name": "Build index.html with file input, size guard, result display", "status": "done", "commit": "5b2827d"},
-    {"id": "fix-ops", "name": "Fix OPS constants (49→44, 50→45) and DrawOPS constructPath format", "status": "done", "commit": "4f072de"}
+    {"id": "fix-ops", "name": "Fix OPS constants (49→44, 50→45) and DrawOPS constructPath format", "status": "done", "commit": "4f072de"},
+    {"id": "fix-fallback", "name": "Add all-page text fallback when CTM correlation yields 0 items", "status": "done", "commit": "ec5771f"}
   ],
   "remaining_tasks": [
     {"id": "01-03-t2", "name": "Verify end-to-end parse on real sample PDF (checkpoint:human-verify)", "status": "awaiting_human"},
@@ -21,15 +22,15 @@
   ],
   "blockers": [
     {
-      "description": "User must test index.html in browser after OPS fix (commit 4f072de) and confirm Posts found > 0",
+      "description": "User must test index.html in browser after fallback fix (commit ec5771f) and confirm Posts found > 0, Distances found > 0",
       "type": "human_action",
       "workaround": "none — human browser test required"
     }
   ],
   "human_actions_pending": [
     {
-      "action": "Run `npx serve .` at project root, open browser, select sample PDF, verify Posts found > 0",
-      "context": "Plan 01-03 Task 2 checkpoint:human-verify — confirms parsePdf() extracts real data",
+      "action": "Run `npx serve .` at project root, open browser at localhost, select sample PDF, verify Posts found > 0 AND Distances found > 0",
+      "context": "Plan 01-03 Task 2 checkpoint:human-verify. Warning 'Layer-specific text extraction yielded no results; using all-page text fallback.' is EXPECTED — the fallback is the fix.",
       "blocking": true
     }
   ],
@@ -43,13 +44,13 @@
       "decision": "OPS.showText=44, OPS.showSpacedText=45 in pdf.js 5.x (plan docs said 49/50)",
       "rationale": "Read from OPS enum in node_modules/pdfjs-dist/build/pdf.mjs lines 283-284",
       "phase": "01"
+    },
+    {
+      "decision": "All-page text fallback replaces CTM correlation for text layer extraction",
+      "rationale": "pdf.js getTextContent() positions use textState.ctm (includes page initial transform) while operator list walker starts from identity CTM — systematic offset breaks 1.0pt tolerance matching. Fallback uses getTextContent() directly, filters by pattern, relies on proximity matching already in post-assembler and distance-associator.",
+      "phase": "01"
     }
   ],
-  "uncommitted_files": [
-    ".planning/STATE.md",
-    ".planning/REQUIREMENTS.md",
-    ".planning/phases/01-pdf-parser-engine/01-02-PLAN.md"
-  ],
-  "next_action": "User approves browser test → /gsd-execute-phase 01 resumes from checkpoint",
-  "context_notes": "Executor agent a98384a62302ca1c9 is paused at plan 01-03 Task 2 checkpoint. Two critical bugs fixed in 4f072de. The DrawOPS interleaved format and corrected OPS constants are both committed. Resume should re-test browser first, then continue."
+  "next_action": "User tests browser (npx serve .) → confirms posts > 0 → type 'approved' → /gsd-execute-phase 01 resumes phase close-out",
+  "context_notes": "Three fixes total: (1) 4f072de: OPS constants 49→44/50→45, DrawOPS constructPath args[1] interleaved format. (2) ec5771f: all-page text fallback in pdf-parser.js triggered when layer-specific extraction yields nothing. Root cause of 0 posts: CTM correlation mismatch between operator-list CTM (starts at identity) and getTextContent position transform (includes page initial transform). Fallback bypasses correlation entirely. After user approves, phase close-out updates ROADMAP.md and STATE.md."
 }
