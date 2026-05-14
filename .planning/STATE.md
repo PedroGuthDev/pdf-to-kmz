@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-05-12)
 ## Current Status
 
 - **Phase:** 1 of 4
-- **State:** Ready to execute
+- **State:** Awaiting verification
 - **Milestone:** v1.0
-- **Plans:** 3 plans in 2 waves
+- **Plans:** 1/1 complete
 
 ## Phase History
 
@@ -20,12 +20,14 @@ See: .planning/PROJECT.md (updated 2026-05-12)
 |------|-------|--------|
 | 2026-05-12 | Phase 1 | Context gathered — 18 decisions captured |
 | 2026-05-12 | Phase 1 | Planned — 3 plans (01-A, 01-B, 01-C) in 2 waves |
+| 2026-05-13 | Phase 1 | Re-planned — 1 plan (01-01) Walking Skeleton |
+| 2026-05-13 | Phase 1 | Plan 01-01 complete — A1/A2 resolved, layer map confirmed |
 
 ## Last Session
 
-- **Stopped at:** Phase 1 planned
-- **Resume file:** `.planning/phases/01-pdf-parser-engine/01-A-PLAN.md`
-- **Next step:** `/gsd-execute-phase 01`
+- **Stopped at:** Phase 1 plan 01-01 complete; verification pending
+- **Resume:** `/gsd-execute-phase 01` — verifier will run and close out the phase
+- **Next step:** `/clear` then `/gsd-execute-phase 01`
 
 ## Active Decisions
 
