@@ -82,11 +82,9 @@ export async function extractLayerGraphics(page, idToName) {
       }
 
       case OPS_BEGIN_MARKED: {
-        if (args && args[1] && args[1].id !== undefined && args[1].id !== null) {
+        if (args && args[1] && args[1].id != null) {
           const rawName = idToName[args[1].id];
-          if (rawName !== undefined) {
-            activeLayer = rawName;
-          }
+          if (rawName !== undefined) activeLayer = rawName;
         }
         break;
       }
