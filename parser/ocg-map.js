@@ -40,9 +40,12 @@ export async function buildOcgMap(pdfDoc) {
   const allNames = [];
 
   for (const [id, group] of config) {
-    idToName[id] = group.name;
-    nameToId[group.name] = id;
-    allNames.push(group.name);
+    const name = group.name;
+    // Dual-key: BDC args sometimes use numeric ids, sometimes string ids — lookup must work.
+    idToName[id] = name;
+    idToName[String(id)] = name;
+    nameToId[name] = id;
+    allNames.push(name);
   }
 
   return { idToName, nameToId, allNames };

@@ -25,6 +25,9 @@ const OPS_BEGIN_MARKED_CONTENT = 69;  // BMC — anonymous marked content (no OC
 const OPS_BEGIN_MARKED      = 70;     // BDC — marked content with properties (carries OCG ID)
 const OPS_END_MARKED        = 71;     // EMC — closes both BMC and BDC
 
+// pdf.js getTextContent() vs operator-list origins can differ by a few points (page CTM drift).
+const POSITION_MATCH_TOL_PT = 5;
+
 // Apply right-multiply (column-vector convention) to a 2D affine matrix.
 // new_CTM = old_CTM × M  where M = [[na,nc,ne],[nb,nd,nf],[0,0,1]]
 // Correct for pdf.js / Canvas 2D column-vector format.
@@ -56,6 +59,44 @@ function readMatrix6(args) {
 }
 
 /**
+ * Decode Tj/TJ operator args to a plain string (pdf.js may pass strings, glyph objects, or arrays).
+ *
+ * @param {number} fn
+ * @param {unknown[]} args
+ * @returns {string}
+ */
+function operatorShowString(fn, args) {
+  function stringifyArg(arg) {
+    if (typeof arg === 'string') return arg;
+    if (arg == null) return '';
+    if (Array.isArray(arg)) {
+      let out = '';
+      for (const el of arg) {
+        if (typeof el === 'string') out += el;
+        else if (typeof el === 'number') continue;
+        else if (el && typeof el === 'object') {
+          const o = /** @type {{ unicode?: number; fontChar?: string; char?: string }} */ (el);
+          if (typeof o.unicode === 'number') out += String.fromCharCode(o.unicode);
+          else if (typeof o.fontChar === 'string') out += o.fontChar;
+          else if (typeof o.char === 'string') out += o.char;
+        }
+      }
+      return out;
+    }
+    if (typeof arg === 'object' && arg !== null) {
+      const o = /** @type {{ unicode?: number; fontChar?: string }} */ (arg);
+      if (typeof o.unicode === 'number') return String.fromCharCode(o.unicode);
+      if (typeof o.fontChar === 'string') return o.fontChar;
+    }
+    return '';
+  }
+
+  if (fn === OPS_SHOW_TEXT) return stringifyArg(args[0]);
+  if (fn === OPS_SHOW_SPACED_TEXT) return stringifyArg(args[0]);
+  return '';
+}
+
+/**
  * Extract text items per OCG layer.
  *
  * @param {import('pdfjs-dist').PDFPageProxy} page
@@ -65,7 +106,7 @@ function readMatrix6(args) {
 export async function extractLayerText(page, idToName) {
   // ── STEP 1: Walk operator list ─────────────────────────────────────────────
 
-  const opList = await page.getOperatorList();
+  const opList = await page.getOperatorList({ intent: 'any' });
   const { fnArray, argsArray } = opList;
 
   const ctmStack = [];
@@ -110,7 +151,8 @@ export async function extractLayerText(page, idToName) {
       case OPS_BEGIN_MARKED:
         // BDC: push the OCG layer name (or null if id not found in map).
         if (args && args[1] && args[1].id != null) {
-          const rawName = idToName[args[1].id];
+          const gid = args[1].id;
+          const rawName = idToName[gid] ?? idToName[String(gid)];
           layerStack.push(rawName !== undefined ? rawName : null);
         } else {
           layerStack.push(null);
@@ -172,12 +214,14 @@ export async function extractLayerText(page, idToName) {
       case OPS_SHOW_SPACED_TEXT: {
         const activeLayer = layerStack.length > 0 ? layerStack[layerStack.length - 1] : null;
         if (activeLayer !== null) {
+          const opStr = operatorShowString(fn, args);
           // Text origin in page coords: apply CTM to text matrix origin (tm.e, tm.f).
           // row-vector: pageX = tm.e * ctm.a + tm.f * ctm.c + ctm.e
           positions.push({
             layer: activeLayer,
             px: tm.e * ctm.a + tm.f * ctm.c + ctm.e,
             py: tm.e * ctm.b + tm.f * ctm.d + ctm.f,
+            opStr: opStr || undefined,
           });
         }
         break;
@@ -203,21 +247,47 @@ export async function extractLayerText(page, idToName) {
   if (items.length > 0) console.debug('[textExtractor] first 3 textContent item positions:', items.map(it=>({str:it.str, t4:it.transform[4]?.toFixed(1), t5:it.transform[5]?.toFixed(1)})));
   const byLayer = {};
 
+  const positionHit = new Array(positions.length).fill(false);
+
   for (const item of textContent.items) {
     if (item.str === undefined) continue;
 
     const tx = item.transform[4];
     const ty = item.transform[5];
 
-    // 1.0 pt tolerance — covers floating-point drift between the two pipelines.
-    const match = positions.find(
-      pos => Math.abs(pos.px - tx) < 1.0 && Math.abs(pos.py - ty) < 1.0
-    );
-
-    if (match) {
-      if (!byLayer[match.layer]) byLayer[match.layer] = [];
-      byLayer[match.layer].push({ str: item.str, x: tx, y: ty });
+    let bestIdx = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < positions.length; i++) {
+      const pos = positions[i];
+      const d = Math.hypot(pos.px - tx, pos.py - ty);
+      if (d < POSITION_MATCH_TOL_PT && d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
     }
+
+    if (bestIdx !== -1) {
+      positionHit[bestIdx] = true;
+      const pos = positions[bestIdx];
+      if (!byLayer[pos.layer]) byLayer[pos.layer] = [];
+      const w = typeof item.width === 'number' && item.width > 0 ? item.width : 0;
+      byLayer[pos.layer].push({ str: item.str, x: tx, y: ty, width: w || undefined });
+    }
+  }
+
+  // Operator-string fallback: some PDFs never align getTextContent() origins with our
+  // CTM+Tm math within a few points, but Tj/TJ still carry the correct glyph string.
+  for (let i = 0; i < positions.length; i++) {
+    if (positionHit[i]) continue;
+    const pos = positions[i];
+    const raw = (pos.opStr ?? '').trim();
+    if (!raw) continue;
+    const norm = raw.replace(',', '.');
+    const isPost = /^\d{1,3}$/.test(raw);
+    const isDist = /^\d+(\.\d+)?$/.test(norm);
+    if (!isPost && !isDist) continue;
+    if (!byLayer[pos.layer]) byLayer[pos.layer] = [];
+    byLayer[pos.layer].push({ str: raw, x: pos.px, y: pos.py });
   }
 
   return byLayer;

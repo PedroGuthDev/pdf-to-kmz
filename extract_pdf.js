@@ -1,5 +1,5 @@
-const fs = require('fs');
-const PDFParser = require('pdf2json');
+import fs from 'fs';
+import PDFParser from 'pdf2json';
 
 const files = fs.readdirSync('.').filter(f => f.includes('INFOVIAS'));
 const pdfFile = files[0];
@@ -10,7 +10,7 @@ const pdfParser = new PDFParser();
 function safeDecode(str) {
   try {
     return decodeURIComponent(str);
-  } catch(e) {
+  } catch (e) {
     return str;
   }
 }
@@ -19,7 +19,7 @@ pdfParser.on('pdfParser_dataError', errData => console.error(errData.parserError
 pdfParser.on('pdfParser_dataReady', pdfData => {
   const pages = pdfData.Pages;
   console.log('Total pages:', pages.length);
-  
+
   pages.forEach((page, pageIdx) => {
     console.log(`\n=== PAGE ${pageIdx + 1} ===`);
     const texts = page.Texts || [];

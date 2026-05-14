@@ -102,3 +102,94 @@ export function circleCentroid(pathOps) {
     y: (minY + maxY) / 2,
   };
 }
+
+/**
+ * Max of width/height of the axis-aligned bbox of all points in `chunk`,
+ * transformed into page space by `ctm` (same convention as toPage in gfx).
+ *
+ * @param {Array<PathOp>} chunk
+ * @param {{ a: number, b: number, c: number, d: number, e: number, f: number }} ctm
+ * @returns {number}
+ */
+export function pageSpaceBBoxMaxSpan(chunk, ctm) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const add = (lx, ly) => {
+    const px = lx * ctm.a + ly * ctm.c + ctm.e;
+    const py = lx * ctm.b + ly * ctm.d + ctm.f;
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (py < minY) minY = py;
+    if (py > maxY) maxY = py;
+  };
+
+  for (const op of chunk) {
+    if (op.type === 'M' || op.type === 'L') {
+      add(op.x, op.y);
+    } else if (op.type === 'C') {
+      add(op.x1, op.y1);
+      add(op.x2, op.y2);
+      add(op.x3, op.y3);
+    } else if (op.type === 'C2') {
+      add(op.x1, op.y1);
+      add(op.x2, op.y2);
+    }
+  }
+
+  if (!Number.isFinite(minX)) return NaN;
+  return Math.max(maxX - minX, maxY - minY);
+}
+
+/**
+ * pdf.js often emits many post circles as one batched constructPath: repeated M…Z
+ * segments share the same CTM. Centroids must come from each subpath in path space,
+ * then be mapped to page space (same column-vector convention as text/gfx extractors).
+ *
+ * @param {Array<PathOp>} pathOps  from parseConstructPath(args)
+ * @param {{ a: number, b: number, c: number, d: number, e: number, f: number }} ctm
+ * @param {{ min: number, max: number } | null} [pageSpanFilter]  If set, keep only
+ *   subpaths whose page-space bbox max edge is within [min, max] (filters layer "0" junk).
+ * @returns {Array<{ x: number, y: number }>}
+ */
+export function circleCentroidsFromSubpaths(pathOps, ctm, pageSpanFilter = null) {
+  const out = [];
+  if (!pathOps || pathOps.length === 0) return out;
+
+  const toPage = (lx, ly) => ({
+    x: lx * ctm.a + ly * ctm.c + ctm.e,
+    y: lx * ctm.b + ly * ctm.d + ctm.f,
+  });
+
+  let chunk = [];
+
+  const flushChunk = () => {
+    if (chunk.length === 0) return;
+    if (pageSpanFilter) {
+      const span = pageSpaceBBoxMaxSpan(chunk, ctm);
+      if (
+        !Number.isFinite(span) ||
+        span < pageSpanFilter.min ||
+        span > pageSpanFilter.max
+      ) {
+        chunk = [];
+        return;
+      }
+    }
+    const lc = circleCentroid(chunk);
+    if (Number.isFinite(lc.x) && Number.isFinite(lc.y)) {
+      out.push(toPage(lc.x, lc.y));
+    }
+    chunk = [];
+  };
+
+  for (const op of pathOps) {
+    if (op.type === 'M' && chunk.length > 0) flushChunk();
+    chunk.push(op);
+    if (op.type === 'Z') flushChunk();
+  }
+  flushChunk();
+
+  return out;
+}

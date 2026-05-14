@@ -5,6 +5,120 @@
 // Named ESM exports only — no default export, no CommonJS require.
 
 /**
+ * Shortest distance from point (px,py) to segment A–B (clamped).
+ *
+ * @param {number} px
+ * @param {number} py
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ */
+function distPointToSegment(px, py, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const ab2 = abx * abx + aby * aby;
+  let t = ab2 > 1e-12 ? (apx * abx + apy * aby) / ab2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * abx;
+  const cy = ay + t * aby;
+  return Math.hypot(px - cx, py - cy);
+}
+
+/**
+ * Minimum distance from a point to a polyline / curve path in flipped page space.
+ * Used to tell whether a post marker lies near the drawn cable (route identification).
+ *
+ * @param {number} px
+ * @param {number} py
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {number}
+ */
+export function minDistancePointToPathOps(px, py, ops) {
+  if (!ops || ops.length === 0) return Infinity;
+  let minD = Infinity;
+  /** @type {{ x: number, y: number } | null} */
+  let cur = null;
+  /** @type {{ x: number, y: number } | null} */
+  let subpathStart = null;
+
+  for (const op of ops) {
+    if (op.type === 'M') {
+      cur = { x: op.x, y: op.y };
+      subpathStart = cur;
+    } else if (op.type === 'L' && cur) {
+      minD = Math.min(minD, distPointToSegment(px, py, cur.x, cur.y, op.x, op.y));
+      cur = { x: op.x, y: op.y };
+    } else if (op.type === 'C' && cur) {
+      const x0 = cur.x;
+      const y0 = cur.y;
+      const { x1, y1, x2, y2, x3, y3 } = op;
+      let px0 = x0;
+      let py0 = y0;
+      const steps = 10;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const om = 1 - t;
+        const bx =
+          om * om * om * x0 +
+          3 * om * om * t * x1 +
+          3 * om * t * t * x2 +
+          t * t * t * x3;
+        const by =
+          om * om * om * y0 +
+          3 * om * om * t * y1 +
+          3 * om * t * t * y2 +
+          t * t * t * y3;
+        minD = Math.min(minD, distPointToSegment(px, py, px0, py0, bx, by));
+        px0 = bx;
+        py0 = by;
+      }
+      cur = { x: op.x3, y: op.y3 };
+    } else if (op.type === 'C2' && cur) {
+      const x0 = cur.x;
+      const y0 = cur.y;
+      const { x1, y1, x2, y2 } = op;
+      let px0 = x0;
+      let py0 = y0;
+      const steps = 8;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const om = 1 - t;
+        const bx = om * om * x0 + 2 * om * t * x1 + t * t * x2;
+        const by = om * om * y0 + 2 * om * t * y1 + t * t * y2;
+        minD = Math.min(minD, distPointToSegment(px, py, px0, py0, bx, by));
+        px0 = bx;
+        py0 = by;
+      }
+      cur = { x: op.x2, y: op.y2 };
+    } else if (op.type === 'Z' && cur && subpathStart) {
+      minD = Math.min(minD, distPointToSegment(px, py, cur.x, cur.y, subpathStart.x, subpathStart.y));
+      cur = { ...subpathStart };
+    }
+  }
+  return minD;
+}
+
+/**
+ * @param {number} px
+ * @param {number} py
+ * @param {number} pageNum
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @returns {number}
+ */
+export function minDistancePointToCablesOnPage(px, py, pageNum, cablesByPage) {
+  const paths = cablesByPage.get(pageNum) ?? [];
+  if (paths.length === 0) return Infinity;
+  let m = Infinity;
+  for (const ops of paths) {
+    m = Math.min(m, minDistancePointToPathOps(px, py, ops));
+  }
+  return m;
+}
+
+/**
  * Extract the first or last endpoint {x, y} from a PathOp array.
  * Only M (moveTo) and L (lineTo) ops carry absolute x,y endpoint positions.
  *

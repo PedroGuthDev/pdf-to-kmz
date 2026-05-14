@@ -4,10 +4,8 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
-// 50 PDF points proximity threshold per Plan 01-02 Task 3.
-// Circle radius ≈ 35.5 PDF points (from SKELETON.md A1 bounding box ±35.5).
-// 50 pt gives enough margin to match the number label positioned near the circle.
-const PROXIMITY_THRESHOLD = 50;
+// ~200 pt: Poste anchors are often on the label block, not at the circle centroid.
+export const PROXIMITY_THRESHOLD = 200;
 
 // Cross-page penalty: added to distance when text and circle are on different pages.
 // Large enough to always prefer a same-page match over any cross-page match (CR-03).
@@ -26,70 +24,108 @@ function distance2D(a, b) {
 }
 
 /**
+ * Horizontal anchor closer to visual center of a text run (pdf.js width).
+ *
+ * @param {{ x: number, y: number, width?: number }} t
+ * @returns {{ x: number, y: number }}
+ */
+function textAnchor(t) {
+  const w = typeof t.width === 'number' && t.width > 0 ? t.width : 0;
+  return { x: w > 0 ? t.x + w * 0.5 : t.x, y: t.y };
+}
+
+/**
  * Match TEXTO text items to Numero_Poste circle centroids by spatial proximity.
  *
  * Only text items whose str matches /^\d{1,3}$/ (1-3 digit sequential numbers)
- * are considered. Each circle is consumed at most once (greedy nearest-first).
+ * are considered. Each circle and each text is used at most once. Pairs are
+ * chosen iteratively by the globally shortest edge within PROXIMITY_THRESHOLD
+ * (with cross-page penalty for ranking), avoiding order bias from text-only greedy matching.
  *
  * @param {Array<{ str: string, x: number, y: number }>} textoItems
  *   Text items from the TEXTO layer (flipY already applied by pdf-parser.js).
  * @param {Array<{ x: number, y: number }>} circles
  *   Circle centroids from Numero_Poste layer (flipY already applied).
  * @param {string[]} warnings  Mutable warning accumulator (D-07).
- * @returns {{ posts: Array<{ number: number, x: number, y: number }>, warnings: string[] }}
+ * @returns {{ posts: Array<{ number: number, x: number, y: number, pageNum?: number }>, warnings: string[] }}
  */
 export function assemblePostData(textoItems, circles, warnings = []) {
   const posts = [];
-  const usedCircles = new Set();
 
-  for (const text of textoItems) {
-    const trimmed = text.str.trim();
+  const digitItems = textoItems.filter(t => {
+    const s = t.str.trim();
+    return /^\d{1,3}$/.test(s) && parseInt(s, 10) >= 1;
+  });
+  const usedCircle = new Set();
+  const usedText = new Set();
 
-    // Filter to sequential post numbers only (1-3 digit integers).
-    if (!/^\d{1,3}$/.test(trimmed)) continue;
+  // Greedy by globally shortest text–circle edge first (within threshold).
+  // Text-ordered greedy caused under-matching when two labels “competed” for the same
+  // nearest circle — the first text consumed it and the second fell outside 50 pt.
+  while (true) {
+    let bestTi = -1;
+    let bestCi = -1;
+    let bestDist = Infinity;
+    let bestScore = Infinity;
 
-    let nearestIdx = -1;
-    let nearestDist = Infinity;      // raw geometric distance (for threshold check)
-    let nearestScore = Infinity;     // penalised score (for ranking — same-page preferred)
-
-    for (let i = 0; i < circles.length; i++) {
-      if (usedCircles.has(i)) continue;
-      const d = distance2D(text, circles[i]);
-      // CR-03: penalise cross-page matches so same-page circles always win.
-      const crossPagePenalty =
-        (text.pageNum != null && circles[i].pageNum != null && text.pageNum !== circles[i].pageNum)
-          ? CROSS_PAGE_PENALTY
-          : 0;
-      const score = d + crossPagePenalty;
-      if (score < nearestScore) {
-        nearestScore = score;
-        nearestDist  = d;
-        nearestIdx   = i;
+    for (let ti = 0; ti < digitItems.length; ti++) {
+      if (usedText.has(ti)) continue;
+      const text = digitItems[ti];
+      const anchor = textAnchor(text);
+      for (let ci = 0; ci < circles.length; ci++) {
+        if (usedCircle.has(ci)) continue;
+        const d = distance2D(anchor, circles[ci]);
+        const crossPagePenalty =
+          (text.pageNum != null && circles[ci].pageNum != null && text.pageNum !== circles[ci].pageNum)
+            ? CROSS_PAGE_PENALTY
+            : 0;
+        const score = d + crossPagePenalty;
+        if (score < bestScore || (score === bestScore && d < bestDist)) {
+          bestScore = score;
+          bestDist = d;
+          bestTi = ti;
+          bestCi = ci;
+        }
       }
     }
 
-    // WR-03: log nearest distance to help diagnose threshold issues.
-    if (nearestIdx !== -1) {
-      console.debug(`[postAssembler] "${trimmed}" nearest circle: ${nearestDist.toFixed(1)} pt` +
-        (nearestScore > nearestDist ? ` (cross-page, score=${nearestScore.toFixed(0)})` : ''));
-    }
+    if (bestTi === -1 || bestDist > PROXIMITY_THRESHOLD) break;
 
-    if (nearestIdx === -1 || nearestDist > PROXIMITY_THRESHOLD) {
-      // D-07: skip element, push warning, continue.
-      warnings.push(
-        `Post number "${trimmed}" at (${text.x.toFixed(1)}, ${text.y.toFixed(1)}) ` +
-        `has no nearby circle within ${PROXIMITY_THRESHOLD} PDF points` +
-        (nearestIdx !== -1 ? ` (nearest: ${nearestDist.toFixed(1)} pt)` : '')
-      );
-      continue;
-    }
+    const text = digitItems[bestTi];
+    const trimmed = text.str.trim();
+    console.debug(`[postAssembler] "${trimmed}" → circle ${bestCi}: ${bestDist.toFixed(1)} pt` +
+      (bestScore > bestDist ? ` (cross-page, score=${bestScore.toFixed(0)})` : ''));
 
-    usedCircles.add(nearestIdx);
+    usedText.add(bestTi);
+    usedCircle.add(bestCi);
+    const c = circles[bestCi];
     posts.push({
       number: parseInt(trimmed, 10),
-      x: circles[nearestIdx].x,
-      y: circles[nearestIdx].y,
+      x: c.x,
+      y: c.y,
+      pageNum: c.pageNum,
     });
+  }
+
+  for (let ti = 0; ti < digitItems.length; ti++) {
+    if (usedText.has(ti)) continue;
+    const text = digitItems[ti];
+    const trimmed = text.str.trim();
+    const anchor = textAnchor(text);
+    let nearestIdx = -1;
+    let nearestDist = Infinity;
+    for (let ci = 0; ci < circles.length; ci++) {
+      const d = distance2D(anchor, circles[ci]);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestIdx = ci;
+      }
+    }
+    warnings.push(
+      `Post number "${trimmed}" at (${anchor.x.toFixed(1)}, ${anchor.y.toFixed(1)}) ` +
+        `has no nearby circle within ${PROXIMITY_THRESHOLD} PDF points` +
+        (nearestIdx !== -1 ? ` (nearest: ${nearestDist.toFixed(1)} pt)` : '')
+    );
   }
 
   return { posts, warnings };
@@ -99,8 +135,8 @@ export function assemblePostData(textoItems, circles, warnings = []) {
  * Deduplicate posts across pages, keeping first occurrence per sequential number.
  * Sorted by number ascending on return (D-13, D-11).
  *
- * @param {Array<{ number: number, x: number, y: number }>} allPosts
- * @returns {Array<{ number: number, x: number, y: number }>}
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} allPosts
+ * @returns {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>}
  */
 export function deduplicatePosts(allPosts) {
   const seen = new Set();
@@ -110,4 +146,23 @@ export function deduplicatePosts(allPosts) {
     return true;
   });
   return deduped.sort((a, b) => a.number - b.number);
+}
+
+/**
+ * One post per sequential number: keep the occurrence on the **lowest page number**
+ * (overview sheets are usually earlier than zoom/detail duplicates).
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} allPosts
+ * @returns {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>}
+ */
+export function deduplicatePostsPreferLowerPage(allPosts) {
+  const byNum = new Map();
+  for (const p of allPosts) {
+    const n = p.number;
+    const prev = byNum.get(n);
+    const pPage = p.pageNum ?? 9999;
+    const prevPage = prev?.pageNum ?? 9999;
+    if (!prev || pPage < prevPage) byNum.set(n, p);
+  }
+  return [...byNum.values()].sort((a, b) => a.number - b.number);
 }

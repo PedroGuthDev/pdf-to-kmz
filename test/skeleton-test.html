@@ -41,7 +41,7 @@
 <body>
     <div class="container">
         <h1>PDF Parser Walking Skeleton</h1>
-        <p>Validates OCG layer extraction from INFOVIAS PDFs. Open DevTools (F12) &rarr; Console for full output.</p>
+        <p>Validates OCG layer extraction from INFOVIAS PDFs (every page). Open DevTools (F12) for full output. Production <code>index.html</code> uses <code>parsePdf()</code> the same way.</p>
 
         <div class="upload-area">
             <input type="file" id="fileInput" accept="application/pdf">
@@ -68,7 +68,6 @@
         const resultsDiv    = document.getElementById('results');
         const outputSummary = document.getElementById('outputSummary');
 
-        // AC1 — library version logged at startup.
         console.log('pdf.js version:', pdfjsLib.version);
 
         fileInput.addEventListener('change', async (e) => {
@@ -97,15 +96,10 @@
             statusDiv.className = `status ${type}`;
         }
 
-        // Strip diacritics for accent-insensitive name matching.
-        // Required because Distância_Poste uses â (U+00E2).
         function stripAccents(s) {
             return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
         }
 
-        // ── OCG iterator helper ────────────────────────────────────────────────
-        // pdf.js 5.x OptionalContentConfig[Symbol.iterator] may yield plain group
-        // objects {id, name} or [id, group] Map-style entries — handle both.
         function* iterGroups(ocConfig) {
             for (const item of ocConfig) {
                 if (Array.isArray(item)) {
@@ -116,13 +110,11 @@
             }
         }
 
-        // ── Walking Skeleton ───────────────────────────────────────────────────
         async function walkingSkeleton(file) {
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             console.log('PDF Loaded:', pdf.numPages, 'pages');
 
-            // 1. OCG layer enumeration
             const ocConfig = await pdf.getOptionalContentConfig();
             const allNames = [];
             const idToName = {};
@@ -130,110 +122,116 @@
             for (const { id, name } of iterGroups(ocConfig)) {
                 if (name) {
                     allNames.push(name);
-                    if (id != null) idToName[id] = name;
+                    if (id != null) {
+                        idToName[id] = name;
+                        idToName[String(id)] = name;
+                    }
                 }
             }
             console.log('All OCG layer names:', allNames);
 
-            // A2 — accent-aware match: "Distância_Poste" has â (U+00E2)
             const distLayer = allNames.find(
                 n => stripAccents(n).toLowerCase().startsWith('distancia')
             ) ?? null;
             console.log('A2 distance layer name:', distLayer);
 
-            // 2. Page 2: text content with marked content sentinels
-            //
-            // ARCHITECTURAL NOTE (discovered by skeleton run 2026-05-13):
-            // getTextContent() beginMarkedContentProps items have id=null for this PDF.
-            // The PDF uses OCMD references (not direct OCG refs) so pdf.js cannot
-            // resolve them to group IDs in the text pipeline.
-            // Consequence for Plans 02-03: text layer filtering must use the operator
-            // list approach — track beginMarkedContentProps in fnArray (which DOES
-            // resolve layer IDs via args[1].id), then correlate text positions via CTM.
-            const pageNum = Math.min(2, pdf.numPages);
-            const page    = await pdf.getPage(pageNum);
-            const textContent = await page.getTextContent({ includeMarkedContent: true });
-
-            let hasBeginMarked = false;
-
-            // Fallback: collect ALL digit-only strings from the page (proper
-            // layer filtering deferred to Plan 02 per the OCMD finding above).
-            const textoItems = [];
-
-            for (const item of textContent.items) {
-                if (item.type === 'beginMarkedContentProps' ||
-                    item.type === 'beginMarkedContent') {
-                    hasBeginMarked = true;
-                } else if (item.str != null) {
-                    const s = item.str.trim();
-                    // Two-digit sequential post numbers from TEXTO layer
-                    if (/^\d{1,2}$/.test(s)) textoItems.push(s);
-                }
-            }
-
-            console.log('AC3 hasBeginMarked:', hasBeginMarked);
-            console.log('AC4 TEXTO items:', textoItems);
-
-            // 3. Page 2: operator list for graphics layer tracking
-            //
-            //   fn=70  beginMarkedContentProps   args: [tag, {id: groupId}]
-            //   fn=71  endMarkedContent
-            //   fn=91  constructPath             args: [ops, coords, bbox]
-            const opList = await page.getOperatorList();
-            const { fnArray, argsArray } = opList;
-
             const FN_BEGIN_MCP = 70;
             const FN_END_MC    = 71;
             const FN_CONSTRUCT = 91;
 
-            let currentLayerGfx      = null;
-            let postConstructCount   = 0;
+            const perPage = [];
+            let hasBeginMarkedAny = false;
+            const allDigitStrings = [];
+            let totalPostConstruct = 0;
             let firstPostConstructOps = null;
 
-            for (let i = 0; i < fnArray.length; i++) {
-                const fn   = fnArray[i];
-                const args = argsArray[i];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent({ includeMarkedContent: true });
 
-                if (fn === FN_BEGIN_MCP) {
-                    const props = args?.[1];
-                    if (props && typeof props === 'object') {
-                        const gid = props.id ?? props['OCGID'] ?? null;
-                        currentLayerGfx = (gid != null) ? (idToName[gid] ?? null) : null;
-                    }
-                } else if (fn === FN_END_MC) {
-                    currentLayerGfx = null;
-                } else if (fn === FN_CONSTRUCT) {
-                    if (currentLayerGfx === 'Numero_Poste') {
-                        postConstructCount++;
-                        if (firstPostConstructOps === null) firstPostConstructOps = args;
+                let hasBeginMarked = false;
+                const textoItems = [];
+
+                for (const item of textContent.items) {
+                    if (item.type === 'beginMarkedContentProps' ||
+                        item.type === 'beginMarkedContent') {
+                        hasBeginMarked = true;
+                        hasBeginMarkedAny = true;
+                    } else if (item.str != null) {
+                        const s = item.str.trim();
+                        if (/^\d{1,2}$/.test(s)) {
+                            textoItems.push(s);
+                            allDigitStrings.push(s);
+                        }
                     }
                 }
+
+                const opList = await page.getOperatorList({ intent: 'any' });
+                const { fnArray, argsArray } = opList;
+
+                let currentLayerGfx = null;
+                let postConstructCount = 0;
+
+                for (let i = 0; i < fnArray.length; i++) {
+                    const fn   = fnArray[i];
+                    const args = argsArray[i];
+
+                    if (fn === FN_BEGIN_MCP) {
+                        const props = args?.[1];
+                        if (props && typeof props === 'object') {
+                            const gid = props.id ?? props['OCGID'] ?? null;
+                            currentLayerGfx = (gid != null)
+                                ? (idToName[gid] ?? idToName[String(gid)] ?? null)
+                                : null;
+                        }
+                    } else if (fn === FN_END_MC) {
+                        currentLayerGfx = null;
+                    } else if (fn === FN_CONSTRUCT) {
+                        if (currentLayerGfx === 'Numero_Poste' || currentLayerGfx === '0') {
+                            postConstructCount++;
+                            if (firstPostConstructOps === null) firstPostConstructOps = args;
+                        }
+                    }
+                }
+
+                totalPostConstruct += postConstructCount;
+                perPage.push({
+                    pageNum,
+                    hasBeginMarked,
+                    digitStringCount: textoItems.length,
+                    digitStringsSample: textoItems.slice(0, 24),
+                    numeroPosteOrLayer0ConstructPathCount: postConstructCount,
+                });
             }
 
-            console.log('AC5 Numero_Poste constructPath count:', postConstructCount);
+            console.log('AC3 hasBeginMarked (any page):', hasBeginMarkedAny);
+            console.log('AC4 digit strings (1-2 chars, all pages, count):', allDigitStrings.length);
+            console.log('Per-page probe:', perPage);
+            console.log('AC5 Numero_Poste / layer "0" constructPath total:', totalPostConstruct);
 
             if (firstPostConstructOps !== null) {
-                console.log('A1 first Numero_Poste constructPath ops:', firstPostConstructOps);
+                console.log('A1 first constructPath ops (first hit any page):', firstPostConstructOps);
             } else {
-                console.warn('A1 WARNING: no constructPath found inside Numero_Poste layer.');
+                console.warn('A1 WARNING: no constructPath on Numero_Poste or layer "0" on any page.');
             }
 
-            // 4. UI summary
             showStatus('Analysis complete! Check console (F12) for full output.', 'info');
             resultsDiv.style.display = 'block';
             outputSummary.textContent = JSON.stringify({
-                'pdf.js version':                         pdfjsLib.version,
-                pages:                                    pdf.numPages,
-                'All OCG layer names':                    allNames,
-                'AC3 hasBeginMarked':                     hasBeginMarked,
-                'AC4 TEXTO items (1-2 digit, all page)':  textoItems,
-                'AC5 Numero_Poste constructPath count':   postConstructCount,
+                'pdf.js version': pdfjsLib.version,
+                pages: pdf.numPages,
+                'All OCG layer names': allNames,
+                'AC3 hasBeginMarked (any page)': hasBeginMarkedAny,
+                'AC4 digit strings 1-2 char (all pages)': allDigitStrings.length,
+                'AC5 constructPath total (Numero_Poste or layer 0)': totalPostConstruct,
+                perPageSummary: perPage,
                 'A1 firstPostConstructOps': firstPostConstructOps ? {
-                    arg0:        firstPostConstructOps[0],
+                    arg0: firstPostConstructOps[0],
                     arg1_length: firstPostConstructOps[1]?.length,
-                    arg2:        Array.from(firstPostConstructOps[2] ?? []),
+                    arg2: Array.from(firstPostConstructOps[2] ?? []),
                 } : null,
                 'A2 distance layer name': distLayer,
+                note: 'index.html calls parsePdf() which scans every page the same way.',
             }, null, 2);
         }
     </script>

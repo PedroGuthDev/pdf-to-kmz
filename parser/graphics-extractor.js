@@ -2,14 +2,17 @@
 // CTM-tracked graphics layer extractor for pdf.js 5.x.
 //
 // Extracts:
-//   - circles[] from Numero_Poste layer — {x, y} from CTM (e,f) at fn=91 call.
-//     Per SKELETON.md A1: circle local center is (0,0); CTM translation IS the page position.
+//   - circles[] from Numero_Poste layer — page-space centroids per closed subpath in each
+//     fn=91 call (M…Z batches share one CTM; see circleCentroidsFromSubpaths), with CTM
+//     (e,f) fallback when path decode yields nothing usable.
+//   - posteSymbols[] from Poste layer — subpath centroids (e.g. square-with-X pole marks).
 //   - cablePaths[] from Cabo Projetado layer — decoded PathOp[] arrays.
 //   - byLayer{} for other layers (completeness).
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
-import { parseConstructPath } from './construct-path-parser.js';
+import { parseConstructPath, circleCentroidsFromSubpaths } from './construct-path-parser.js';
+import { isCircleCentroidLayerName, isPosteGraphicsLayerName } from './layer-sources.js';
 
 // Read 6 matrix values from operator args — handles both standard (6 individual
 // numbers) and packed (single Array/Float32Array in args[0]) formats.
@@ -19,7 +22,7 @@ function readMatrix6(args) {
   if (args[0] != null && typeof args[0].length === 'number') {
     if (_diagMatrixFormat !== 'packed') {
       _diagMatrixFormat = 'packed';
-      console.debug('[gfxExtractor] packed matrix args detected — type:', args[0]?.constructor?.name, 'length:', args[0]?.length);
+      console.info('[pdf-to-kmz] gfx: packed matrix args —', args[0]?.constructor?.name, 'len', args[0]?.length);
     }
     return args[0];
   }
@@ -36,7 +39,6 @@ const OPS_END_MARKED = 71;            // EMC — closes both BMC and BDC
 const OPS_CONSTRUCT_PATH = 91;
 
 // Raw layer names as they appear in the OCG map (case-sensitive, including accents).
-const LAYER_NUMERO_POSTE = 'Numero_Poste';
 const LAYER_CABO_PROJETADO = 'Cabo Projetado';
 
 /**
@@ -46,13 +48,16 @@ const LAYER_CABO_PROJETADO = 'Cabo Projetado';
  * @param {Object} idToName  Maps raw OCG ID strings to raw layer name strings.
  * @returns {Promise<{
  *   circles: Array<{ x: number, y: number }>,
+ *   posteSymbols: Array<{ x: number, y: number }>,
  *   cablePaths: Array<import('./construct-path-parser.js').PathOp[]>,
  *   byLayer: Object
  * }>}
  *   circles and cablePaths contain raw PDF coordinates (flipY NOT applied — applied by pdf-parser.js).
  */
+// intent: 'any' — default 'display' can drop operators for OCG layers that are
+// off in the PDF default view; circles would then never reach our walker.
 export async function extractLayerGraphics(page, idToName) {
-  const opList = await page.getOperatorList();
+  const opList = await page.getOperatorList({ intent: 'any' });
   const { fnArray, argsArray } = opList;
 
   // CTM stack — initial identity matrix.
@@ -66,6 +71,8 @@ export async function extractLayerGraphics(page, idToName) {
   const layerStack = [];
 
   const circles = [];
+  /** Centroids of closed subpaths on Poste layer (square + X, etc.) — raw PDF space. */
+  const posteSymbols = [];
   const cablePaths = [];
   const byLayer = {};
 
@@ -113,7 +120,8 @@ export async function extractLayerGraphics(page, idToName) {
       case OPS_BEGIN_MARKED: {
         // BDC: push the OCG layer name (or null if id not found in map).
         if (args && args[1] && args[1].id != null) {
-          const rawName = idToName[args[1].id];
+          const gid = args[1].id;
+          const rawName = idToName[gid] ?? idToName[String(gid)];
           layerStack.push(rawName !== undefined ? rawName : null);
         } else {
           layerStack.push(null);
@@ -129,12 +137,33 @@ export async function extractLayerGraphics(page, idToName) {
       case OPS_CONSTRUCT_PATH: {
         const activeLayer = layerStack.length > 0 ? layerStack[layerStack.length - 1] : null;
         if (activeLayer !== null) {
-          if (activeLayer === LAYER_NUMERO_POSTE) {
-            // Per SKELETON.md A1: circle local center = (0, 0) in local coords.
-            // CTM (e, f) at fn=91 call IS the page-space position of the circle center.
-            // Only push when CTM is valid — NaN means CTM tracking failed for this section.
-            if (isFinite(ctm.e) && isFinite(ctm.f)) {
+          if (isCircleCentroidLayerName(activeLayer)) {
+            if (!isFinite(ctm.e) || !isFinite(ctm.f)) break;
+            const pathOps = parseConstructPath(args);
+            // Layer "0" is AutoCAD default — it carries almost all linework; only keep
+            // subpaths whose page-space size matches a post marker (~35 pt radius → ~70–90 pt).
+            const layer0Span =
+              activeLayer === '0' ? { min: 16, max: 360 } : null;
+            const fromPath = circleCentroidsFromSubpaths(pathOps, ctm, layer0Span);
+            if (fromPath.length > 0) {
+              if (fromPath.length > 1) {
+                console.info('[pdf-to-kmz] gfx: batched constructPath →', fromPath.length, 'centroids');
+              }
+              for (const p of fromPath) {
+                if (isFinite(p.x) && isFinite(p.y)) circles.push(p);
+              }
+            } else if (activeLayer !== '0') {
               circles.push({ x: ctm.e, y: ctm.f });
+            }
+          } else if (isPosteGraphicsLayerName(activeLayer)) {
+            if (!isFinite(ctm.e) || !isFinite(ctm.f)) break;
+            const pathOps = parseConstructPath(args);
+            const posteSpan = { min: 3, max: 320 };
+            const fromPath = circleCentroidsFromSubpaths(pathOps, ctm, posteSpan);
+            if (fromPath.length > 0) {
+              for (const p of fromPath) {
+                if (isFinite(p.x) && isFinite(p.y)) posteSymbols.push(p);
+              }
             }
           } else if (activeLayer === LAYER_CABO_PROJETADO) {
             cablePaths.push(parseConstructPath(args));
@@ -151,5 +180,5 @@ export async function extractLayerGraphics(page, idToName) {
     }
   }
 
-  return { circles, cablePaths, byLayer };
+  return { circles, posteSymbols, cablePaths, byLayer };
 }
