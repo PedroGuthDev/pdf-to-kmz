@@ -1,5 +1,5 @@
 ---
-status: partial
+status: passed
 phase: 01-pdf-parser-engine
 source: [01-VERIFICATION.md]
 started: 2026-05-13T00:00:00Z
@@ -25,14 +25,14 @@ expected: |
   e. 'AC5 Numero_Poste constructPath count:' shows 11
   f. 'A1 first Numero_Poste constructPath ops:' logs non-null Float32Array bounding box [-35.5, -35.5, 35.5, 35.5]
   g. 'A2 distance layer name:' shows 'Distância_Poste' (non-empty accented form)
-result: [pending]
+result: approved 2026-05-13 — all 7 console checks confirmed by user
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
