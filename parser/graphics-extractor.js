@@ -30,8 +30,9 @@ function readMatrix6(args) {
 const OPS_SAVE = 10;
 const OPS_RESTORE = 11;
 const OPS_TRANSFORM = 12;
-const OPS_BEGIN_MARKED = 70;
-const OPS_END_MARKED = 71;
+const OPS_BEGIN_MARKED_CONTENT = 69;  // BMC — anonymous marked content (no OCG ID)
+const OPS_BEGIN_MARKED = 70;          // BDC — marked content with properties (carries OCG ID)
+const OPS_END_MARKED = 71;            // EMC — closes both BMC and BDC
 const OPS_CONSTRUCT_PATH = 91;
 
 // Raw layer names as they appear in the OCG map (case-sensitive, including accents).
@@ -57,7 +58,12 @@ export async function extractLayerGraphics(page, idToName) {
   // CTM stack — initial identity matrix.
   const ctmStack = [];
   let ctm = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-  let activeLayer = null;
+
+  // Layer stack — replaces single activeLayer variable (fix for CR-01 / WR-01).
+  // PDFs nest BMC (fn=69, anonymous) inside BDC (fn=70, OCG) operators for layout/artifacts.
+  // Each BMC/BDC pushes to the stack; each EMC (fn=71) pops exactly one entry.
+  // This preserves the outer BDC layer name when an inner BMC's EMC fires.
+  const layerStack = [];
 
   const circles = [];
   const cablePaths = [];
@@ -80,7 +86,10 @@ export async function extractLayerGraphics(page, idToName) {
 
       case OPS_TRANSFORM: {
         const m = readMatrix6(args);
-        if (!m) break;
+        if (!m) {
+          console.warn('[gfxExtractor] OPS_TRANSFORM: unreadable matrix args at i=', i, args);
+          break;
+        }
         const [na, nb, nc, nd, ne, nf] = m;
         // new_CTM = old_CTM × M (column-vector right-multiply, pdf.js / Canvas 2D convention)
         // M = [[na,nc,ne],[nb,nd,nf],[0,0,1]]
@@ -96,19 +105,29 @@ export async function extractLayerGraphics(page, idToName) {
         break;
       }
 
+      case OPS_BEGIN_MARKED_CONTENT:
+        // BMC: anonymous marked content — push null so EMC pops correctly.
+        layerStack.push(null);
+        break;
+
       case OPS_BEGIN_MARKED: {
+        // BDC: push the OCG layer name (or null if id not found in map).
         if (args && args[1] && args[1].id != null) {
           const rawName = idToName[args[1].id];
-          if (rawName !== undefined) activeLayer = rawName;
+          layerStack.push(rawName !== undefined ? rawName : null);
+        } else {
+          layerStack.push(null);
         }
         break;
       }
 
       case OPS_END_MARKED:
-        activeLayer = null;
+        // EMC: pop one entry regardless of whether it was pushed by BMC or BDC.
+        if (layerStack.length > 0) layerStack.pop();
         break;
 
-      case OPS_CONSTRUCT_PATH:
+      case OPS_CONSTRUCT_PATH: {
+        const activeLayer = layerStack.length > 0 ? layerStack[layerStack.length - 1] : null;
         if (activeLayer !== null) {
           if (activeLayer === LAYER_NUMERO_POSTE) {
             // Per SKELETON.md A1: circle local center = (0, 0) in local coords.
@@ -128,6 +147,7 @@ export async function extractLayerGraphics(page, idToName) {
           }
         }
         break;
+      }
     }
   }
 
