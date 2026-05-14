@@ -82,16 +82,16 @@ export async function extractLayerGraphics(page, idToName) {
         const m = readMatrix6(args);
         if (!m) break;
         const [na, nb, nc, nd, ne, nf] = m;
-        const prevA = ctm.a, prevB = ctm.b;
-        const prevC = ctm.c, prevD = ctm.d;
-        const prevE = ctm.e, prevF = ctm.f;
+        // new_CTM = old_CTM × M (column-vector right-multiply, pdf.js / Canvas 2D convention)
+        // M = [[na,nc,ne],[nb,nd,nf],[0,0,1]]
+        const { a, b, c, d, e, f } = ctm;
         ctm = {
-          a: prevA * na + prevB * nc,
-          b: prevA * nb + prevB * nd,
-          c: prevC * na + prevD * nc,
-          d: prevC * nb + prevD * nd,
-          e: prevE * na + prevF * nc + ne,
-          f: prevE * nb + prevF * nd + nf,
+          a: a * na + c * nb,
+          b: b * na + d * nb,
+          c: a * nc + c * nd,
+          d: b * nc + d * nd,
+          e: a * ne + c * nf + e,
+          f: b * ne + d * nf + f,
         };
         break;
       }

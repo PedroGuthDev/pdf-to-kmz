@@ -23,16 +23,17 @@ const OPS_SHOW_SPACED_TEXT  = 45;  // TJ
 const OPS_BEGIN_MARKED      = 70;  // BDC
 const OPS_END_MARKED        = 71;  // EMC
 
-// Helper: apply right-multiply (row-vector convention) to a 2D affine matrix.
-// new = old × [na,nb,nc,nd,ne,nf]
+// Apply right-multiply (column-vector convention) to a 2D affine matrix.
+// new_CTM = old_CTM × M  where M = [[na,nc,ne],[nb,nd,nf],[0,0,1]]
+// Correct for pdf.js / Canvas 2D column-vector format.
 function matMul(old, na, nb, nc, nd, ne, nf) {
   return {
-    a: old.a * na + old.b * nc,
-    b: old.a * nb + old.b * nd,
-    c: old.c * na + old.d * nc,
-    d: old.c * nb + old.d * nd,
-    e: old.e * na + old.f * nc + ne,
-    f: old.e * nb + old.f * nd + nf,
+    a: old.a * na + old.c * nb,
+    b: old.b * na + old.d * nb,
+    c: old.a * nc + old.c * nd,
+    d: old.b * nc + old.d * nd,
+    e: old.a * ne + old.c * nf + old.e,
+    f: old.b * ne + old.d * nf + old.f,
   };
 }
 

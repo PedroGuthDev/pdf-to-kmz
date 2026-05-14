@@ -85,6 +85,7 @@ export async function parsePdf(arrayBuffer) {
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
+      if (pageNum === 1) console.debug('[parsePdf] page 1 view:', page.view);
       pageCache.push({ page, pageHeight });
 
       const textByLayer = await extractLayerText(page, idToName);
