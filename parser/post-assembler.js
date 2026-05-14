@@ -166,3 +166,80 @@ export function deduplicatePostsPreferLowerPage(allPosts) {
   }
   return [...byNum.values()].sort((a, b) => a.number - b.number);
 }
+
+/**
+ * Build posts[] from Tesseract.js OCR results.
+ *
+ * ocrResults: Array<{circle: {x, y, pageNum?}, number: number|null}>
+ * Returns { posts: [{number, x, y, pageNum?}], warnings: string[] }
+ *
+ * For circles where number is null (OCR failure), infer the post number from
+ * the sequence of known numbers sorted by page then x-position (D-07).
+ */
+export function assemblePostsFromOcr(ocrResults) {
+  const warnings = [];
+
+  // Sort all results by pageNum then x for left-to-right sequence ordering
+  const sorted = [...ocrResults].sort((a, b) => {
+    const pd = (a.circle.pageNum ?? 1) - (b.circle.pageNum ?? 1);
+    return pd !== 0 ? pd : a.circle.x - b.circle.x;
+  });
+
+  const posts = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const { circle, number } = sorted[i];
+
+    if (number !== null) {
+      posts.push({
+        number,
+        x: circle.x,
+        y: circle.y,
+        ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
+      });
+      continue;
+    }
+
+    // OCR failed — infer from nearest known neighbours in sorted order (D-07)
+    warnings.push(
+      `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
+      `page ${circle.pageNum ?? '?'}: OCR failed — attempting sequence inference`
+    );
+
+    const lower = sorted.slice(0, i).reverse().find(r => r.number !== null);
+    const upper = sorted.slice(i + 1).find(r => r.number !== null);
+
+    let inferred = null;
+    if (lower && upper) {
+      const lowerIdx = sorted.indexOf(lower);
+      const upperIdx = sorted.indexOf(upper);
+      const span = upperIdx - lowerIdx;
+      const offset = i - lowerIdx;
+      inferred = lower.number + Math.round((upper.number - lower.number) * (offset / span));
+    } else if (lower) {
+      inferred = lower.number + 1;
+    } else if (upper) {
+      inferred = upper.number - 1;
+    }
+
+    if (inferred !== null && inferred >= 1) {
+      posts.push({
+        number: inferred,
+        x: circle.x,
+        y: circle.y,
+        ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
+      });
+      warnings.push(
+        `Post ${inferred}: number inferred from sequence ` +
+        `(OCR failed at page ${circle.pageNum ?? '?'})`
+      );
+    } else {
+      warnings.push(
+        `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
+        `page ${circle.pageNum ?? '?'}: OCR failed and sequence inference unavailable — post skipped`
+      );
+    }
+  }
+
+  return { posts, warnings };
+}
