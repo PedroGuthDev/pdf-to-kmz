@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; worker-src blob: https://cdn.jsdelivr.net;">
     <title>PDF Parser Walking Skeleton</title>
     <style>
         body {
@@ -60,7 +61,7 @@
         import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.mjs';
 
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-            'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.mjs';
+            'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
 
         const fileInput     = document.getElementById('fileInput');
         const statusDiv     = document.getElementById('status');
@@ -73,6 +74,14 @@
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
+            if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+                showStatus('Error: Please select a PDF file.', 'error');
+                return;
+            }
+            if (file.size > 50 * 1024 * 1024) {
+                showStatus('Error: File exceeds 50 MB limit.', 'error');
+                return;
+            }
             showStatus('Processing PDF…', 'info');
             resultsDiv.style.display = 'none';
             try {
@@ -168,13 +177,13 @@
             // 3. Page 2: operator list for graphics layer tracking
             //
             //   fn=70  beginMarkedContentProps   args: [tag, {id: groupId}]
-            //   fn=74  endMarkedContent
+            //   fn=71  endMarkedContent
             //   fn=91  constructPath             args: [ops, coords, bbox]
             const opList = await page.getOperatorList();
             const { fnArray, argsArray } = opList;
 
             const FN_BEGIN_MCP = 70;
-            const FN_END_MC    = 74;
+            const FN_END_MC    = 71;
             const FN_CONSTRUCT = 91;
 
             let currentLayerGfx      = null;
@@ -221,7 +230,7 @@
                 'AC5 Numero_Poste constructPath count':   postConstructCount,
                 'A1 firstPostConstructOps': firstPostConstructOps ? {
                     arg0:        firstPostConstructOps[0],
-                    arg1_length: firstPostConstructOps[1]?.[0]?.length,
+                    arg1_length: firstPostConstructOps[1]?.length,
                     arg2:        Array.from(firstPostConstructOps[2] ?? []),
                 } : null,
                 'A2 distance layer name': distLayer,
