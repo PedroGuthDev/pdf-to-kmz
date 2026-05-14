@@ -13,13 +13,13 @@
       "id": 1,
       "name": "Evidence: run inspect-route-markers.mjs on INFOVIAS Palhoça PDF",
       "status": "done",
-      "commit": "uncommitted"
+      "commit": "192a96a"
     },
     {
       "id": 2,
       "name": "Parser: route layer + refine inside-digit logic + cable proximity + Poste gfx",
       "status": "done",
-      "commit": "uncommitted"
+      "commit": "192a96a"
     }
   ],
   "remaining_tasks": [
@@ -69,18 +69,11 @@
       "phase": "01"
     }
   ],
-  "uncommitted_files": [
-    "package.json",
-    "extract_pdf.js",
-    "parser/pdf-parser.js",
-    "parser/layer-sources.js",
-    "parser/cable-builder.js",
-    "parser/graphics-extractor.js",
-    "inspect-route-markers.mjs",
-    ".planning/phases/01-pdf-parser-engine/.continue-here.md",
-    ".planning/HANDOFF.json",
-    "and other modified files per git status"
-  ],
+  "uncommitted_files": [],
+  "commits": {
+    "handoff": "038e4a0",
+    "parser_wip": "192a96a"
+  },
   "next_action": "Read .planning/phases/01-pdf-parser-engine/.continue-here.md; run `node inspect-route-markers.mjs 2` and `node inspect-route-markers.mjs 8` to verify circle↔digit distances; then browser UAT on index.html.",
   "context_notes": "Shell/bash available again. inspect-route-markers proved refine must not trust raw getTextContent whole digits or global masked digits near circles."
 }
