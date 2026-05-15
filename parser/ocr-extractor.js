@@ -30,7 +30,8 @@ export async function ocrCircleNumbers(page, pageHeight, circles) {
 
   // STEP 3 — Initialize Tesseract.js worker (D-09: digits whitelist, PSM-7)
   // Dynamic import so a CDN failure at load time doesn't prevent the event listener from registering.
-  const { createWorker } = await import(TESSERACT_CDN);
+  // v5 ESM bundle uses `export default { createWorker, ... }` — destructure from .default.
+  const { createWorker } = (await import(TESSERACT_CDN)).default;
   const worker = await createWorker('eng', 1, { logger: () => {} });
   await worker.setParameters({
     tessedit_char_whitelist: '0123456789',
