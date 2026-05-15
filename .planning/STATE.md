@@ -2,31 +2,31 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: phase_complete
-last_updated: "2026-05-15T13:08:33.692Z"
+status: ready_to_plan
+last_updated: "2026-05-15T17:35:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 4
   completed_plans: 4
-  percent: 100
+  percent: 25
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12)
+See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** Accurately extract post data from INFOVIAS PDF files and produce a georeferenced KMZ file
-**Current focus:** Phase 1 — PDF Parser Engine
+**Current focus:** Phase 2 — Coordinate Calculator
 
 ## Current Status
 
-- **Phase:** 1 of 4 — COMPLETE
-- **State:** All plans complete — Phase 1 verified
+- **Phase:** 2 of 4 — READY TO PLAN
+- **State:** Phase 1 complete — Phase 2 not started
 - **Milestone:** v1.0
-- **Plans:** 4/4 complete
+- **Plans:** 0/? (Phase 2 not yet planned)
 
 ## Phase History
 
@@ -41,16 +41,17 @@ See: .planning/PROJECT.md (updated 2026-05-12)
 | 2026-05-14 | Phase 1 | CONTEXT rewritten — post numbers are vector paths; OCR required (D-01 to D-10) |
 | 2026-05-14 | Phase 1 | Plan 01-04 created — OCR rewrite (Tesseract.js) to fix broken post-number extraction |
 | 2026-05-14 | Phase 1 | Plan 01-04 complete — OCR pipeline live; 845 lines dead code removed |
+| 2026-05-15 | Phase 1 | UAT passed — all 7 console checks confirmed. Phase 1 closed. |
 
 ## Last Session
 
-- **Completed:** Phase 1 fully executed — all 4 plans done (2026-05-14)
-- **Next:** Phase 2 — Coordinate Calculator
+- **Completed:** Phase 1 closed — UAT passed, 0 gaps (2026-05-15)
+- **Next:** Phase 2 — Coordinate Calculator (GPS coordinate calculation from PDF positions)
 
 ## Session Continuity
 
-Last session: 2026-05-15T13:08:33.671Z
-Phase 1 complete. Plan 01-04 (OCR rewrite) executed: Tesseract.js pipeline live, ~845 lines of dead text-proximity code removed.
+Last session: 2026-05-15T17:35:00Z
+Phase 1 complete. UAT passed (all 7 console checks confirmed). Phase closed — ready to plan Phase 2.
 
 ## Active Decisions
 
@@ -59,7 +60,9 @@ Phase 1 complete. Plan 01-04 (OCR rewrite) executed: Tesseract.js pipeline live,
 | Client-side only | Init | All processing in browser, no server |
 | Infer bearings from PDF positions | Init | Use x,y drawing coords for direction |
 | OCG layer filtering | Phase 1 | Use PDF layers to reliably identify data elements |
-| Sequential numbering for post pairs | Phase 1 | D-10: hybrid approach with polyline validation |
+| OCR via Tesseract.js (per-page crop) | Phase 1 | Post numbers are vector paths — OCR is the only viable extraction method |
+| Bad-CTM page filter (x<10 AND y<10) | Phase 1 | Skips flipY pages that would produce garbage coordinates |
+| Sequence inference for OCR misses | Phase 1 | Fills gaps using lower/upper neighbours to preserve sequential numbering |
 
 ---
-*Last updated: 2026-05-12 after planning Phase 1*
+*Last updated: 2026-05-15 after Phase 1 complete*

@@ -14,13 +14,13 @@ Accurately extract post data from INFOVIAS PDF files and produce a georeferenced
 
 <!-- Shipped and confirmed valuable. -->
 
-(None yet — ship to validate)
+- ✓ Parse INFOVIAS-format PDFs to extract post IDs and inter-post distances — Phase 1
+- ✓ Infer post-to-post bearing from PDF x,y drawing positions — Phase 1 (positions extracted; bearing calc is Phase 2)
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] Parse INFOVIAS-format PDFs to extract post IDs, types, and inter-post distances
 - [ ] Accept user-provided GPS coordinates for the first post
 - [ ] Calculate GPS coordinates for all remaining posts using distances and PDF layout bearings
 - [ ] Handle branching routes (forks to multiple paths)
@@ -31,7 +31,6 @@ Accurately extract post data from INFOVIAS PDF files and produce a georeferenced
 - [ ] Customizable line color and thickness
 - [ ] Customizable label size and color
 - [ ] Single-page web interface with PDF upload and KMZ download
-- [ ] Infer post-to-post bearing/direction from PDF drawing positions
 
 ### Out of Scope
 
@@ -65,9 +64,12 @@ Accurately extract post data from INFOVIAS PDF files and produce a georeferenced
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Client-side only (no backend) | Personal tool, simpler deployment, no server costs | — Pending |
-| Infer bearings from PDF x,y positions | PDF drawing positions reflect real-world spatial layout | — Pending |
-| Single PDF format support | Start with known format, expand later if needed | — Pending |
+| Client-side only (no backend) | Personal tool, simpler deployment, no server costs | ✓ Confirmed — pdf.js + Tesseract.js CDN run fully in-browser |
+| Infer bearings from PDF x,y positions | PDF drawing positions reflect real-world spatial layout | ✓ Positions extracted — bearing calc in Phase 2 |
+| Single PDF format support | Start with known format, expand later if needed | ✓ Confirmed — INFOVIAS template parsing working |
+| OCR via Tesseract.js (per-page crop) | Post numbers are vector paths in Numero_Poste layer — text extraction impossible | ✓ Working — 2x canvas crop, digit whitelist, pageseg 7 |
+| Bad-CTM page filter (x<10 AND y<10) | FlipY pages produce garbage coordinates; reliable heuristic via coordinate ranges | ✓ Confirmed — correctly skips non-route pages |
+| Sequence inference for OCR misses | OCR occasionally misses a number; neighbours give reliable interpolation | ✓ Confirmed — inferred ≥ 1 guard prevents negative post numbers |
 
 ## Evolution
 
@@ -87,4 +89,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after initialization*
+*Last updated: 2026-05-15 after Phase 1 complete*

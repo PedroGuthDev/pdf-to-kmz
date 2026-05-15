@@ -7,21 +7,21 @@
 
 ---
 
-## Current Phase: Phase 1
+## Current Phase: Phase 2
 
 ---
 
-### Phase 1: PDF Parser Engine
+### Phase 1: PDF Parser Engine ✓ COMPLETE — 2026-05-15
 
 **Goal:** Build the core PDF parsing engine that extracts post data (IDs, types, distances, positions) from INFOVIAS-format PDFs in the browser
 **Mode:** mvp
-**Plans:** 4 plans
+**Plans:** 4/4 complete
 
 Plans:
 - [x] 01-01-PLAN.md — Walking Skeleton: prove OCG layer extraction on real PDF, resolve A1/A2 assumptions
 - [x] 01-02-PLAN.md — Parser modules: all 8 parser/ modules implementing the full PDF extraction pipeline
 - [x] 01-03-PLAN.md — Browser UI: index.html wiring file input to parsePdf() with result summary display
-- [x] 01-04-PLAN.md — OCR rewrite: replace broken text-proximity with Tesseract.js OCR for post numbers (CONTEXT updated 2026-05-14) ✓ 2026-05-14
+- [x] 01-04-PLAN.md — OCR rewrite: replace broken text-proximity with Tesseract.js OCR for post numbers ✓ 2026-05-14
 
 **Success Criteria**:
 
@@ -99,4 +99,4 @@ All phases are sequential — each depends on the previous phase's output.
 ---
 
 _Roadmap created: 2026-05-12_
-_Last updated: 2026-05-13 after adding Plans 01-02 and 01-03_
+_Last updated: 2026-05-15 after Phase 1 complete_
