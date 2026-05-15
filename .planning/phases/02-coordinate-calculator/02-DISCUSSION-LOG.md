@@ -4,200 +4,130 @@
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
 
 **Date:** 2026-05-15
-**Phase:** 02-coordinate-calculator
-**Areas discussed:** Bearing from PDF coordinates, Route topology and traversal, Route gaps, First-post GPS input
+**Phase:** 2-Coordinate Calculator
+**Trigger:** Flaw discovered post-implementation — not all posts have cable distances; cross-page PDF coordinates are not comparable.
+**Areas discussed:** Algorithm pivot, Scale factor source, No-distances fallback, Connections fields, Multi-page coordinate system, Cross-page strategy, UTM grid approach, Page 2 overview calibration, Cross-page post identification
 
 ---
 
-## Bearing from PDF coordinates
-
-### Q1: How should the user align PDF orientation to real-world north?
+## Algorithm Pivot
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Rotation angle | User provides a "north offset" angle | |
-| Two-post anchor | User provides GPS for two posts, rotation derived automatically | |
-| Assume PDF top = North | No user input needed | |
+| All posts from post #1 | Every post projected directly from post #1 using PDF offset × scale. No error accumulation. | ✓ |
+| Branch posts from junction | Main-route from post #1, branches from junction post. | |
+| Let Claude decide | Claude picks. | |
 
-**User's choice:** User revealed that a "norte" layer exists in the PDF with a compass rose pointing geographic north. Follow-up question about whether the arrow is always straight up.
-
-### Q2: Is the north arrow always pointing straight up?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Always straight up | PDF-up = North in every file | ✓ |
-| Varies per PDF | Arrow can be rotated per project | |
-| Not sure | Uncertain | |
-
-**User's choice:** Always straight up
-
-### Q3: Are coordinate systems consistent across pages?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Same coordinate system | All route pages share same viewport/scale | |
-| Different viewports per page | Each page zooms differently | |
-| Not sure | Need to inspect coordinates | |
-
-**User's choice:** All zoomed pages (3-4+) share the same viewport. User provided a visual showing staggered page arrangement following the street.
-
-### Q3b: What about page 2 vs pages 3-4?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| All route pages share same scale | Coordinates comparable across all | |
-| Page 2 is different scale (overview) | Only pages 3-4 share coordinates | ✓ |
-| Not sure | Need to check | |
-
-**User's choice:** Page 2 must be ignored — numbers too small for reliable OCR and scale is different.
-
-### Q3c: Are staggered pages a problem for bearing calculation?
-
-**User's question (initiated by user):** Pages are positioned according to the street — is that going to be a problem?
-**Answer:** No — since all detail pages share the same coordinate system, the staggered viewports are just "windows" into a unified drawing space. Bearings work correctly across pages.
-
-### Q4: GPS projection formula
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Haversine projection | Standard spherical Earth, ~0.3% error | |
-| Flat-Earth approximation | cos(lat) correction, negligible error at street scale | ✓ |
-| You decide | Agent picks | |
-
-**User's choice:** Flat-Earth with cos(lat)
+**User's choice:** All from post #1 (Recommended)
+**Notes:** User then identified that cross-page PDF coords are incomparable, which evolved this decision into the per-page UTM calibration approach (each page has its own anchor derived from the overview).
 
 ---
 
-## Route topology and traversal
-
-### Q1: How does branching appear in real PDFs?
+## Gap Detection
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Fork in post numbering | Branch continues from a junction post in different direction | |
-| Separate numbering sequences | Main route 1-15, branch 16-22, starting from a junction | ✓ |
-| Same numbering, cable geometry shows fork | Cable path splits, numbers are all sequential | |
+| Keep gap detection | Gap flag still needed for Phase 3 (where NOT to draw lines). | ✓ |
+| Drop gap detection | Let Phase 3 infer from missing cables. | |
 
-**User's choice:** Separate numbering sequences
-
-### Q2: How do we know which main-route post is the junction?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Spatial proximity | First branch post is near a main-route post in PDF space | ✓ |
-| Cable path geometry | Use cable segments to find shared endpoints | |
-| Distance gap detection | Number gap + proximity confirms junction | |
-| Combination | Number gap + spatial proximity together | |
-
-**User's choice:** Spatial proximity
-
-### Q3: How should GPS coordinates propagate on branches?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Branch inherits junction GPS | Post 16 gets post 7's GPS, then chain continues | |
-| Branch offset from junction | Post 16 offset from post 7 using actual PDF distance | |
-| You decide | Agent picks | |
-
-**User's clarification:** The project never numbers the same physical post with 2 numbers. Post 16 is a NEW post next to post 7, with a cable running from 7 to 16. So GPS = post 7 GPS + bearing(7→16) + distance(7→16).
-
-### Q4: How should we detect where a new branch sequence starts?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Number gap heuristic | Consecutive posts spatially far apart = branch start | ✓ |
-| Distance label existence | Distance label between junction and first branch post | |
-| You decide | Agent picks | |
-
-**User's choice:** Number gap heuristic
+**User's choice:** Keep gap detection
 
 ---
 
-## Route gaps
-
-### Q1: What is a "route gap"?
+## Connections Contract Shape
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Missing post numbers | Sequence jumps (1-10, then 13-22) | |
-| Physically disconnected segments | Cable stops, separate section starts elsewhere | |
-| Same as branching | Gaps are just branches | |
-| Other | Different from all options | ✓ |
+| Preserve { from, to, meters, bearing, gap } | Phase 3 contract unchanged. | ✓ |
+| Clean break | Change shape if algorithm makes better sense. | |
 
-**User's choice:** Cable stops at post 10, new cable starts at post 11 forward. No connection between the two polylines. Posts are still sequentially numbered.
-
-### Q2: How should GPS coordinates be calculated across a gap?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Use PDF positions only | Compute from positions + scale factor from labeled distances | ✓ |
-| Skip the gap, no line in KMZ | Calculate normally, just don't draw connecting line | |
-
-**User's choice:** Use PDF positions only
-
-### Q3: Should the calculator flag gaps for downstream?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Yes, mark gaps | Add `gap: true` flag for Phase 3 | ✓ |
-| No, Phase 3 detects gaps itself | Phase 3 checks cable geometry | |
-| You decide | Agent picks | |
-
-**User's choice:** Yes, mark gaps
+**User's choice:** Preserve contract shape
 
 ---
 
-## First-post GPS input
-
-### Q1: What coordinate format?
+## Scale Factor Source
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Decimal degrees only | Simple `-27.6453, -48.6712` format | |
-| Decimal degrees + DMS | Also accept degrees/minutes/seconds | |
-| Decimal degrees + Google Maps paste | Smart parsing of Google Maps copy-paste format | ✓ |
+| Average of all available distances | sum(meters)/sum(pdfDist) over labelled pairs. | ✓ (initial) |
+| Median per-pair ratios | More outlier-resistant. | |
+| First valid pair only | Simplest, most fragile. | |
 
-**User's choice:** Decimal degrees with Google Maps paste support
-
-### Q2: Which post does the user provide coordinates for?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Always post #1 | First post in the sequence | ✓ |
-| Any post the user chooses | User selects which post | |
-| Always the lowest-numbered post | First post the parser found | |
-
-**User's choice:** Always post #1
-
-### Q3: Input validation?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Basic range check | Valid lat/lon ranges only | |
-| Brazil bounds check | Must fall within Brazil bounding box | ✓ |
-| No validation | Trust the input | |
-
-**User's choice:** Brazil bounds check
-
-### Q4: Phase 2 output contract?
-
-| Option | Description | Selected |
-|--------|-------------|----------|
-| Enrich existing posts | Add lat/lon + connections array to post objects | ✓ |
-| Separate geo output | New geoData object alongside original parser output | |
-| You decide | Agent picks | |
-
-**User's choice:** Enrich existing posts
+**Notes:** Superseded when UTM grid approach was chosen — scale now derived from 50m grid line spacing.
 
 ---
 
-## Agent's Discretion
+## No-Distances Fallback
 
-No areas deferred to agent discretion — all decisions were made by the user.
+**User's free-text response:** "all projects have distance labels"
+**Notes:** Domain invariant — all real INFOVIAS PDFs have distance labels. Moot anyway given UTM-grid scale derivation.
+
+---
+
+## Connections Meters and Bearing
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| PDF distance × scale factor | Same-page: hypot(next-curr) × scale. | ✓ |
+| Use label if available, fallback | Two sources of truth. | |
+| Haversine from GPS positions | Consistent but extra step. | |
+
+**User's choice:** PDF distance × scale (same-page); GPS haversine (cross-page after calibration).
+**Bearing:** PDF vector atan2(dx,dy) for same-page; GPS-vector bearing for cross-page.
+
+---
+
+## Multi-Page Coordinate System
+
+**User's free-text response:** "all pages come from the autocad viewport, the viewport is always the same size in width and height, but how can we find posts on cross-pages?"
+
+**Confirmed:** Detail pages have page-local coordinate systems. Cross-page x,y comparisons are meaningless. The original D-03 assumption ("unified drawing space") was incorrect.
+
+---
+
+## UTM Grid Discovery
+
+**User's insight:** "we have a utm layer with this pattern: O Projeto Óptico foi geo referenciado em toda a rota utilizando tecnologia GPS considerando o DATUM SIRGAS Quadriculas a cada 50m na escala 1:1000"
+
+**Layer name confirmed:** "UTM". Grid lines are visual only (no text labels in PDF).
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Full UTM-grid approach | Extract "UTM" layer, scale from 50m spacing, anchor each page from overview. | ✓ |
+| Same-page direct + cross-page chain | Skip UTM extraction. | |
+| Hardcoded 1:1000 scale | Hardcode scale. | |
+
+**User's choice:** Full UTM-grid approach
+
+---
+
+## Page 2 Overview for Page Calibration
+
+**User shared screenshot** (`Downloads/Screenshot_5.png`) showing:
+- Page viewport boxes labeled 03, 04, 05 (overlapping staggered layout)
+- Continuous UTM grid spanning all pages in the overview
+- Red post markers following the route across all pages
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Use page 2 overview for calibration | Extract viewport boxes + UTM grid from page 2. All pages calibrated with no GPS chaining. | ✓ |
+| Skip overview, use per-page chain | Per-page UTM + cable bearing per boundary. | |
+
+**User's choice:** Use page 2 overview for page calibration
+
+---
+
+## Finding Post #1 on Page 2
+
+**User's question:** "how will page 02 know what is the first post? since the ocr does not detect because of the quality of image, as a overview does not have much px"
+
+**Decision:** Post #1 is never looked for on page 2 via OCR. It is identified on detail page 3 by Phase 1 parsing and mathematically projected from page-3 coordinates to page-2 overview coordinates using the viewport box geometry. The viewport labels ("03", "04", "05") are large PDF text elements readable via `getTextContent()` — no OCR needed on page 2.
+
+---
 
 ## Deferred Ideas
 
-- Support for anchoring on any post (not just #1)
+- Support for anchoring on arbitrary posts (not just post #1)
 - DMS coordinate format input
-- Automatic north-arrow rotation extraction from "norte" layer
-- Visual map preview before KMZ generation (ENH-01)
+- Automatic UTM label extraction if future INFOVIAS versions add text labels to the UTM grid
+- Using overlapping posts as additional cross-page calibration anchors
