@@ -425,6 +425,9 @@ export async function parsePdf(arrayBuffer) {
         //   Pass 2 — rectangles drawn as 4 separate line segments; reconstruct from H/V segments
         for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
           if (!isViewportRectLayerName(layerName)) continue;
+          console.log(`[debug-vp] "${layerName}": ${pathArrays.length} paths on page 2`);
+          pathArrays.slice(0, 5).forEach((ops, i) =>
+            console.log(`[debug-vp] path[${i}] ops:`, JSON.stringify(ops.slice(0, 8))));
           // Pass 1: single-path rectangles
           for (const pathOps of pathArrays) {
             const rect = extractRectFromSubpath(pathOps, pageHeight);
