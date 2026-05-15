@@ -142,8 +142,9 @@ export async function extractLayerGraphics(page, idToName) {
             const pathOps = parseConstructPath(args);
             // Layer "0" is AutoCAD default — it carries almost all linework; only keep
             // subpaths whose page-space size matches a post marker (~35 pt radius → ~70–90 pt).
+            // Tightened from [16,360] to [50,120] to exclude cable segments and dimension geometry.
             const layer0Span =
-              activeLayer === '0' ? { min: 16, max: 360 } : null;
+              activeLayer === '0' ? { min: 50, max: 120 } : null;
             const fromPath = circleCentroidsFromSubpaths(pathOps, ctm, layer0Span);
             if (fromPath.length > 0) {
               if (fromPath.length > 1) {
