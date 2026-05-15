@@ -101,7 +101,7 @@ export function isUtmGridLayerName(rawName) {
 
 /**
  * Layer containing viewport rectangle boundaries on page 2 (overview).
- * Canonical name: "Padrão" — confirmed by user inspection of real INFOVIAS PDF (2026-05-15).
+ * Canonical name: "Padrão" — confirmed by user inspection of real INFOVIAS PDF.
  *
  * @param {string|null|undefined} rawName
  * @returns {boolean}

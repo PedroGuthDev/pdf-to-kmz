@@ -97,8 +97,8 @@ export function utmToLatLon(easting, northing, zone) {
  * @returns {{ hLines: Array<{ y: number }>, vLines: Array<{ x: number }> }}
  */
 function classifyGridLinesFromOps(pathOps) {
-  const TOLERANCE = 2;   // PDF points — axis-aligned from AutoCAD export
-  const MIN_LENGTH = 10; // PDF points — exclude tick marks / artifacts
+  const TOLERANCE = 2;  // PDF points — axis-aligned from AutoCAD export
+  const MIN_LENGTH = 2; // PDF points — low threshold; dashed UTM grids have short segments
   const hLines = [];
   const vLines = [];
   let cur = null;
@@ -191,11 +191,13 @@ export function computeScaleFactor(utmPathArrays, warnings) {
     ? (spacings[mid - 1] + spacings[mid]) / 2
     : spacings[mid];
 
-  // Range check (T-02-03-01): reject out-of-range grid spacings
-  if (medianSpacing < 50 || medianSpacing > 1000) {
+  // Range check (T-02-03-01): reject clearly degenerate spacings.
+  // Lower bound 5pt: avoids duplicate-stroke false positives (after >5 filter in medianGridSpacing).
+  // Upper bound 5000pt: handles any realistic PDF scale for a 50m UTM grid.
+  if (medianSpacing < 5 || medianSpacing > 5000) {
     warnings.push(
       `UTM grid spacing out of expected range: ${medianSpacing.toFixed(2)} PDF pts ` +
-      `(expected 50–1000 pts for 50m grid). Scale factor not computed.`
+      `(expected 5–5000 pts for 50m grid at any PDF scale). Scale factor not computed.`
     );
     return null;
   }

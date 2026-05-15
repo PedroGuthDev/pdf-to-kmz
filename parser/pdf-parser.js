@@ -191,17 +191,29 @@ function flipYInOp(op, pageHeight) {
  * @returns {{ x: number, y: number, w: number, h: number } | null}
  */
 function extractRectFromSubpath(ops, pageHeight) {
-  const pts = ops.filter(o => o.type === 'M' || o.type === 'L');
+  // Extract path endpoints: M/L coords, plus bezier curve endpoints (C→x3/y3, C2→x2/y2).
+  // AutoCAD exports sometimes use bezier arcs for rounded corners.
+  const pts = [];
+  for (const o of ops) {
+    if (o.type === 'M' || o.type === 'L') pts.push({ x: o.x, y: o.y });
+    else if (o.type === 'C')  pts.push({ x: o.x3, y: o.y3 });
+    else if (o.type === 'C2') pts.push({ x: o.x2, y: o.y2 });
+  }
   if (pts.length < 3) return null;
-  const xs = pts.map(p => p.x);
-  const ys = pts.map(p => p.y);
-  const distinctX = [...new Set(xs.map(v => Math.round(v)))];
-  const distinctY = [...new Set(ys.map(v => Math.round(v)))];
-  if (distinctX.length !== 2 || distinctY.length !== 2) return null;
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const xs = pts.map(p => p.x).sort((a, b) => a - b);
+  const ys = pts.map(p => p.y).sort((a, b) => a - b);
+  // Tolerance-based distinct count: values within 3pt are the same cluster.
+  // Math.round(v) produces wrong counts when corners differ by ~0.5–1pt (AutoCAD export noise).
+  const clusterCount = (vals) => {
+    let n = 1;
+    for (let i = 1; i < vals.length; i++) if (vals[i] - vals[i - 1] > 3) n++;
+    return n;
+  };
+  if (clusterCount(xs) !== 2 || clusterCount(ys) !== 2) return null;
+  const minX = xs[0], maxX = xs[xs.length - 1];
+  const minY = ys[0], maxY = ys[ys.length - 1];
   const w = maxX - minX, h = maxY - minY;
-  if (w < 50 || h < 50) return null;
+  if (w < 20 || h < 20) return null;
   // Convert from raw PDF (y-up) to flipY (y-down): top-left corner = (minX, pageHeight - maxY)
   return { x: minX, y: pageHeight - maxY, w, h };
 }
@@ -407,12 +419,47 @@ export async function parsePdf(arrayBuffer) {
 
       // ── Page-2 overview: collect viewport rectangles and labels ─────────────
       if (pageNum === 2) {
-        // Collect viewport rectangle boxes from "Padrão" layer (raw PDF coords — pre-flipY)
+        // Collect viewport rectangle boxes from "Padrão" layer.
+        // Two strategies:
+        //   Pass 1 — each constructPath call is a complete closed rectangle (M L L L Z)
+        //   Pass 2 — rectangles drawn as 4 separate line segments; reconstruct from H/V segments
         for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
-          if (isViewportRectLayerName(layerName)) {
+          if (!isViewportRectLayerName(layerName)) continue;
+          // Pass 1: single-path rectangles
+          for (const pathOps of pathArrays) {
+            const rect = extractRectFromSubpath(pathOps, pageHeight);
+            if (rect) viewportBoxes.push({ rect });
+          }
+          // Pass 2: aggregate all H/V segments and reconstruct rectangles
+          if (viewportBoxes.length === 0) {
+            const hSegs = [], vSegs = [];
             for (const pathOps of pathArrays) {
-              const rect = extractRectFromSubpath(pathOps, pageHeight);
-              if (rect) viewportBoxes.push({ rect });
+              let prev = null;
+              for (const op of pathOps) {
+                if (op.type === 'M') { prev = op; continue; }
+                if (op.type === 'L' && prev) {
+                  const dx = Math.abs(op.x - prev.x), dy = Math.abs(op.y - prev.y);
+                  if (Math.hypot(dx, dy) >= 5) {
+                    if (dy <= 3) hSegs.push({ y: (prev.y + op.y) / 2, x1: Math.min(prev.x, op.x), x2: Math.max(prev.x, op.x) });
+                    else if (dx <= 3) vSegs.push({ x: (prev.x + op.x) / 2, y1: Math.min(prev.y, op.y), y2: Math.max(prev.y, op.y) });
+                  }
+                  prev = op;
+                }
+              }
+            }
+            const T = 8; // snap tolerance
+            for (let i = 0; i < hSegs.length; i++) {
+              for (let j = i + 1; j < hSegs.length; j++) {
+                const h1 = hSegs[i], h2 = hSegs[j];
+                if (Math.abs(h1.x1 - h2.x1) > T || Math.abs(h1.x2 - h2.x2) > T) continue;
+                const minX = Math.min(h1.x1, h2.x1), maxX = Math.max(h1.x2, h2.x2);
+                const minY = Math.min(h1.y, h2.y),   maxY = Math.max(h1.y, h2.y);
+                const w = maxX - minX, h = maxY - minY;
+                if (w < 20 || h < 20) continue;
+                const lv = vSegs.find(v => Math.abs(v.x - minX) <= T);
+                const rv = vSegs.find(v => Math.abs(v.x - maxX) <= T);
+                if (lv && rv) viewportBoxes.push({ rect: { x: minX, y: pageHeight - maxY, w, h } });
+              }
             }
           }
         }
@@ -423,6 +470,7 @@ export async function parsePdf(arrayBuffer) {
             viewportLabels.push({ label: s, x: item.transform[4], y: item.transform[5] });
           }
         }
+        console.log(`[pdf-to-kmz] page 2: ${viewportBoxes.length} viewport box(es), ${viewportLabels.length} label(s)`);
       }
 
       // ── D-10 bad-page CTM filter: skip pages where ALL named-layer circles cluster near origin ──
