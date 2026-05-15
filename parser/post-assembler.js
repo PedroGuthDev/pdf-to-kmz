@@ -179,10 +179,14 @@ export function deduplicatePostsPreferLowerPage(allPosts) {
 export function assemblePostsFromOcr(ocrResults) {
   const warnings = [];
 
-  // Sort all results by pageNum then x for left-to-right sequence ordering
+  // Sort by pageNum → x → y so that vertically-stacked circles (same X, different Y)
+  // are ordered consistently top-to-bottom within each column (CR-03).
   const sorted = [...ocrResults].sort((a, b) => {
     const pd = (a.circle.pageNum ?? 1) - (b.circle.pageNum ?? 1);
-    return pd !== 0 ? pd : a.circle.x - b.circle.x;
+    if (pd !== 0) return pd;
+    const dx = a.circle.x - b.circle.x;
+    if (Math.abs(dx) > 10) return dx;       // clearly distinct columns
+    return a.circle.y - b.circle.y;         // same column — top-to-bottom
   });
 
   const posts = [];
