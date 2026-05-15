@@ -322,8 +322,8 @@
       const summaryText = `\nConnections: ${connections.length} (${gaps} gaps, ${branchStarts} branch junctions)\n`;
       
       const preview = calculatedPosts.slice(0, 10).map(p => {
-        const latStr = p.lat !== undefined ? p.lat.toFixed(6) : 'N/A';
-        const lonStr = p.lon !== undefined ? p.lon.toFixed(6) : 'N/A';
+        const latStr = p.lat != null ? p.lat.toFixed(6) : 'N/A';
+        const lonStr = p.lon != null ? p.lon.toFixed(6) : 'N/A';
         return `Post ${String(p.number).padStart(2, '0')}: ${latStr}, ${lonStr} ${p.postType ? '('+p.postType+')' : ''}`;
       }).join('\n');
       

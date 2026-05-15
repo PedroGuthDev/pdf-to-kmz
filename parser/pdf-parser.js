@@ -320,6 +320,7 @@ export async function parsePdf(arrayBuffer) {
         ` posteGfx=${(gfxResult.posteSymbols ?? []).length}` +
         ` cablePaths=${gfxResult.cablePaths.length}`
       );
+      console.log(`[pdf-to-kmz] page ${pageNum} byLayer keys: [${Object.keys(gfxResult.byLayer).join(', ')}]`);
 
       // ── Collect UTM grid paths for this page (flipY applied) ────────────────
       {
