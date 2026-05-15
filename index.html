@@ -101,6 +101,17 @@
     <p>Coming in Phase 2</p>
   </section>
 
+  <script>
+    // Polyfill Map.prototype.getOrInsertComputed — required by pdfjs-dist 5.x and
+    // Tesseract.js built against Chrome 136+ (TC39 upsert proposal, not yet in all browsers).
+    if (!Map.prototype.getOrInsertComputed) {
+      Map.prototype.getOrInsertComputed = function(key, callbackfn) {
+        if (!this.has(key)) this.set(key, callbackfn(key));
+        return this.get(key);
+      };
+    }
+  </script>
+
   <script type="module">
     import { parsePdf } from './parser/pdf-parser.js';
 
