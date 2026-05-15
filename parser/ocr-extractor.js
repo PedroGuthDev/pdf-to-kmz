@@ -5,7 +5,7 @@
 //
 // Named ESM export only — no default export, no CommonJS require.
 
-import { createWorker } from 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
 /**
  * OCR post numbers from rendered circle crops on a single PDF page.
@@ -29,6 +29,8 @@ export async function ocrCircleNumbers(page, pageHeight, circles) {
   await page.render({ canvasContext: ctx, viewport }).promise;
 
   // STEP 3 — Initialize Tesseract.js worker (D-09: digits whitelist, PSM-7)
+  // Dynamic import so a CDN failure at load time doesn't prevent the event listener from registering.
+  const { createWorker } = await import(TESSERACT_CDN);
   const worker = await createWorker('eng', 1, { logger: () => {} });
   await worker.setParameters({
     tessedit_char_whitelist: '0123456789',
