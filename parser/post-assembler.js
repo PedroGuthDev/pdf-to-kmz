@@ -149,8 +149,9 @@ export function deduplicatePosts(allPosts) {
 }
 
 /**
- * One post per sequential number: keep the occurrence on the **lowest page number**
- * (overview sheets are usually earlier than zoom/detail duplicates).
+ * One post per sequential number: keep the occurrence on the **highest page number**
+ * (detail pages 3+ have accurate positions in a unified coordinate system;
+ * page 2 is the overview with a different scale — unreliable for bearing/GPS — D-04).
  *
  * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} allPosts
  * @returns {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>}
@@ -160,9 +161,9 @@ export function deduplicatePostsPreferLowerPage(allPosts) {
   for (const p of allPosts) {
     const n = p.number;
     const prev = byNum.get(n);
-    const pPage = p.pageNum ?? 9999;
-    const prevPage = prev?.pageNum ?? 9999;
-    if (!prev || pPage < prevPage) byNum.set(n, p);
+    const pPage = p.pageNum ?? 0;
+    const prevPage = prev?.pageNum ?? 0;
+    if (!prev || pPage > prevPage) byNum.set(n, p);
   }
   return [...byNum.values()].sort((a, b) => a.number - b.number);
 }
