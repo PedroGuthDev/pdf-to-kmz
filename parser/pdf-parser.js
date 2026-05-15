@@ -213,6 +213,18 @@ export async function parsePdf(arrayBuffer) {
     // ── OCR collector (D-06) ─────────────────────────────────────────────────
     const allOcrResults = [];
 
+    // Force all OCG layers visible for OCR rendering — post-number paths may be on a layer
+    // that is off by default in the PDF's display state, causing blank crops.
+    let ocrOcPromise = null;
+    try {
+      const ocConfig = await pdfDoc.getOptionalContentConfig();
+      const flatOrder = arr => (arr ?? []).flatMap(item => Array.isArray(item) ? flatOrder(item) : [item]);
+      for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
+        try { ocConfig.setVisibility(id, true); } catch (_) {}
+      }
+      ocrOcPromise = Promise.resolve(ocConfig);
+    } catch (_) {}
+
     // ── Distance fallback collector ──────────────────────────────────────────
     const allDistItemsFallback = [];
 
@@ -294,10 +306,10 @@ export async function parsePdf(arrayBuffer) {
       }
 
       // ── D-10 bad-page CTM filter: skip pages where ALL circles cluster near page bottom-left ──
-      // (raw PDF: x≈2, y≈840 means CTM transform bug — e.g. page 8 of Palhoça sample)
-      // After flipY: those circles appear at (x<10, y<10) in our coordinate system
+      // Raw PDF: degenerate CTM pushes paths to (x≈2, rawY≈2). After flipY: x≈2, y≈pageHeight-2.
+      // Filter: x < 10 AND y > pageHeight-10 (circles near the bottom of the canvas).
       const isBadCtmPage = flippedCircles.length > 0 &&
-        flippedCircles.every(c => c.x < 10 && c.y < 10);
+        flippedCircles.every(c => c.x < 10 && c.y > pageHeight - 10);
       if (isBadCtmPage) {
         warnings.push(
           `Page ${pageNum}: skipped — degenerate CTM positions (all circles at page origin); likely AutoCAD export bug`
@@ -307,7 +319,7 @@ export async function parsePdf(arrayBuffer) {
 
       // ── OCR post numbers for this page (D-06, D-08) ──────────────────────────
       if (flippedCircles.length > 0) {
-        const pageOcrResults = await ocrCircleNumbers(page, pageHeight, flippedCircles);
+        const pageOcrResults = await ocrCircleNumbers(page, pageHeight, flippedCircles, ocrOcPromise);
         allOcrResults.push(...pageOcrResults);
       }
     }
