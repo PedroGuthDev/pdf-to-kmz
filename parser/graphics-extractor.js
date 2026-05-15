@@ -178,18 +178,6 @@ export async function extractLayerGraphics(page, idToName) {
             if (!byLayer[activeLayer]) {
               byLayer[activeLayer] = [];
             }
-            if (activeLayer === 'Padrão' && byLayer[activeLayer].length < 3) {
-              const a0 = args[0], a1 = args[1];
-              console.log('[debug-args] Padrão constructPath args:',
-                'len=' + args.length,
-                'a0 type=' + typeof a0 + (a0 && typeof a0 === 'object' ? ' keys=' + Object.keys(a0).join(',') : ''),
-                'a0.length=' + (a0?.length ?? 'N/A'),
-                'a1 type=' + typeof a1,
-                'a1.length=' + (a1?.length ?? 'N/A'),
-                'sample a0[0..3]=' + (a0?.length > 0 ? Array.from(a0.slice(0,4)) : 'empty'),
-                'sample a1[0..3]=' + (a1?.length > 0 ? Array.from(a1.slice(0,4)) : 'empty/undef')
-              );
-            }
             byLayer[activeLayer].push(parseConstructPath(args));
           }
         }

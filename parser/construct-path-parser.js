@@ -29,7 +29,10 @@
  *   { type: 'Z' }
  */
 export function parseConstructPath(args) {
-  const data = args[1]; // interleaved DrawOPS codes + coords
+  // pdf.js emits args[1] as either a Float32Array or [Float32Array] depending on the path source.
+  // When wrapped, data[0] is the Float32Array object itself (not a number), so unwrap one level.
+  let data = args[1];
+  if (data && data.length > 0 && typeof data[0] !== 'number') data = data[0];
   const result = [];
   if (!data || data.length === 0) return result;
 

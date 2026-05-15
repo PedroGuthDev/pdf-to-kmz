@@ -332,8 +332,6 @@ export async function parsePdf(arrayBuffer) {
         ` posteGfx=${(gfxResult.posteSymbols ?? []).length}` +
         ` cablePaths=${gfxResult.cablePaths.length}`
       );
-      console.log(`[pdf-to-kmz] page ${pageNum} byLayer keys: [${Object.keys(gfxResult.byLayer).join(', ')}]`);
-
       // ── Collect UTM grid paths for this page (flipY applied) ────────────────
       {
         const utmLayerPaths = [];
@@ -425,9 +423,6 @@ export async function parsePdf(arrayBuffer) {
         //   Pass 2 — rectangles drawn as 4 separate line segments; reconstruct from H/V segments
         for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
           if (!isViewportRectLayerName(layerName)) continue;
-          console.log(`[debug-vp] "${layerName}": ${pathArrays.length} paths on page 2`);
-          pathArrays.slice(0, 5).forEach((ops, i) =>
-            console.log(`[debug-vp] path[${i}] ops:`, JSON.stringify(ops.slice(0, 8))));
           // Pass 1: single-path rectangles
           for (const pathOps of pathArrays) {
             const rect = extractRectFromSubpath(pathOps, pageHeight);
@@ -473,7 +468,6 @@ export async function parsePdf(arrayBuffer) {
             viewportLabels.push({ label: s, x: item.transform[4], y: item.transform[5] });
           }
         }
-        console.log(`[pdf-to-kmz] page 2: ${viewportBoxes.length} viewport box(es), ${viewportLabels.length} label(s)`);
       }
 
       // ── D-10 bad-page CTM filter: skip pages where ALL named-layer circles cluster near origin ──
