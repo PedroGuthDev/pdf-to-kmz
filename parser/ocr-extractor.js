@@ -42,11 +42,13 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
   });
 
   // STEP 4 — For each circle, crop and OCR
-  // Crop radius: 60pt at 2× scale = 120px total crop window
+  // Crop tightly around the circle. Post circles are ~35pt radius; at scale=2
+  // that is 70px. Using 40px (20pt radius) crops the inner region of the circle
+  // where the digit is printed, excluding labels placed outside the circle edge (CR-04).
   // Circle center in canvas coordinates:
   //   canvasCx = Math.round(circle.x * SCALE)  — x unchanged (no flipY on x)
   //   canvasCy = Math.round(circle.y * SCALE)  — circle.y is already flipY distance from top
-  const CROP_RADIUS_PX = 60; // 60pt at 2× = 120px total crop window
+  const CROP_RADIUS_PX = 40; // 20pt radius at 2× scale
   const results = [];
 
   for (const circle of circles) {
