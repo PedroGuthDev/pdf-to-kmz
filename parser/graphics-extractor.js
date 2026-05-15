@@ -47,7 +47,9 @@ const LAYER_CABO_PROJETADO = 'Cabo Projetado';
  * @param {import('pdfjs-dist').PDFPageProxy} page
  * @param {Object} idToName  Maps raw OCG ID strings to raw layer name strings.
  * @returns {Promise<{
- *   circles: Array<{ x: number, y: number }>,
+ *   circles: Array<{ x: number, y: number }>,          // merged union (namedLayer + layer0)
+ *   namedLayerCircles: Array<{ x: number, y: number }>, // from Numero_Poste etc.
+ *   layer0Circles: Array<{ x: number, y: number }>,     // from AutoCAD layer "0" only
  *   posteSymbols: Array<{ x: number, y: number }>,
  *   cablePaths: Array<import('./construct-path-parser.js').PathOp[]>,
  *   byLayer: Object
@@ -70,7 +72,9 @@ export async function extractLayerGraphics(page, idToName) {
   // This preserves the outer BDC layer name when an inner BMC's EMC fires.
   const layerStack = [];
 
-  const circles = [];
+  // Split circle centroids by source for WR-01 (layer-0 fallback) and WR-03 (D-10 filter).
+  const namedLayerCircles = []; // circles from named layers (Numero_Poste, etc.)
+  const layer0Circles = [];     // circles from AutoCAD default layer "0"
   /** Centroids of closed subpaths on Poste layer (square + X, etc.) — raw PDF space. */
   const posteSymbols = [];
   const cablePaths = [];
@@ -151,10 +155,11 @@ export async function extractLayerGraphics(page, idToName) {
                 console.info('[pdf-to-kmz] gfx: batched constructPath →', fromPath.length, 'centroids');
               }
               for (const p of fromPath) {
-                if (isFinite(p.x) && isFinite(p.y)) circles.push(p);
+                const target = activeLayer === '0' ? layer0Circles : namedLayerCircles;
+                if (isFinite(p.x) && isFinite(p.y)) target.push(p);
               }
             } else if (activeLayer !== '0') {
-              circles.push({ x: ctm.e, y: ctm.f });
+              namedLayerCircles.push({ x: ctm.e, y: ctm.f });
             }
           } else if (isPosteGraphicsLayerName(activeLayer)) {
             if (!isFinite(ctm.e) || !isFinite(ctm.f)) break;
@@ -181,5 +186,8 @@ export async function extractLayerGraphics(page, idToName) {
     }
   }
 
-  return { circles, posteSymbols, cablePaths, byLayer };
+  // circles = merged union for backward compat; pdf-parser.js uses namedLayerCircles/layer0Circles
+  // for WR-01 (layer-0 fallback) and WR-03 (D-10 named-layer-only filter).
+  const circles = [...namedLayerCircles, ...layer0Circles];
+  return { circles, namedLayerCircles, layer0Circles, posteSymbols, cablePaths, byLayer };
 }

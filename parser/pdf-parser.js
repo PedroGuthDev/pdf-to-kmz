@@ -235,8 +235,8 @@ export async function parsePdf(arrayBuffer) {
       if (pageNum === 1) console.info('[pdf-to-kmz] parse: page 1 view', page.view);
 
       const textByLayer = await extractLayerText(page, idToName);
-      // gfxResult: { circles: [{x,y}], cablePaths: [PathOp[]], byLayer: {} }
-      // NOTE: NOT a flat byLayer dict — use gfxResult.circles and gfxResult.cablePaths.
+      // gfxResult: { circles (union), namedLayerCircles, layer0Circles, cablePaths, byLayer }
+      // NOTE: pdf-parser.js uses namedLayerCircles/layer0Circles for WR-01/WR-03 split logic.
       const gfxResult = await extractLayerGraphics(page, idToName);
       console.info(
         `[pdf-to-kmz] parse: page ${pageNum}/${pdfDoc.numPages} circles=${gfxResult.circles.length} ` +
@@ -268,13 +268,21 @@ export async function parsePdf(arrayBuffer) {
         }
       }
 
-      // ── Apply flipY to circle positions ─────────────────────────────────────
+
+      // ── Apply flipY to circle positions — split named-layer vs layer-0 (WR-01, WR-03) ──
       // circle.x unchanged; circle.y = pageHeight - rawY (y increases downward from top)
-      const flippedCircles = gfxResult.circles.map(circle => ({
+      const namedFlipped = (gfxResult.namedLayerCircles ?? []).map(circle => ({
         x: circle.x,
         y: pageHeight - circle.y,
         pageNum,
       }));
+      const layer0Flipped = (gfxResult.layer0Circles ?? []).map(circle => ({
+        x: circle.x,
+        y: pageHeight - circle.y,
+        pageNum,
+      }));
+      // WR-01: layer '0' is a fallback — only use it when no named-layer circles were found.
+      const flippedCircles = namedFlipped.length > 0 ? namedFlipped : layer0Flipped;
 
       for (const sym of gfxResult.posteSymbols ?? []) {
         allPosteRaw.push({ x: sym.x, y: pageHeight - sym.y, pageNum });
@@ -305,11 +313,11 @@ export async function parsePdf(arrayBuffer) {
         }
       }
 
-      // ── D-10 bad-page CTM filter: skip pages where ALL circles cluster near page bottom-left ──
+      // ── D-10 bad-page CTM filter: skip pages where ALL named-layer circles cluster near origin ──
       // Raw PDF: degenerate CTM pushes paths to (x≈2, rawY≈2). After flipY: x≈2, y≈pageHeight-2.
-      // Filter: x < 10 AND y > pageHeight-10 (circles near the bottom of the canvas).
-      const isBadCtmPage = flippedCircles.length > 0 &&
-        flippedCircles.every(c => c.x < 10 && c.y > pageHeight - 10);
+      // WR-03: evaluate only named-layer circles — layer-0 centroids are linework and not relevant.
+      const isBadCtmPage = namedFlipped.length > 0 &&
+        namedFlipped.every(c => c.x < 10 && c.y > pageHeight - 10);
       if (isBadCtmPage) {
         warnings.push(
           `Page ${pageNum}: skipped — degenerate CTM positions (all circles at page origin); likely AutoCAD export bug`
