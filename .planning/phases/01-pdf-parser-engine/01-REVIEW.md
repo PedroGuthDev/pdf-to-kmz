@@ -1,453 +1,348 @@
 ---
 phase: 01-pdf-parser-engine
-reviewed: 2026-05-14T00:00:00Z
+reviewed: 2026-05-15T00:00:00Z
 depth: deep
 files_reviewed: 3
 files_reviewed_list:
-  - parser/graphics-extractor.js
+  - parser/ocr-extractor.js
   - parser/pdf-parser.js
-  - parser/text-extractor.js
+  - parser/post-assembler.js
 findings:
-  critical: 5
-  warning: 4
-  info: 3
-  total: 12
-status: issues_found
+  critical: 4
+  warning: 5
+  info: 2
+  total: 11
+status: fixed
+fixed_at: 2026-05-15T00:00:00Z
+fixes_applied:
+  - CR-01
+  - CR-02
+  - CR-03
+  - CR-04
+  - WR-01
+  - WR-02
+  - WR-03
+  - WR-04
+  - WR-05
 ---
 
-# Phase 01: Code Review Report (Deep — Parser Files)
+# Phase 01: Code Review Report (Deep — OCR Pipeline Bug)
 
-**Reviewed:** 2026-05-14
+**Reviewed:** 2026-05-15T00:00:00Z
 **Depth:** deep
-**Files Reviewed:** 3 (`parser/graphics-extractor.js`, `parser/pdf-parser.js`, `parser/text-extractor.js`)
+**Files Reviewed:** 3 + 5 cross-reference files (graphics-extractor.js, construct-path-parser.js, layer-sources.js, ocg-map.js, text-extractor.js)
 **Status:** issues_found
 
 ## Summary
 
-This review focuses on the reported regression: 11 posts in the PDF produce only 1 detected post and 0 distances. All three parser files and their helper modules (`post-assembler.js`, `distance-associator.js`, `construct-path-parser.js`) were read and traced cross-file.
+This review was triggered by a confirmed bug: an 11-circle PDF produces 22 OCR results, 15 final posts, and returns impossible post numbers (0, 19, 28, 29, 167, 333, 500) while missing real posts 1, 10, and 11.
 
-Five critical bugs were found. The most likely root cause of the "1 of 11" regression is CR-01: `OPS_END_MARKED` unconditionally resets `activeLayer = null` in `graphics-extractor.js`, but the PDF likely contains non-OCG `BMC` (fn=69) operators for styling/grouping that are interleaved with the `BDC` (fn=70) OCG markers. Every `EMC` (fn=71) fires on both types, so the first nested `EMC` after `Numero_Poste`'s `BDC` resets `activeLayer` before subsequent `constructPath` calls are seen — yielding only the first circle before the layer is cleared. CR-02 confirms the double-population of `allDistItems`, which is a data-integrity bug producing duplicate distance labels. CR-03 through CR-05 address coordinate-space issues and a broken fallback condition.
+All three reviewed files and five cross-referenced files were read and traced. The confirmed bug has four distinct critical causes that compound each other:
+
+**Root-cause chain (confirmed by log evidence):**
+
+1. `graphics-extractor.js` feeds layer `'0'` paths through `circleCentroidsFromSubpaths` with a span filter of 16–360 pt. This range is far too permissive — cable segments, dimension lines, and pole-symbol rectangles all produce subpath bounding boxes within 16–360 pt. These non-circle paths emit spurious centroids that join the `circles[]` array alongside the 11 real post circles. This is the primary cause of 22 OCR inputs for 11 real circles.
+
+2. `ocr-extractor.js` crops a 60pt-radius window around every centroid in `circles[]`. For spurious centroids that land on cable-route regions, the crop captures nearby annotation text (distance labels, coordinate values, pole-type specs). Tesseract reads those and returns values like 19, 28, 167, 333, 500.
+
+3. `assemblePostsFromOcr` in `post-assembler.js` has no plausibility gate: every non-null OCR result, including 0 and 3-digit numbers far beyond the expected sequence, is accepted as a valid post without any range check.
+
+4. `assemblePostsFromOcr` sorts circles by `pageNum then x` only. Circles at similar x positions stacked vertically are sorted in undefined order, breaking sequence inference for OCR-failed circles (real posts 1, 10, 11).
 
 ---
 
 ## Critical Issues
 
-### CR-01: `OPS_END_MARKED` fires on ALL `EMC` operators — non-OCG nested marked content resets `activeLayer` prematurely, losing all but the first circle
+### CR-01: Layer `'0'` span filter (16–360 pt) is too wide — non-circle paths produce spurious circle centroids, explaining 22 results for 11 circles
 
-**File:** `parser/graphics-extractor.js:107-109` and `parser/text-extractor.js:105-107`
+**File:** `parser/graphics-extractor.js:146` (cross-ref: `parser/layer-sources.js:72`, `parser/construct-path-parser.js:156`)
 
-**Issue:** Both extractors set `activeLayer = null` on every `OPS_END_MARKED` (fn=71, `EMC`) event:
+The AutoCAD default layer `'0'` is accepted as a circle source by `isCircleCentroidLayerName` because some exports place post circles on it. To filter out non-circle linework, a span filter `{ min: 16, max: 360 }` is passed to `circleCentroidsFromSubpaths`. 360 pt is approximately 127 mm, which is wide enough to include cable-route line segments, dimension arcs, pole-symbol rectangles, and leader lines. Post marker circles have an established diameter of approximately 70 pt (radius ~35 pt from SKELETON.md). A span filter of 360 pt thus accepts subpaths up to 5x the expected size.
 
-```js
-// graphics-extractor.js:107-109
-case OPS_END_MARKED:
-  activeLayer = null;
-  break;
+The construct-path parser splits each `constructPath` operator (fn=91) into subpaths (M…Z chunks), computes the bounding-box centroid per subpath, and applies the page-space span check. Any linear subpath (a cable segment) that happens to measure between 16 and 360 pt in its longest axis will pass and emit a centroid at the middle of that line. These centroids are inserted into the same `circles[]` array passed to OCR.
+
+This explains how 11 real circles become 22 OCR inputs.
+
+**Fix:**
+```javascript
+// parser/graphics-extractor.js, line 146
+// Post circles are ~35 pt radius (~70 pt diameter). Tighten the span
+// filter to [50, 120] pt to exclude cable segments and dimension geometry
+// while absorbing rendering variation in the circle size.
+const layer0Span =
+  activeLayer === '0' ? { min: 50, max: 120 } : null;
 ```
 
-PDFs routinely nest `BMC` (fn=69, beginMarkedContent — no OCG ID) operators inside `BDC` (fn=70, beginMarkedContentProps — carries OCG ID) operators for layout, artifact marking, and font-encoding grouping. When a non-OCG `BMC` is opened inside the active `Numero_Poste` `BDC`, it is followed by its own `EMC`. That `EMC` fires at fn=71, hits `OPS_END_MARKED`, and sets `activeLayer = null` even though the outer `Numero_Poste` `BDC` has not yet been closed.
-
-The result is that `constructPath` calls for circles 2–11 arrive after `activeLayer` has been cleared by an inner `EMC` and are silently dropped. Only the first circle (between the outer BDC and the first inner BMC's EMC) is captured.
-
-This is consistent with the reported symptom: exactly 1 of 11 posts detected.
-
-**Fix:** Track a layer stack instead of a single `activeLayer` variable. Push on `OPS_BEGIN_MARKED` (when OCG ID is present), pop on `OPS_END_MARKED`. Only push a layer name; non-OCG BMC can push `null` as a no-op layer. Peek the top of the stack to determine the current active layer:
-
-```js
-// graphics-extractor.js — replace activeLayer variable with a stack
-const layerStack = [];   // replaces: let activeLayer = null;
-
-// In OPS_BEGIN_MARKED:
-case OPS_BEGIN_MARKED: {
-  if (args && args[1] && args[1].id != null) {
-    const rawName = idToName[args[1].id];
-    layerStack.push(rawName !== undefined ? rawName : null);
-  } else {
-    // BMC (no OCG ID) — push null so EMC pops correctly
-    layerStack.push(null);
-  }
-  break;
-}
-
-// In OPS_END_MARKED:
-case OPS_END_MARKED:
-  layerStack.pop();
-  break;
-
-// Everywhere activeLayer is read:
-const activeLayer = layerStack.length > 0 ? layerStack[layerStack.length - 1] : null;
-```
-
-Apply the same fix to `text-extractor.js` (same pattern at lines 98-107).
+If the real circle diameter is uncertain, add a diagnostic log before this line to record the span of every layer-`'0'` subpath centroid emitted, then calibrate the range from observed data on a good PDF.
 
 ---
 
-### CR-02: `allDistItems` is populated twice — every distance label appears at least twice, corrupting distance association
+### CR-02: `assemblePostsFromOcr` accepts OCR number `0` and any 3-digit value with no sequence-range validation
 
-**File:** `parser/pdf-parser.js:107-112` and `parser/pdf-parser.js:150-154`
+**File:** `parser/post-assembler.js:193-200`
 
-**Issue:** `allDistItems` is declared once (line 77) and written to in two separate places:
+The pass-through for non-null OCR results:
 
-1. Lines 107-112: layer-filtered push from `textByLayer` (Distância_Poste layer items, flipY applied).
-2. Lines 150-154: all-page `getTextContent` scan — every string matching `/^\d+(\.\d+)?$/` is pushed, which includes all distance labels.
+```javascript
+if (number !== null) {
+  posts.push({
+    number,
+    x: circle.x,
+    y: circle.y,
+    ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
+  });
+  continue;
+}
+```
 
-There is no guard like "only do step 2 if step 1 yielded nothing." The all-page scan always executes. If `extractLayerText` successfully found N distance items, `allDistItems` ends up with 2N entries. Each label appears at an identical `(x, y)` position twice.
+The regex in `ocr-extractor.js` line 74 is `/^\d{1,3}$/`, which matches 0 through 999. The number 0 is not a valid post number. Numbers like 167, 333, and 500 are impossible in an 11-post PDF. There is no minimum value of 1, no maximum based on the known circle count, and no check that the number is even plausibly within the expected sequence. Every non-null OCR hit propagates directly to the final output.
 
-In `associateDistances`, the nearest-distance search iterates all items and picks the closest to each post-pair midpoint. With duplicates at identical positions, the search still finds the correct label (the duplicate is at the same position), so distances may appear correct numerically. But if any label is missing from the layer-filtered set (CTM correlation failure for even one item), its duplicate from the all-page scan fills in at the same coordinate, masking the failure silently. More dangerously, if two distance labels are very close spatially, having doubled entries for both increases the chance the wrong one wins nearest-neighbor selection.
+Because `deduplicatePostsPreferLowerPage` deduplicates by exact number, junk numbers that are each unique (0, 19, 28, 29, 167, 333, 500) all survive dedup. This explains why 22 raw posts reduce to only 15 final posts — some real duplicates are removed but all the junk unique numbers survive.
 
-Beyond correctness risk, the `distItems` count logged at line 163 will be double the true count, misleading debugging.
+**Fix:**
+```javascript
+// parser/post-assembler.js — assemblePostsFromOcr
+// Compute a generous upper bound from total circle count.
+// Any OCR number above this is certainly a coordinate/label value, not a post number.
+const MAX_PLAUSIBLE_POST = Math.max(ocrResults.length * 2, 50);
 
-**Fix:** Replace the all-page `allDistItems` push with a separate array, and only merge it into `allDistItems` if the layer-filtered result was empty:
+for (let i = 0; i < sorted.length; i++) {
+  const { circle, number } = sorted[i];
 
-```js
-// Lines 137-155 — separate the two distance sources
-const allDistItemsFallback = [];
-for (const { page, pageHeight } of pageCache) {
-  const textContent = await page.getTextContent();
-  for (const item of textContent.items) {
-    if (item.str == null) continue;
-    const str = item.str.trim();
-    if (!str) continue;
-    const tx = item.transform[4];
-    const ty = item.transform[5];
-    const yFlipped = pageHeight - ty;
-    if (/^\d{1,3}$/.test(str)) {
-      allIntItems.push({ str, x: tx, y: yFlipped });
-    }
-    const norm = str.replace(',', '.');
-    if (/^\d+(\.\d+)?$/.test(norm)) {
-      allDistItemsFallback.push({ str, x: tx, y: yFlipped });
+  if (number !== null) {
+    if (number < 1 || number > MAX_PLAUSIBLE_POST) {
+      // Treat implausible OCR read as a failure; fall through to sequence inference.
+      warnings.push(
+        `OCR at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
+        `page ${circle.pageNum ?? '?'}: rejected implausible number ${number} ` +
+        `(valid range 1–${MAX_PLAUSIBLE_POST})`
+      );
+      // Do NOT continue — let execution fall through to the sequence-inference block.
+    } else {
+      posts.push({
+        number,
+        x: circle.x,
+        y: circle.y,
+        ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
+      });
+      continue;
     }
   }
-}
-
-// Merge distance items: prefer layer-filtered; fall back to all-page scan.
-if (allDistItems.length === 0) {
-  warnings.push('Layer-specific distance extraction yielded no results; using all-page text fallback for distances.');
-  allDistItems.push(...allDistItemsFallback);
+  // ... sequence-inference block unchanged ...
 }
 ```
 
 ---
 
-### CR-03: Post-candidate proximity match fails when circles and text are in different page-local coordinate spaces (multi-page PDFs)
+### CR-03: `assemblePostsFromOcr` sort ignores Y — vertically-stacked circles at similar X are misordered, breaking sequence inference for missed circles
 
-**File:** `parser/pdf-parser.js:100-117` and `parser/pdf-parser.js:138-155`
+**File:** `parser/post-assembler.js:183-186`
 
-**Issue:** For multi-page PDFs, `allCircles` and `allIntItems` accumulate coordinates from all pages. flipY is applied per-page using each page's own `pageHeight`. After flipY, coordinate (x=100, y=200) on page 1 (height=842) means raw y=642, while coordinate (x=100, y=200) on page 2 (height=842) also means raw y=642 — they are numerically identical in the final arrays.
+```javascript
+const sorted = [...ocrResults].sort((a, b) => {
+  const pd = (a.circle.pageNum ?? 1) - (b.circle.pageNum ?? 1);
+  return pd !== 0 ? pd : a.circle.x - b.circle.x;
+});
+```
 
-This creates false proximity matches: a circle from page 1 at (100, 200) will be within `PROXIMITY_THRESHOLD` of a text item from page 2 at (100, 200) even though they are on different physical pages. In a PDF where posts span multiple pages and some pages reuse coordinate ranges, this causes wrong pairings.
+The comparator is `pageNum then x` with no Y tiebreaker. When two circles share the same page and have close or identical X coordinates (common in vertically arranged route sheets), the comparator returns near-zero and sort order is undefined (stable sort is not guaranteed in all JS engines, and even stable sort here gives bottom-before-top or top-before-bottom depending on original array order).
 
-More critically, if post numbers 1-5 are on page 1 and circles for posts 6-11 are on page 2, the greedy nearest-first matching in `assemblePostData` may pair each number 1-5 to the wrong circle (the one from page 2 that happens to be geometrically closest in the merged coordinate pool), producing incorrect positions.
+Sequence inference in the null-number block relies on `sorted.slice(0, i)` and `sorted.slice(i + 1)` to find the nearest known neighbours before and after the failed circle in sorted order. If a circle that should be "between" post 5 and post 7 in route order is instead sorted before post 2 due to X-tie instability, the interpolation uses the wrong lower/upper bounds and produces an incorrect inferred number. The inferred number can then collide with a real post or be out of range.
 
-**Fix:** Attach a `pageNum` field to both circles and text items during collection, and add it as a tiebreaker (same-page matches are preferred, then cross-page matches as a fallback):
+Additionally, spurious centroids from CR-01 are interleaved in this same sorted array, displacing real circles and compressing/expanding the index span used in interpolation.
 
-```js
-// During circle collection (lines 116-118):
-for (const circle of gfxResult.circles) {
-  allCircles.push({ x: circle.x, y: pageHeight - circle.y, pageNum });
-}
-
-// During int item collection (lines 144-149):
-allIntItems.push({ str, x: tx, y: yFlipped, pageNum });
-
-// In post-assembler.js assemblePostData: prefer same-page match
-// Score: same page → d; different page → d + large_penalty
+**Fix:**
+```javascript
+// Sort by pageNum → x → y so that vertically-stacked circles (same X, different Y)
+// are ordered consistently top-to-bottom within each column.
+const sorted = [...ocrResults].sort((a, b) => {
+  const pd = (a.circle.pageNum ?? 1) - (b.circle.pageNum ?? 1);
+  if (pd !== 0) return pd;
+  const dx = a.circle.x - b.circle.x;
+  if (Math.abs(dx) > 10) return dx;       // clearly distinct columns
+  return a.circle.y - b.circle.y;         // same column — top-to-bottom
+});
 ```
 
 ---
 
-### CR-04: `allTextoItems` empty-check is the wrong guard for the all-page fallback — `allIntItems` can be empty while `allTextoItems` is also empty
+### CR-04: OCR crop window (60pt radius) extends beyond the circle boundary and captures adjacent text labels
 
-**File:** `parser/pdf-parser.js:132-136` and `parser/pdf-parser.js:161`
+**File:** `parser/ocr-extractor.js:49,53-58`
 
-**Issue:** The comment at line 126 says "always collect allIntItems — no CTM correlation needed." But the warning at line 133 only fires when `allTextoItems.length === 0`:
-
-```js
-if (allTextoItems.length === 0) {
-  warnings.push('Layer-specific text extraction yielded no results; using all-page text fallback.');
-}
-const allIntItems = [];
-// ... fill allIntItems from getTextContent ...
+```javascript
+const CROP_RADIUS_PX = 60; // 60pt at 2× = 120px total crop window
+// ...
+const cropX = Math.max(0, canvasCx - CROP_RADIUS_PX);
+const cropY = Math.max(0, canvasCy - CROP_RADIUS_PX);
+const cropW = Math.min(CROP_RADIUS_PX * 2, canvasW - cropX);
+const cropH = Math.min(CROP_RADIUS_PX * 2, canvasH - cropY);
 ```
 
-The warning is cosmetic — `allIntItems` is ALWAYS filled regardless of whether `allTextoItems` is populated. The actual post-candidate selection at line 161 is:
+At SCALE=2, `CROP_RADIUS_PX = 60` means the crop radius in PDF point space is 30pt, making the crop window a 60×60pt square in PDF space. Wait — the comment says "60pt at 2×" but the constant is 60 canvas pixels, which at scale 2 is 30pt. So the crop is a 30pt radius = 60pt square in PDF space. Post circles have radius ~35pt per SKELETON.md, meaning the crop window is actually **smaller than the circle** itself in PDF space.
 
-```js
-const postCandidates = allIntItems.length > 0 ? allIntItems : allTextoItems;
+However, the comment "60pt at 2× = 120px total crop window" contradicts the arithmetic: `CROP_RADIUS_PX=60` at scale 2 gives a crop of 60pt radius = 120pt total. Either the comment is right (crop is 120pt wide = 60pt radius in PDF space) and the crop exceeds the ~35pt circle radius by 25pt in all directions, or there is a unit confusion in the constant.
+
+Reading the code precisely: `canvasCx = circle.x * SCALE` where `circle.x` is in PDF points. `cropX = canvasCx - 60` in canvas pixels. Canvas pixel / SCALE = PDF point, so `60 / 2 = 30pt` radius in PDF space. The crop is actually 30pt radius (60pt total) in PDF space.
+
+Regardless, the observed impossible OCR numbers (numbers from distance labels, cable annotations, pole-type specs) confirm that the crop window captures text outside the circle boundary. This is consistent with: (a) spurious centroids from CR-01 being placed at non-circle positions where adjacent annotation text IS the dominant nearby content, or (b) the 30pt radius being insufficient to center on the circle number but large enough to catch nearby labels.
+
+The larger architectural issue: Tesseract with `tessedit_char_whitelist: '0123456789'` will extract the first plausible digit sequence from ANY image content. On a cropped region that contains a distance label ("28.3"), Tesseract returns "283" or "28". On a region containing "10-300 (U)", it returns "10300" or "300" or "10" — any of which passes `/^\d{1,3}$/` depending on what Tesseract segments.
+
+**Fix (immediate):** Reduce the crop to a tighter window centered on the circle. The post number is printed inside the circle (~35pt radius). A crop of 35pt radius in PDF space (70px at scale=2) tightly wraps the circle and minimises capture of adjacent labels:
+
+```javascript
+// Crop tightly around the circle. Post circles are ~35pt radius; at scale=2
+// that is 70px. Using 40px (20pt radius) crops the inner region of the circle
+// where the digit is printed, excluding labels placed outside the circle edge.
+const CROP_RADIUS_PX = 40; // 20pt radius at 2× scale
 ```
 
-If `allIntItems` is empty (e.g., the PDF has no single/two/three digit strings from getTextContent — possible if all integers are encoded as glyphs with non-ASCII codepoints), `postCandidates` falls back to `allTextoItems`. But `allTextoItems` comes from CTM correlation which is the approach that was supposedly replaced. If both are empty, `assemblePostData` receives an empty candidate list and finds 0 posts. The rawPosts fallback at line 174 checks `rawPosts.length === 0 && postCandidates.length > 0` — but if `postCandidates.length === 0`, this branch is skipped and posts = `deduplicatePosts([])` = `[]`. The result is silently 0 posts with no warning explaining WHY.
-
-**Fix:** Add an explicit warning when both candidate sources are empty:
-
-```js
-if (allIntItems.length === 0 && allTextoItems.length === 0) {
-  warnings.push('CRITICAL: No post number candidates found from any source. Check that the TEXTO and Numero_Poste layers exist and contain readable text.');
-}
-const postCandidates = allIntItems.length > 0 ? allIntItems : allTextoItems;
-```
-
-Also remove the confusing early warning at line 133 which fires regardless of whether allIntItems (the true primary source) was populated.
-
----
-
-### CR-05: `OPS_NEXT_LINE (T*)` in `text-extractor.js` updates `tlm.f` but uses `leading` which defaults to 0 — T* before any TD will produce wrong line advance
-
-**File:** `parser/text-extractor.js:143-147`
-
-**Issue:** The `T*` handler advances the text line matrix by `(0, -leading)`:
-
-```js
-case OPS_NEXT_LINE: {
-  tlm = { ...tlm, f: tlm.f - leading };
-  tm  = { ...tlm };
-  break;
-}
-```
-
-`leading` is initialized to `0` (line 73) and only set by `OPS_LEADING_MOVE_TEXT` (TD). In a BT block that uses `TL` (set leading, OPS constant ≈ 38 — not handled) followed by `T*`, `leading` would remain 0. All `T*` calls produce `tlm.f - 0 = tlm.f` — zero advance. Any text on the second line of a text block using `T*` would be recorded at the same y-position as the first line.
-
-`TL` (set text leading) is operator fn=38 in pdf.js. It is not tracked. The `OPS_NEXT_LINE (T*)` is effectively broken for any PDF that sets leading via `TL` rather than `TD`.
-
-If the TEXTO or Distância_Poste layers use `TL`/`T*` sequences for multi-line text, the computed py values for those showText calls will be wrong, causing them to miss the getTextContent correlation (tolerance is only 1.0 pt).
-
-**Fix:** Add a handler for `TL` (OPS constant 38):
-
-```js
-const OPS_SET_LEADING = 38; // TL — set text leading
-
-// In the switch statement:
-case OPS_SET_LEADING:
-  leading = args[0];
-  break;
-```
-
-Note: Unlike `TD` which sets `leading = -args[1]`, `TL tl` sets `leading = tl` directly (positive value = descent per line in user space units).
+**Fix (robust):** Pass the detected circle radius from the graphics extractor so the crop can be sized per circle: `CROP_RADIUS_PX = Math.round(circle.radius * SCALE * 0.8)` where `radius` comes from the path bbox computed in `circleCentroidsFromSubpaths`.
 
 ---
 
 ## Warnings
 
-### WR-01: `OPS_BEGIN_MARKED` in `text-extractor.js` does not handle BMC (fn=69) — non-OCG marks silently corrupt the layer-stack assumption
+### WR-01: `isCircleCentroidLayerName` accepts layer `'0'` without requiring any named layer to be absent first
 
-**File:** `parser/text-extractor.js:98-103`
+**File:** `parser/layer-sources.js:72`
 
-**Issue:** Both `beginMarkedContentProps (BDC, fn=70)` and `beginMarkedContent (BMC, fn=69)` produce `EMC (fn=71)` closers. The text extractor only reacts to fn=70 (`OPS_BEGIN_MARKED`). When a BMC fires (fn=69), no layer is pushed, but when its EMC fires at fn=71, `activeLayer` is set to `null` by the `OPS_END_MARKED` handler — same as CR-01. In text-extractor.js, this means a BMC inside a TEXTO BDC silently drops the TEXTO assignment mid-layer, causing some showText calls to be recorded with `layer = null` and lost from the position array, which in turn means those text items won't match in the getTextContent correlation step.
-
-This is the text-extractor analog of CR-01. Fix: apply the same layer-stack approach described in CR-01 to `text-extractor.js`.
-
----
-
-### WR-02: `readMatrix6` in `graphics-extractor.js` returns `null` on malformed args but caller discards `null` silently — CTM stays unchanged when it should be flagged
-
-**File:** `parser/graphics-extractor.js:81-96`
-
-**Issue:** When `readMatrix6(args)` returns `null` (malformed args — neither a number nor an array), the `OPS_TRANSFORM` handler does `if (!m) break` and silently keeps the old CTM. This means a malformed `cm` operator leaves the CTM unchanged while the PDF stream advances past it. Subsequent operators run with a stale CTM that doesn't match the actual PDF state. For circles, the resulting `ctm.e, ctm.f` values would be wrong, placing those circles at incorrect positions. This won't cause a visible error — circles are still pushed to `allCircles`, but with wrong coordinates that won't match any text item within 50 pts.
-
-**Fix:** Log a warning when `readMatrix6` returns null in the transform handler:
-
-```js
-case OPS_TRANSFORM: {
-  const m = readMatrix6(args);
-  if (!m) {
-    console.warn('[gfxExtractor] OPS_TRANSFORM: unreadable matrix args at i=', i, args);
-    break;
-  }
-  // ... existing multiply ...
+```javascript
+export function isCircleCentroidLayerName(rawName) {
+  if (rawName == null || rawName === '') return false;
+  if (rawName === '0') return true;   // accepts ALL paths on the AutoCAD default layer
+  // ...
 }
 ```
 
+The code comment in `graphics-extractor.js:144` acknowledges that layer `'0'` "carries almost all linework." This unconditional acceptance means every path on layer `'0'` in every PDF — regardless of whether the PDF also has a named `Numero_Poste` layer — is treated as a potential post circle. The sole guard is the span filter (CR-01). If a PDF correctly uses `Numero_Poste` for its circles and separately uses layer `'0'` for cable routes, both are treated as circle sources simultaneously.
+
+**Fix:** Make layer `'0'` a fallback that only activates when no circles are found on any named layer in a given page. In `pdf-parser.js`, after the per-page OCR loop, if `namedLayerCircles.length > 0`, discard any layer-`'0'` circles for that page.
+
 ---
 
-### WR-03: `PROXIMITY_THRESHOLD = 50` PDF points is undocumented as a tunable constant — may be too small or too large depending on actual PDF scale
+### WR-02: Sequence inference can produce post number `0` when the first circle fails OCR and `upper.number === 1`
 
-**File:** `parser/post-assembler.js:10`
+**File:** `parser/post-assembler.js:221-222`
 
-**Issue:** The comment says "50 pt gives enough margin to match the number label positioned near the circle." The SKELETON.md confirms circle radius ≈ 35.5 pt and bounding box 71×71 pt. Post number labels are typically placed outside the circle, meaning the label's text origin could be 35.5 + font_size/2 away from the circle center. At 12pt font, that's ~41–42 pt. At 14pt font, ~42–43 pt. 50 pt provides only ~7–8 pt of margin.
-
-If the PDF uses a larger font for post numbers, or if the labels are placed further from the circle edge, all matches fail (`nearestDist > 50`). With 11 circles and only 1 match found, it is worth verifying whether the remaining 10 post numbers have their nearest circle at 51–100 pt (just over threshold) or at >500 pt (coordinate system mismatch).
-
-The debug log at pdf-parser.js line 162 (`distItems: allDistItems.length`) is present, but there's no log of the per-post nearest circle distance. Adding that log would confirm whether this threshold is the bottleneck.
-
-**Fix (investigation):** Add a diagnostic log in `assemblePostData` before the threshold check:
-
-```js
-if (nearestIdx !== -1) {
-  console.debug(`[postAssembler] "${trimmed}" nearest circle: ${nearestDist.toFixed(1)} pt`);
+```javascript
+} else if (upper) {
+  inferred = upper.number - 1;
 }
 ```
 
-If distances cluster around 60–150 pt, raise `PROXIMITY_THRESHOLD` to 150. If they cluster around 500–1000 pt, the coordinate system mismatch (CR-01 or CR-03) is the root cause.
+If the very first circle (before any known post) fails OCR, and the next known post is post 1, `inferred = 1 - 1 = 0`. The guard at line 225 (`inferred >= 1`) correctly rejects this and emits a warning. However, if CR-02 is not fixed, `upper.number` may be a garbage value (e.g., 500), making `inferred = 499`, which passes the `>= 1` guard and produces a bogus post.
 
----
-
-### WR-04: `normalizeName` regex `[̀-ͯ]` covers only U+0300–U+036F — inherited from skeleton review, not fixed in production code
-
-**File:** `parser/ocg-map.js:13`
-
-**Issue:** The combining-mark strip regex is:
-```js
-s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-```
-
-This range (U+0300–U+036F) covers the core Combining Diacritical Marks block and is sufficient for all known layer names in this PDF. However, the Combining Diacritical Marks Supplement (U+1DC0–U+1DFF) and Extended block (U+20D0–U+20FF) are not covered. Future PDFs with uncommon accent characters in layer names would silently fail to normalize, causing layer validation to fail with `missing_layers` even though the layer exists.
+Fixing CR-02 reduces the severity, but the guard should also add an upper bound:
 
 **Fix:**
-```js
-export const normalizeName = s =>
-  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+```javascript
+// parser/post-assembler.js:225
+// Existing:  if (inferred !== null && inferred >= 1) {
+// Replace with:
+if (inferred !== null && inferred >= 1 && inferred <= MAX_PLAUSIBLE_POST) {
 ```
 
-`\p{M}` with the `u` flag matches all Unicode Mark categories (Mn, Mc, Me), covering all combining characters regardless of block.
+---
+
+### WR-03: D-10 bad-CTM filter is defeated when layer `'0'` contributes scattered non-degenerate centroids on a page with a degenerate named-layer CTM
+
+**File:** `parser/pdf-parser.js:311-318`
+
+```javascript
+const isBadCtmPage = flippedCircles.length > 0 &&
+  flippedCircles.every(c => c.x < 10 && c.y > pageHeight - 10);
+```
+
+The filter requires **every** circle to be near the page origin to trigger. When layer `'0'` contributes spurious centroids at normal positions across the page (from cable linework), even a page whose `Numero_Poste` CTM is degenerate will not satisfy `every(...)`, because the layer-`'0'` centroids have non-degenerate coordinates. The filter is effectively disabled for mixed-layer pages.
+
+**Fix:** Only evaluate the filter against circles that came from named layers (not layer `'0'`). In `pdf-parser.js`, track a separate `namedLayerCircles` sub-list within the page loop and apply the D-10 test only to that sub-list.
+
+---
+
+### WR-04: `deduplicatePostsPreferLowerPage` does not warn when surviving post numbers are implausibly large relative to total count
+
+**File:** `parser/post-assembler.js:158-168`, called from `parser/pdf-parser.js:338`
+
+After deduplication, post numbers like 167 or 500 in a 15-post set are structurally valid (they are unique integers) but semantically wrong. Neither `deduplicatePostsPreferLowerPage` nor `pdf-parser.js` checks the maximum post number against total post count. Downstream consumers (Phase 2, KMZ builder) receive structurally well-formed but semantically corrupted data with no warning.
+
+**Fix:** In `pdf-parser.js`, after line 338 (`const posts = deduplicatePostsPreferLowerPage(rawPosts)`):
+
+```javascript
+// Sanity-check: if the maximum post number greatly exceeds the count, OCR likely
+// read coordinate values or label numbers as post numbers.
+if (posts.length > 0) {
+  const maxNum = Math.max(...posts.map(p => p.number));
+  if (maxNum > posts.length * 3) {
+    warnings.push(
+      `Suspicious post numbers: highest number ${maxNum} is more than 3× the ` +
+      `post count ${posts.length}. OCR may have read coordinate or label values ` +
+      `as post numbers. Check graphics layer filtering (layer '0' span filter).`
+    );
+  }
+}
+```
+
+---
+
+### WR-05: `ocrCircleNumbers` creates and terminates a Tesseract worker per page — CDN import is repeated N times per PDF
+
+**File:** `parser/ocr-extractor.js:37-42,79`
+
+```javascript
+const { createWorker } = (await import(TESSERACT_CDN)).default;
+const worker = await createWorker('eng', 1, { logger: () => {} });
+// ...
+await worker.terminate();
+```
+
+`ocrCircleNumbers` is called once per page from `pdf-parser.js` line 322. Each call re-imports the CDN module, creates a new Tesseract WASM worker (including WASM init), runs OCR for all circles on that page, then terminates the worker. On a 5-page PDF this fires 5 CDN imports and 5 WASM initializations.
+
+While module imports are cached by the browser after the first load, `createWorker` launches a new Web Worker and loads the WASM binary each time. This is a correctness risk: if the CDN is unreachable or rate-limits repeated requests, the second-through-Nth page OCR silently fails and those pages' circles produce all-null OCR results, causing sequence inference to run on the full page — which, with junk centroids from CR-01, produces wrong inferred numbers.
+
+**Fix:** Hoist worker creation to the call site in `pdf-parser.js` before the page loop, pass the worker into `ocrCircleNumbers` as a parameter, and terminate it after all pages are processed. The function signature becomes:
+
+```javascript
+// ocr-extractor.js
+export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise, worker) {
+  // ... no createWorker / terminate here ...
+}
+
+// pdf-parser.js — before the page loop
+const { createWorker } = (await import(TESSERACT_CDN)).default;
+const ocrWorker = await createWorker('eng', 1, { logger: () => {} });
+await ocrWorker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
+// ... page loop, passing ocrWorker to each ocrCircleNumbers call ...
+await ocrWorker.terminate();
+```
 
 ---
 
 ## Info
 
-### IN-01: Multiple `console.debug` and `console.log` calls left in production parser code
+### IN-01: Multiple `console.info` / `console.debug` calls remain in production code paths
 
-**File:** `parser/pdf-parser.js:88,162-167,185-186`, `parser/text-extractor.js:173-174,179`, `parser/graphics-extractor.js:22-23`
+**Files:** `parser/pdf-parser.js:235,241-244,344`, `parser/post-assembler.js:96`, `parser/graphics-extractor.js:25,150`, `parser/text-extractor.js:241,247`
 
-**Issue:** Debug logging was added during the fix iterations and not removed. This creates noise for end users in the browser console and leaks internal coordinate values. Examples:
-- `pdf-parser.js:88`: `'[parsePdf] page 1 view:'`
-- `pdf-parser.js:162-167`: `'[parsePdf] circles: ... intItems: ... distItems: ...'`
-- `text-extractor.js:173-174`: `'[textExtractor] positions by layer: ...'`
-- `graphics-extractor.js:22-23`: `'[gfxExtractor] packed matrix args detected ...'`
+The diagnostic `console.info` at `pdf-parser.js:344` is the exact line that produced the quoted symptom log in the bug report. These calls are useful for debugging but expose internal coordinate data in the browser console for end users.
 
-These are valuable during debugging but should be behind a flag or removed before shipping.
-
-**Fix:** Wrap behind a module-level flag:
-```js
-const DEBUG = false; // set true locally for diagnostics
-if (DEBUG) console.debug(...);
-```
-Or remove after the regression is resolved.
+**Fix:** Guard behind a module-level `const DEBUG = false` flag or remove after the regression is resolved. The line at `pdf-parser.js:344` (which logs post numbers) is worth keeping behind a flag as it provides useful production diagnostics.
 
 ---
 
-### IN-02: `pageCache` array holds live `PDFPageProxy` objects for all pages simultaneously — potential memory pressure on large PDFs
+### IN-02: `assemblePostData`, `PROXIMITY_THRESHOLD`, and `deduplicatePosts` are exported but not imported by `pdf-parser.js`
 
-**File:** `parser/pdf-parser.js:82-89`
+**File:** `parser/post-assembler.js:8,52,141`
 
-**Issue:** `pageCache` stores `{ page, pageHeight }` for every page and is iterated again at line 138 to run `getTextContent` for the all-page integer scan. Holding all page proxies in memory simultaneously is unnecessary — the all-page scan could run within the existing page loop, eliminating `pageCache` entirely.
+`assemblePostData` (the legacy TEXTO+circle spatial-matching function, lines 52–132) and `deduplicatePosts` (line 141) are exported but `pdf-parser.js` uses only `assemblePostsFromOcr` and `deduplicatePostsPreferLowerPage`. The `PROXIMITY_THRESHOLD` constant is also exported but unused by the active caller.
 
-This is noted as out-of-scope for v1 performance review, but flagged here because it adds code complexity for no correctness benefit, and the fix (inline the scan into the existing page loop) also removes a code duplication.
+These dead exports suggest a pipeline switch occurred (text-based assembly replaced by OCR-based assembly) without cleaning up the old path. This creates confusion about which assembly function is authoritative.
 
-**Fix:** Move the `getTextContent` all-page scan inside the existing `for (let pageNum = 1; ...)` loop and remove `pageCache`.
-
----
-
-### IN-03: `associateDistances` does not guard against post pairs where both posts have `x=0, y=0` — midpoint of (0,0)→(0,0) is (0,0), which may match a distance label spuriously
-
-**File:** `parser/distance-associator.js:32-35`
-
-**Issue:** If circle extraction fails (all circles at (0,0) due to CTM identity) and the text fallback is used (post positions from text label coordinates), some posts may have `x=0, y=0` if their text origin is at page origin. The midpoint of two (0,0) posts is (0,0). If any distance label happens to be near (0,0) on the page, it is matched. The resulting `meters` value is a real number, not `null`, so no warning is emitted and the downstream Phase 2 code receives a plausible-looking but incorrect distance.
-
-This is a data-integrity issue that could produce silently wrong KMZ output.
-
-**Fix:** After computing midpoint, check that at least one of the two posts has non-zero coordinates:
-```js
-if ((from.x === 0 && from.y === 0) || (to.x === 0 && to.y === 0)) {
-  warnings.push(`Post ${from.number} or ${to.number} has zero coordinates — distance association skipped.`);
-  distances.push({ from: from.number, to: to.number, meters: null });
-  continue;
-}
-```
+**Fix:** Remove the `export` keyword from `assemblePostData`, `PROXIMITY_THRESHOLD`, and `deduplicatePosts`, or add `@deprecated` JSDoc tags and a comment explaining they are retained only for unit testing.
 
 ---
 
-_Reviewed: 2026-05-14_
+_Reviewed: 2026-05-15T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
-
----
-
-## Supplemental deep review — post ↔ circle ↔ cable semantics (2026-05-14 follow-up)
-
-**Scope:** `parser/pdf-parser.js`, `parser/post-assembler.js`, `parser/distance-associator.js`, `parser/graphics-extractor.js`, `parser/layer-sources.js`, `parser/cable-builder.js`, `parser/construct-path-parser.js`.
-
-**Stale items in the sections above:** Several earlier findings are **fixed in the current tree**: `graphics-extractor.js` and `text-extractor.js` use a **layer stack** (addresses old CR-01 / WR-01); `pdf-parser.js` attaches **`pageNum`** to circles and candidates and uses a **cross-page penalty** in `assemblePostData` (addresses old CR-03); distance fallback is **merged only when the layer list is empty** (addresses old CR-02); `PROXIMITY_THRESHOLD` is **200** pt in `post-assembler.js` (old WR-03 text referred to 50 pt). Treat the numbered issues below as the active review for “still wrong values after multiple fixes.”
-
-### S-CR-01 (Critical): Target behavior is not what the code optimizes for
-
-**User intent:** Sequential labels like `01`, `02`, … inside **circle geometry**, then the **closest post** to that circle, **considering the cable**.
-
-**What the pipeline actually does:**
-
-1. **Circles:** Centroids come from Numero_Poste (or layer `0`) path subpaths or CTM `(e,f)` fallback (`graphics-extractor.js`, `construct-path-parser.js`). There is **no point-in-circle test** and no use of circle **radius** when pairing text — only distance to the **centroid** within `PROXIMITY_THRESHOLD` (`post-assembler.js`, `integerTextsNearCircles` in `pdf-parser.js`).
-2. **Posts:** Final coordinates are **always the circle centroid** after a match (`post-assembler.js` pushes `x: c.x, y: c.y`), not the digit anchor and not “closest point on cable.”
-3. **Cable:** `buildCableSegments` decodes **Cabo Projetado** polylines only for segment listing / branch warnings. **`associateDistances` never reads `cableSegments` or `allCablePaths`** — it uses the **straight segment** between post `(x,y)` and picks the nearest distance label to that segment (`distance-associator.js`). Parallel spans or labels offset from the chord can systematically pick the **wrong** meter value.
-
-**Impact:** Even with perfect circle extraction and layer stacks, the **association model** can disagree with a human who judges “inside the red circle” and “along the drawn conductor.” That explains persistent wrong values **without** implying a single low-level bug.
-
----
-
-### S-CR-02 (Critical): `assemblePostData` is globally greedy on distance only — not on “correct digit for this circle”
-
-**File:** `parser/post-assembler.js` (`assemblePostData`).
-
-**Behavior:** Among all unused `(text, circle)` pairs with Euclidean distance ≤ 200 pt (same page preferred via huge penalty), the algorithm repeatedly picks the **single smallest distance** and commits it.
-
-**Why this fails:** If two labels are each near two circles (symmetric or chain-like layout), **minimum-edge greedy** does not solve a **bipartite matching** problem optimally and does not use the **numeric identity** of the label vs any prior knowledge of route order. Swapped assignments can have very similar total edge length but wrong post numbers at each circle.
-
-**Mitigation directions (design, not implemented):** Hungarian / min-cost matching with costs; or **primary** association by digit **inside** circle bbox; or constrain by **sequential order along cable polyline**.
-
----
-
-### S-WN-01 (Warning): Leading zeros collapse; duplicate numeric keys merge unpredictably
-
-**Files:** `parser/post-assembler.js`, `parser/pdf-parser.js` (`deduplicatePostsPreferLowerPage`).
-
-**Behavior:** Labels `01` and `1` both become `number: 1` via `parseInt`. Deduplication keeps **one** post per integer (`deduplicatePostsPreferLowerPage`).
-
-**Impact:** PDFs that use zero-padded labels alongside other `1`-digit noise, or two different physical posts that normalize to the same integer, lose information or the wrong row wins by **page number** heuristic.
-
----
-
-### S-WN-02 (Warning): “First isolated digit” masking can attach the wrong digit to a circle
-
-**Files:** `parser/pdf-parser.js` — `maskedDigitsNearCentroids`, `computePageCircleAnchorStats` (masked branch), `posteLabelsNearCircles` / `loosePostDigitsFromLabelItems`.
-
-**Behavior:** After `maskConductorLikeSpecs`, **`re.exec(masked)` runs once** per text item (first match only). Composite strings can yield a digit that is **not** the post index the author meant for that geometry.
-
-**Impact:** Wrong candidate enters `postCandidates`, then greedy proximity can lock it to a circle.
-
----
-
-### S-WN-03 (Warning): Inconsistent anchors — Poste-layer proximity uses left edge, other paths use width/2
-
-**File:** `parser/pdf-parser.js` — `posteLabelsNearCircles` uses `it.x` vs circle for `minD`, but emitted candidates use the same `it.x` while `postCandidateAnchorXY` / `textAnchor` use **mid-width** elsewhere.
-
-**Impact:** A wide Poste string can be judged “near” a circle with the left edge while the visual digit sits farther, or vice versa — threshold 200 pt hides some of this but not all scales/fonts.
-
----
-
-### S-WN-04 (Warning): Distance pairing assumes sorted post **numbers** are consecutive along the route
-
-**File:** `parser/distance-associator.js`.
-
-**Behavior:** Pairs are `(sortedPosts[i], sortedPosts[i+1])` by **numeric id**, not by graph order along the cable.
-
-**Impact:** Missing post, branch, or non-monotonic sheet layout yields **N→N+1** pairs that are not the true consecutive spans; the nearest label to the chord is then **meaningless** for the real span.
-
----
-
-### S-IN-01 (Info): Layer `"0"` circle filter depends on page-space bbox span
-
-**File:** `parser/graphics-extractor.js` — `layer0Span = { min: 16, max: 360 }` passed into `circleCentroidsFromSubpaths`.
-
-**Impact:** Exports at very different scales can drop real markers or retain non-post geometry. If circles are missing, downstream “near circle” logic has nothing to latch onto.
-
----
-
-### Suggested verification order (for debugging “wrong values”)
-
-1. Log **`postAssemblyCircles.length`**, **`postCandidates.length`**, and **`rawPosts.length`** after `assemblePostData` (already partly logged) and, for a failing PDF, dump **per-pair** `(label, circleIdx, distance)` for the greedy loop to see swaps vs threshold.
-2. Overlay **cable polylines** with post centroids and distance label anchors — if labels sit on the **curve** but far from the **chord**, implement **distance-to-polyline** (or accumulate along cable) before blaming OCG/text.
-3. If the product requirement is literally **digit inside circle**, add **radius-aware** containment (from path bbox or known template) rather than centroid-only thresholds.
-
----
-
-_Supplement reviewed: 2026-05-14_
-_Depth: deep (semantic + cross-module)_
