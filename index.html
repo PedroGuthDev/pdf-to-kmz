@@ -253,7 +253,10 @@
       currentParseData = {
         posts: result.posts,
         distances: result.distances,
-        cableSegments: result.cableSegments
+        cableSegments: result.cableSegments,
+        utmGridPathsPerPage: result.utmGridPathsPerPage,
+        viewportBoxes: result.viewportBoxes,
+        pageDimensions: result.pageDimensions,
       };
 
       // D-15: Continuous flow — show coordinate form immediately, no confirmation gate
@@ -294,12 +297,18 @@
       // Deep clone to avoid mutating the original parse result on multiple runs
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
       
+      const utmCalibrationData = {
+        utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
+        viewportBoxes: currentParseData.viewportBoxes,
+        pageDimensions: currentParseData.pageDimensions,
+      };
       const { posts: calculatedPosts, connections } = calculateCoordinates(
-        postsCopy, 
-        currentParseData.distances, 
-        lat, 
+        postsCopy,
+        currentParseData.distances,
+        lat,
         lon,
-        currentParseData.cableSegments
+        currentParseData.cableSegments,
+        utmCalibrationData
       );
 
       console.log("[pdf-to-kmz] Generated connections:", connections);
