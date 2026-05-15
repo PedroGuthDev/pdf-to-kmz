@@ -189,10 +189,22 @@ export function assemblePostsFromOcr(ocrResults) {
     return a.circle.y - b.circle.y;         // same column — top-to-bottom
   });
 
-  // Compute a generous upper bound from total circle count (CR-02).
-  // Any OCR number above this is certainly a coordinate/label value, not a post number.
-  const MAX_PLAUSIBLE_POST = Math.max(ocrResults.length * 2, 50);
+  // Upper bound on a real post number = total Numero_Poste circle count.
+  // Each post has exactly one Numero_Poste centroid, so the highest valid post
+  // number is bounded by the number of OCR'd circles (which equals the total
+  // Numero_Poste path count fed in by pdf-parser.js). Anything above this is a
+  // coordinate, label code, or distance value misread by OCR.
+  const MAX_PLAUSIBLE_POST = ocrResults.length;
   const posts = [];
+
+  // Pre-compute which entries can serve as sequence-inference anchors:
+  // only OCR reads that pass the plausibility gate qualify. Without this,
+  // an implausible misread (e.g. number=46 on a 22-circle PDF) gets rejected
+  // by the main loop but is still picked up as `lower`/`upper` by the
+  // inference search below, poisoning every interpolated value.
+  const isAnchor = sorted.map(
+    r => r.number !== null && r.number >= 1 && r.number <= MAX_PLAUSIBLE_POST
+  );
 
   for (let i = 0; i < sorted.length; i++) {
     const { circle, number } = sorted[i];
@@ -216,19 +228,23 @@ export function assemblePostsFromOcr(ocrResults) {
       }
     }
 
-    // OCR failed — infer from nearest known neighbours in sorted order (D-07)
+    // OCR failed — infer from nearest plausible OCR anchors in sorted order (D-07).
     warnings.push(
       `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
       `page ${circle.pageNum ?? '?'}: OCR failed — attempting sequence inference`
     );
 
-    const lower = sorted.slice(0, i).reverse().find(r => r.number !== null);
-    const upper = sorted.slice(i + 1).find(r => r.number !== null);
+    let lower = null, lowerIdx = -1;
+    for (let k = i - 1; k >= 0; k--) {
+      if (isAnchor[k]) { lower = sorted[k]; lowerIdx = k; break; }
+    }
+    let upper = null, upperIdx = -1;
+    for (let k = i + 1; k < sorted.length; k++) {
+      if (isAnchor[k]) { upper = sorted[k]; upperIdx = k; break; }
+    }
 
     let inferred = null;
     if (lower && upper) {
-      const lowerIdx = sorted.indexOf(lower);
-      const upperIdx = sorted.indexOf(upper);
       const span = upperIdx - lowerIdx;
       const offset = i - lowerIdx;
       inferred = lower.number + Math.round((upper.number - lower.number) * (offset / span));

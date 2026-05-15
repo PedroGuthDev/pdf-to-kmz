@@ -1,83 +1,141 @@
 ---
 phase: 01-pdf-parser-engine
-fixed_at: 2026-05-14T16:42:06Z
+fixed_at: 2026-05-15T00:00:00Z
 review_path: .planning/phases/01-pdf-parser-engine/01-REVIEW.md
-iteration: 1
-findings_in_scope: 7
-fixed: 7
+iteration: 2
+findings_in_scope: 9
+fixed: 9
 skipped: 0
+post_review_fixes: 2
 status: all_fixed
 ---
 
 # Phase 01: Code Review Fix Report
 
-**Fixed at:** 2026-05-14T16:42:06Z
+**Fixed at:** 2026-05-15T00:00:00Z
 **Source review:** `.planning/phases/01-pdf-parser-engine/01-REVIEW.md`
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope (Critical + Warning): 7 (CR-01 through CR-05, WR-01, WR-02, WR-03)
-- Fixed: 7
+- Findings in scope: 9 (CR-01, CR-02, CR-03, CR-04, WR-01, WR-02, WR-03, WR-04, WR-05)
+- Fixed: 9
 - Skipped: 0
-
-Note: WR-01 is the text-extractor analog of CR-01 and was fixed atomically in the same commit as CR-01 part 2. WR-02 was fixed atomically with CR-01 part 1. WR-03 was fixed atomically with CR-03.
 
 ---
 
 ## Fixed Issues
 
-### CR-01 + WR-02: Replace `activeLayer` with `layerStack` in `graphics-extractor.js`
+### CR-01: Layer 0 span filter too wide
 
 **Files modified:** `parser/graphics-extractor.js`
-**Commit:** `9464272`
-**Applied fix:** Removed the single `activeLayer = null` variable and replaced it with `layerStack = []`. Added `OPS_BEGIN_MARKED_CONTENT` (fn=69, BMC) constant and handler that pushes `null`. The existing `OPS_BEGIN_MARKED` (fn=70, BDC) handler now pushes the resolved layer name (or `null` if not found) instead of setting a single variable. `OPS_END_MARKED` (fn=71, EMC) pops one entry regardless of push source. `OPS_CONSTRUCT_PATH` reads the top of the stack inline via `layerStack[layerStack.length - 1]`. This preserves the outer BDC layer name when an inner BMC's EMC fires, fixing the root cause of "1 of 11 posts detected".
-
-Also bundled WR-02: added `console.warn` when `readMatrix6` returns null in the OPS_TRANSFORM handler, instead of silently keeping stale CTM.
+**Commit:** a940df8
+**Applied fix:** Changed `layer0Span` for `activeLayer === '0'` from `{ min: 16, max: 360 }` to `{ min: 50, max: 120 }`. This excludes cable segments, dimension lines, and pole-symbol rectangles whose bounding boxes fall outside the 50-120 pt range expected for ~35pt-radius post-marker circles. Added explanatory comment noting the tightening from the previous permissive range.
 
 ---
 
-### CR-01 + WR-01 + CR-05: Replace `activeLayer` with `layerStack` + add `TL` handler in `text-extractor.js`
+### CR-02: No plausibility gate on OCR numbers
 
-**Files modified:** `parser/text-extractor.js`
-**Commit:** `216abc4`
-**Applied fix:** Same layer-stack approach as graphics-extractor: added `OPS_BEGIN_MARKED_CONTENT` (fn=69) constant and handler, updated `OPS_BEGIN_MARKED` (fn=70) to push onto stack, `OPS_END_MARKED` (fn=71) pops. Show-text operators read the stack top inline.
-
-Also bundled CR-05: added `OPS_SET_LEADING = 38` (TL) constant and handler `leading = args[0]`. The existing `OPS_NEXT_LINE` (T*) handler already uses `leading`, so it now correctly advances by the value set by TL rather than always advancing by 0.
+**Files modified:** `parser/post-assembler.js`
+**Commit:** b13f951
+**Applied fix:** Added `const MAX_PLAUSIBLE_POST = Math.max(ocrResults.length * 2, 50)` before the `for` loop in `assemblePostsFromOcr`. Replaced the unconditional `if (number !== null) { posts.push(...); continue; }` block with a two-branch range check: numbers outside `[1, MAX_PLAUSIBLE_POST]` emit a warning and fall through to sequence inference; numbers in range still push and `continue` as before. `const posts = []` kept in place.
 
 ---
 
-### CR-02: Prevent `allDistItems` double-population in `pdf-parser.js`
+### CR-03: Sort ignores Y — vertically stacked circles misordered
+
+**Files modified:** `parser/post-assembler.js`
+**Commit:** f1cd582
+**Applied fix:** Replaced the two-key sort `(pageNum then x)` with a three-key comparator `(pageNum then x then y)`. When two circles share a page and their X positions differ by at most 10pt, they are treated as the same column and sorted by ascending Y (top-to-bottom). Sequence inference neighbours are now consistent for vertically arranged routes.
+
+---
+
+### CR-04: OCR crop window too large
+
+**Files modified:** `parser/ocr-extractor.js`
+**Commit:** d63541f
+**Applied fix:** Changed `CROP_RADIUS_PX` from `60` to `40` (20pt radius at 2x scale). Updated the STEP 3 comment to accurately describe the tighter crop that wraps only the inner region of the circle where the post digit is printed, excluding annotation text placed outside the circle edge.
+
+---
+
+### WR-01: Layer 0 unconditional — applied even when named layers present
+
+**Files modified:** `parser/graphics-extractor.js`, `parser/pdf-parser.js`
+**Commit:** 515e38b
+**Applied fix:** `extractLayerGraphics` now returns `namedLayerCircles` (Numero_Poste and named aliases) and `layer0Circles` (AutoCAD default layer "0") as separate arrays alongside the merged `circles` union. In `pdf-parser.js`, `flippedCircles` is built from `namedFlipped` when any named-layer circles exist for the page; `layer0Flipped` is used only as a fallback when `namedFlipped.length === 0`. JSDoc return type and inline comments updated in both files.
+
+---
+
+### WR-02: Sequence inference can produce post number 0
+
+**Files modified:** `parser/post-assembler.js`
+**Commit:** d2fbaac
+**Applied fix:** Added `&& inferred <= MAX_PLAUSIBLE_POST` to the sequence-inference accept guard. The guard was `inferred !== null && inferred >= 1`; it is now `inferred !== null && inferred >= 1 && inferred <= MAX_PLAUSIBLE_POST`. `MAX_PLAUSIBLE_POST` is in scope from the CR-02 fix in the same function.
+
+---
+
+### WR-03: D-10 filter defeated by layer 0 centroids
+
+**Files modified:** `parser/graphics-extractor.js`, `parser/pdf-parser.js`
+**Commit:** 515e38b
+**Applied fix:** (Same commit as WR-01.) The `isBadCtmPage` check in `pdf-parser.js` now evaluates `namedFlipped` (named-layer circles only) instead of the full `flippedCircles`. Layer-0 centroids from cable linework no longer prevent the degenerate-CTM page skip from triggering on pages where `Numero_Poste` paths have a bad CTM.
+
+---
+
+### WR-04: No post-count sanity check
 
 **Files modified:** `parser/pdf-parser.js`
-**Commit:** `bc4bb9f`
-**Applied fix:** The all-page getTextContent scan now pushes distance candidates into a separate `allDistItemsFallback` array instead of directly into `allDistItems`. After the scan loop, `allDistItemsFallback` is merged into `allDistItems` only when `allDistItems.length === 0` (i.e., layer-filtered extraction found nothing). A warning is emitted when the fallback is used. This prevents every distance label from appearing twice when layer-filtered extraction succeeds.
+**Commit:** 8a99237
+**Applied fix:** After `const posts = deduplicatePostsPreferLowerPage(rawPosts)`, added a block that checks whether `Math.max(...posts.map(p => p.number)) > posts.length * 3` and, if so, pushes a warning describing the suspicious ratio and suggesting the layer-0 span filter as the likely cause.
 
 ---
 
-### CR-03 + WR-03: Add `pageNum` to collected items + penalise cross-page circle matches
+### WR-05: Tesseract worker created per page
 
-**Files modified:** `parser/pdf-parser.js`, `parser/post-assembler.js`
-**Commit:** `d47f097`
-**Applied fix (pdf-parser.js):** Added `pageNum` to `pageCache` entries. All collected items now carry `pageNum`: circles in `allCircles`, text items in `allTextoItems` and `allDistItems`, and integer items in `allIntItems` and `allDistItemsFallback`.
-
-**Applied fix (post-assembler.js):** Added `CROSS_PAGE_PENALTY = 1e6` constant. In the nearest-circle search, computes a `score = distance + crossPagePenalty` where the penalty is applied when `text.pageNum !== circle.pageNum`. Nearest circle is selected by score (same-page circles always beat cross-page circles), but the threshold check still uses the raw geometric distance. Also added WR-03 diagnostic log: each post candidate logs its nearest circle distance and whether it is a cross-page match.
-
----
-
-### CR-04: Add explicit warning when no post candidates found from any source
-
-**Files modified:** `parser/pdf-parser.js`
-**Commit:** `820b439`
-**Applied fix:** After building `postCandidates`, checks `allIntItems.length === 0 && allTextoItems.length === 0` and pushes a `'CRITICAL: No post number candidates found...'` warning so empty-candidate failure is visible. Also removed the misleading earlier warning that fired when `allTextoItems` was empty (even though `allIntItems` — the primary source — is always populated), replacing it with a comment clarifying that `allIntItems` is always populated.
+**Files modified:** `parser/ocr-extractor.js`, `parser/pdf-parser.js`
+**Commit:** e48f893
+**Applied fix:** Extracted worker lifecycle into a new exported `createOcrWorker()` function in `ocr-extractor.js`. `ocrCircleNumbers` now accepts `worker` as a required 5th parameter and no longer calls `createWorker`, `setParameters`, or `terminate` internally. In `pdf-parser.js`, `ocrWorker` is created via `createOcrWorker()` before the page loop, passed into each `ocrCircleNumbers` call, and terminated with `await ocrWorker.terminate()` after the loop. `TESSERACT_CDN` is now a named export.
 
 ---
 
 ## Skipped Issues
 
-None — all in-scope findings were fixed.
+None — all 9 in-scope findings were successfully fixed.
 
 ---
 
-_Fixed: 2026-05-14T16:42:06Z_
+## Post-Review Fixes
+
+Discovered during manual testing after the code review cycle closed.
+
+### PRF-01: Fill+stroke circle duplicates doubled OCR input
+
+**Files modified:** `parser/graphics-extractor.js`
+**Commit:** 3ea0a47
+**Applied fix:** Each Numero_Poste post circle is drawn with two `constructPath` calls (fill + stroke), producing two identical centroids. This doubled the OCR input (11 → 22 entries), causing sequence inference to run on the fill/stroke partner of each circle and generate wrong inferred post numbers. Added `dedupeByProximity(<8pt)` on `namedLayerCircles` and `layer0Circles` before returning; logs how many duplicates were removed.
+
+---
+
+### PRF-02: OCR pipeline could not reliably read post digits
+
+**Files modified:** `parser/ocr-extractor.js`, `parser/post-assembler.js`
+**Commit:** (this commit)
+**Applied fix (ocr-extractor.js):**
+- Render scale raised from 2× to 6× so small overview-page circles (digits ~6 pt tall) have enough native pixels for Tesseract without blurry upscaling.
+- Replaced fixed-radius crop with connected-component analysis: scan a 25 pt window around the path centroid for red pixels, group into components, select the component whose bounding box matches a post-marker ring (5–22 pt on each side, aspect 0.6–1.7), then crop the ring interior with an adaptive shrink.
+- Fallback (no red ring found): fixed 50 px crop centred on the path centroid with a console warning.
+- Binarization step: convert crop to strict black-on-white before Tesseract (dark pixels → black; red ring outline, background, anti-aliasing → white). Eliminates Tesseract confusion from the red circle outline.
+- Upscaling for tiny crops: if the binarized crop is smaller than 120 px, upscale with high-quality smoothing so Tesseract has ≥25 px character height.
+- PSM changed from 7 (single word) to 6 (single uniform block) — PSM 7/8 returned empty on clean binarized inputs; PSM 6 is the most permissive mode that still respects character ordering.
+- Lenient number parse: pick the last digit run from the Tesseract output (handles leading "0" artefacts, stray spaces). Max-plausibility gating happens downstream.
+- Debug output: emit base64 PNG data URLs for the first 6 failed crops per page so misses can be diagnosed visually.
+
+**Applied fix (post-assembler.js):**
+- `MAX_PLAUSIBLE_POST` tightened from `ocrResults.length * 2` to `ocrResults.length` — each post has exactly one centroid, so the highest valid post number equals the total circle count.
+- `isAnchor[]` pre-computed flag array: only OCR reads that pass the plausibility gate qualify as sequence-inference anchors. This prevents a misread (e.g. number=46 on a 22-circle PDF) from being picked up as a `lower`/`upper` boundary and poisoning every interpolated value.
+- Sequence-inference neighbour search rewritten to skip non-anchor entries, with explicit forward/backward index tracking (eliminates the `indexOf` call that would return the wrong index when duplicates exist).
+
+---
+
+_Fixed: 2026-05-15T00:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
