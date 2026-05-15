@@ -98,7 +98,17 @@
 
   <section id="coordForm">
     <h2>Step 2: Enter First Post Coordinates</h2>
-    <p>Coming in Phase 2</p>
+    <p>Provide the GPS coordinates for post #1 to calculate the entire route.</p>
+    <label for="gpsInput">Post #1 Coordinates (Lat, Lon):</label>
+    <input type="text" id="gpsInput" placeholder="-27.645312, -48.671234" style="width: 300px; padding: 6px;">
+    <button id="calcBtn" style="padding: 6px 12px; margin-left: 8px;">Calculate Route</button>
+    <div id="coordWarning" style="color: #b00020; margin-top: 8px; font-size: 0.9em; display: none;"></div>
+  </section>
+
+  <section id="resultSection" style="display: none; margin-top: 32px;">
+    <h2>Step 3: Output</h2>
+    <p>Preview of calculated posts (up to first 10):</p>
+    <pre id="outputPreview" style="background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px;"></pre>
   </section>
 
   <script>
@@ -120,7 +130,7 @@
   </script>
 
   <script type="module">
-    import { parsePdf } from './parser/pdf-parser.js';
+    import { parsePdf, parseCoordinateInput, validateBrazilBounds, calculateCoordinates } from './parser/pdf-parser.js';
 
     const pdfInput   = document.getElementById('pdfInput');
     const statusEl   = document.getElementById('status');
@@ -129,6 +139,13 @@
     const warningsEl = document.getElementById('warnings');
     const warningsList = document.getElementById('warningsList');
     const coordForm  = document.getElementById('coordForm');
+    const gpsInput   = document.getElementById('gpsInput');
+    const calcBtn    = document.getElementById('calcBtn');
+    const coordWarning = document.getElementById('coordWarning');
+    const resultSection = document.getElementById('resultSection');
+    const outputPreview = document.getElementById('outputPreview');
+
+    let currentParseData = null; // Store posts and distances from Phase 1
 
     function showStatus(message, type) {
       statusEl.textContent = message;
@@ -148,6 +165,9 @@
       warningsEl.style.display = 'none';
       warningsList.innerHTML = '';
       coordForm.style.display = 'none';
+      resultSection.style.display = 'none';
+      coordWarning.style.display = 'none';
+      currentParseData = null;
     }
 
     function showWarnings(warnings) {
@@ -229,11 +249,66 @@
       }
       summaryEl.style.display = 'block';
 
+      // Store data for coordinate calculation
+      currentParseData = {
+        posts: result.posts,
+        distances: result.distances
+      };
+
       // D-15: Continuous flow — show coordinate form immediately, no confirmation gate
       coordForm.style.display = 'block';
 
       // D-07: Show all parser warnings
       showWarnings(result.warnings);
+    });
+
+    calcBtn.addEventListener('click', () => {
+      coordWarning.style.display = 'none';
+      resultSection.style.display = 'none';
+
+      const inputVal = gpsInput.value;
+      const parsed = parseCoordinateInput(inputVal);
+
+      if (!parsed) {
+        coordWarning.textContent = 'Invalid coordinate format. Try e.g. -27.645312, -48.671234';
+        coordWarning.style.display = 'block';
+        return;
+      }
+
+      const { lat, lon } = parsed;
+      const boundsCheck = validateBrazilBounds(lat, lon);
+      
+      if (!boundsCheck.valid) {
+        // D-15: Show warning but do not reject
+        coordWarning.textContent = 'Warning: ' + boundsCheck.message;
+        coordWarning.style.display = 'block';
+      }
+
+      if (!currentParseData || !currentParseData.posts.length) {
+        coordWarning.textContent = 'No parsed posts available.';
+        coordWarning.style.display = 'block';
+        return;
+      }
+
+      // Deep clone to avoid mutating the original parse result on multiple runs
+      const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
+      
+      const calculatedPosts = calculateCoordinates(
+        postsCopy, 
+        currentParseData.distances, 
+        lat, 
+        lon
+      );
+
+      // Display preview
+      resultSection.style.display = 'block';
+      const preview = calculatedPosts.slice(0, 10).map(p => {
+        const latStr = p.lat !== undefined ? p.lat.toFixed(6) : 'N/A';
+        const lonStr = p.lon !== undefined ? p.lon.toFixed(6) : 'N/A';
+        return `Post ${String(p.number).padStart(2, '0')}: ${latStr}, ${lonStr} ${p.postType ? '('+p.postType+')' : ''}`;
+      }).join('\n');
+      
+      outputPreview.textContent = preview + (calculatedPosts.length > 10 ? '\n... and ' + (calculatedPosts.length - 10) + ' more' : '');
     });
   </script>
 
