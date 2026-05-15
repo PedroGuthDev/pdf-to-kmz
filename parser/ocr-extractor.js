@@ -61,7 +61,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
   // Circle center in canvas coordinates:
   //   canvasCx = Math.round(circle.x * SCALE)  — x unchanged (no flipY on x)
   //   canvasCy = Math.round(circle.y * SCALE)  — circle.y is already flipY distance from top
-  const CROP_RADIUS_PX = 40; // 20pt radius at 2× scale
+  const CROP_RADIUS_PX = 70; // 35pt radius at 2× scale — matches actual circle radius so the full number is captured
   const results = [];
 
   for (const circle of circles) {

@@ -245,8 +245,11 @@ export async function parsePdf(arrayBuffer) {
       // NOTE: pdf-parser.js uses namedLayerCircles/layer0Circles for WR-01/WR-03 split logic.
       const gfxResult = await extractLayerGraphics(page, idToName);
       console.info(
-        `[pdf-to-kmz] parse: page ${pageNum}/${pdfDoc.numPages} circles=${gfxResult.circles.length} ` +
-          `posteGfx=${(gfxResult.posteSymbols ?? []).length} cablePaths=${gfxResult.cablePaths.length}`
+        `[pdf-to-kmz] parse: page ${pageNum}/${pdfDoc.numPages}` +
+        ` namedCircles=${(gfxResult.namedLayerCircles ?? []).length}` +
+        ` layer0Circles=${(gfxResult.layer0Circles ?? []).length}` +
+        ` posteGfx=${(gfxResult.posteSymbols ?? []).length}` +
+        ` cablePaths=${gfxResult.cablePaths.length}`
       );
 
       // ── Collect post-label text (canonical TEXTO / Numero_Poste + vendor OCG aliases) ─

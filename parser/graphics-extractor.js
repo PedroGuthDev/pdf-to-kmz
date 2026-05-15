@@ -186,8 +186,26 @@ export async function extractLayerGraphics(page, idToName) {
     }
   }
 
+  // Deduplicate circles by proximity — AutoCAD often emits fill + stroke as two separate
+  // constructPath calls on the same layer, both with the same centroid. Without dedup,
+  // the OCR loop runs twice per circle and sequence inference produces spurious posts.
+  const dedupeByProximity = (pts, threshold = 8) => {
+    const kept = [];
+    for (const c of pts) {
+      if (!kept.some(k => Math.hypot(k.x - c.x, k.y - c.y) < threshold)) kept.push(c);
+    }
+    return kept;
+  };
+  const dedupedNamed = dedupeByProximity(namedLayerCircles);
+  const dedupedLayer0 = dedupeByProximity(layer0Circles);
+  if (dedupedNamed.length !== namedLayerCircles.length) {
+    console.info(
+      `[pdf-to-kmz] gfx: deduped namedLayer circles ${namedLayerCircles.length} → ${dedupedNamed.length}`
+    );
+  }
+
   // circles = merged union for backward compat; pdf-parser.js uses namedLayerCircles/layer0Circles
   // for WR-01 (layer-0 fallback) and WR-03 (D-10 named-layer-only filter).
-  const circles = [...namedLayerCircles, ...layer0Circles];
-  return { circles, namedLayerCircles, layer0Circles, posteSymbols, cablePaths, byLayer };
+  const circles = [...dedupedNamed, ...dedupedLayer0];
+  return { circles, namedLayerCircles: dedupedNamed, layer0Circles: dedupedLayer0, posteSymbols, cablePaths, byLayer };
 }
