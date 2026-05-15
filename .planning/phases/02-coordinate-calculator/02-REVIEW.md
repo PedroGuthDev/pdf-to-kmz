@@ -1,54 +1,30 @@
-# Phase 2: Plan Review Summary
-
-**Reviewed:** 2026-05-15
-**Source:** 02-RESEARCH.md findings applied to 02-01-PLAN.md and 02-02-PLAN.md
-
+---
+status: "clean"
+files_reviewed: 3
+critical: 0
+warning: 0
+info: 1
+total: 1
 ---
 
-## Issues Found & Fixed
+# Code Review: Phase 2 - Coordinate Calculator
 
-### CRITICAL: Bearing Formula Double-Negation (Plan 02-01 T-02)
+## Scope
+- `parser/coordinate-calculator.js`
+- `parser/pdf-parser.js`
+- `index.html`
 
-**Severity:** Critical -- would produce 180-degree inverted bearings (all posts placed in the wrong direction)
+## Assessment
+The code satisfies all requirements for Phase 02. The topology mapping handles branching perfectly, and the math for GPS coordinate projection correctly accounts for bearing angle using the established flat-Earth approximation (`cos(lat)` adjustment for longitude). 
 
-**Root cause:** The original plan defined `dy = -(next.y - curr.y)` (correct: northward component) but then called `atan2(dx, -dy)`, which double-negates back to the southward direction.
+### Findings
 
-**Fix applied:** Changed to explicit `atan2(dx, northward)` where `northward = curr.y - next.y`. Added verification checks (north = 0 degrees, east = 90 degrees) and a prominent warning in the plan text.
+### INF-1: Fallback Scale Factor Logging
+- **Location:** `parser/coordinate-calculator.js:223`
+- **Description:** The fallback logic logs a warning `console.warn("[pdf-to-kmz] No known distances found...")` if `scaleFactor` ends up being 0. This is good for debugging, but in a production UI, the user will not see `console.warn` outputs.
+- **Action:** Since this is an informational finding, no immediate action is required. However, consider surfacing this warning in the `index.html` UI warnings list in a future phase if projects regularly lack distance labels.
 
-### MEDIUM: Missing coordForm Section Reference (Plan 02-01 T-04)
+## Conclusion
+The implementation is solid, well-encapsulated, and uses proper data cloning to avoid side-effects between consecutive recalculations. The output contract (`connections` array with `gap` and `bearing` flags) is perfectly set up for Phase 3 KMZ generation.
 
-**Severity:** Medium -- could cause duplicate UI sections
-
-**Root cause:** Plan didn't mention that `<section id="coordForm">` already exists in index.html (lines 99-102) with placeholder "Coming in Phase 2".
-
-**Fix applied:** T-04 action now explicitly says to modify the existing section, not create a new one.
-
-### LOW: Cable Segments Lack pageNum (Plan 02-02 T-02)
-
-**Severity:** Low -- not actually a bug, but needed documentation
-
-**Root cause:** `buildCableSegments()` receives only `ops` arrays (pageNum stripped at pdf-parser.js line 411). Gap detection needs cable proximity checks.
-
-**Fix applied:** Added note that all detail pages share coordinate space, so absolute coordinates work. Added inline proximity check guidance to avoid importing from cable-builder.js.
-
-### LOW: OCR Gap vs Branch Gap Ambiguity (Plan 02-02 T-01)
-
-**Severity:** Low -- could misclassify OCR misses as branch boundaries
-
-**Root cause:** Plan only used "number gap" heuristic for branch detection. OCR can miss sequential numbers, creating false number gaps.
-
-**Fix applied:** Added spatial distance threshold (100 PDF points) to distinguish branch boundaries (far apart) from OCR misses (close together).
-
----
-
-## Verification Matrix
-
-| Requirement | Plan | Task | Status |
-|---|---|---|---|
-| COORD-01: User inputs GPS coords | 02-01 | T-04 | Covered |
-| COORD-02: Bearing from PDF layout | 02-01 | T-02 | Covered (formula fixed) |
-| COORD-03: Flat-Earth projection | 02-01 | T-02 | Covered |
-| COORD-04: Branch handling | 02-02 | T-01 | Covered |
-| COORD-05: Gap detection | 02-02 | T-02 | Covered |
-
-## Plans Status: REVIEWED AND CORRECTED
+Code review passes.
