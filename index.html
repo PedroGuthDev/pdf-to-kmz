@@ -252,7 +252,8 @@
       // Store data for coordinate calculation
       currentParseData = {
         posts: result.posts,
-        distances: result.distances
+        distances: result.distances,
+        cableSegments: result.cableSegments
       };
 
       // D-15: Continuous flow — show coordinate form immediately, no confirmation gate
@@ -293,22 +294,31 @@
       // Deep clone to avoid mutating the original parse result on multiple runs
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
       
-      const calculatedPosts = calculateCoordinates(
+      const { posts: calculatedPosts, connections } = calculateCoordinates(
         postsCopy, 
         currentParseData.distances, 
         lat, 
-        lon
+        lon,
+        currentParseData.cableSegments
       );
+
+      console.log("[pdf-to-kmz] Generated connections:", connections);
+
+      const branchStarts = connections.filter(c => c.from !== c.to - 1).length;
+      const gaps = connections.filter(c => c.gap).length;
 
       // Display preview
       resultSection.style.display = 'block';
+      
+      const summaryText = `\nConnections: ${connections.length} (${gaps} gaps, ${branchStarts} branch junctions)\n`;
+      
       const preview = calculatedPosts.slice(0, 10).map(p => {
         const latStr = p.lat !== undefined ? p.lat.toFixed(6) : 'N/A';
         const lonStr = p.lon !== undefined ? p.lon.toFixed(6) : 'N/A';
         return `Post ${String(p.number).padStart(2, '0')}: ${latStr}, ${lonStr} ${p.postType ? '('+p.postType+')' : ''}`;
       }).join('\n');
       
-      outputPreview.textContent = preview + (calculatedPosts.length > 10 ? '\n... and ' + (calculatedPosts.length - 10) + ' more' : '');
+      outputPreview.textContent = summaryText + preview + (calculatedPosts.length > 10 ? '\n... and ' + (calculatedPosts.length - 10) + ' more' : '');
     });
   </script>
 

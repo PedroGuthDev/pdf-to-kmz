@@ -56,76 +56,264 @@ export function validateBrazilBounds(lat, lon) {
 }
 
 /**
- * Calculate GPS coordinates for all posts in a linear sequence.
+ * Detect route topology (main route vs branches) based on post numbering and spatial proximity.
  *
- * Algorithm:
- * 1. Sort posts by number ascending
- * 2. Assign startLat/startLon to post #1 (lowest-numbered — D-14)
- * 3. For each sequential pair, calculate bearing from PDF coords and project GPS
+ * @param {Array<{ number: number, x: number, y: number }>} posts
+ * @returns {{ mainRoute: number[], branches: Array<{ start: number, end: number, junctionPost: number|null }> }}
+ */
+export function detectRouteTopology(posts) {
+  if (!posts || posts.length === 0) return { mainRoute: [], branches: [] };
+
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const mainRoute = [];
+  const branches = [];
+  
+  let currentSequence = mainRoute;
+  
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    if (i === 0) {
+      currentSequence.push(p.number);
+      continue;
+    }
+    
+    const prev = sorted[i - 1];
+    
+    // Check for a sequence gap
+    if (p.number - prev.number > 1) {
+      const dist = Math.hypot(p.x - prev.x, p.y - prev.y);
+      // D-08: Branch boundary if spatially far apart (> 100pt). Otherwise it's an OCR miss.
+      if (dist > 100) {
+        const existingPosts = sorted.slice(0, i);
+        let bestJunc = null;
+        let minD = Infinity;
+        // D-07: Junction is the nearest existing post in PDF space
+        for (const ep of existingPosts) {
+          const d = Math.hypot(ep.x - p.x, ep.y - p.y);
+          if (d < minD) {
+            minD = d;
+            bestJunc = ep;
+          }
+        }
+        const b = { 
+          start: p.number, 
+          end: p.number, 
+          junctionPost: bestJunc ? bestJunc.number : null, 
+          _posts: [] 
+        };
+        branches.push(b);
+        currentSequence = b._posts;
+      }
+    }
+    
+    currentSequence.push(p.number);
+    if (currentSequence !== mainRoute) {
+      branches[branches.length - 1].end = p.number;
+    }
+  }
+  
+  return { 
+    mainRoute, 
+    branches: branches.map(b => ({ start: b.start, end: b.end, junctionPost: b.junctionPost })) 
+  };
+}
+
+/**
+ * Detect gaps in the route where sequential posts lack a connecting cable.
  *
- * Bearing formula (D-02, RESEARCH Section 1):
- *   After flipY: +x = east, +y = south (y increases downward)
- *   bearingRad = atan2(dx, northward) where northward = curr.y - next.y
- *   CRITICAL: Do NOT double-negate. See 02-RESEARCH.md double-negation trap.
- *
- * GPS projection (D-05, RESEARCH Section 2):
- *   Flat-Earth approximation with cos(lat) correction.
- *   Error < 0.01m over full route at street-level distances.
+ * @param {Array<{ number: number, x: number, y: number }>} posts
+ * @param {Array<{ from: number, to: number, meters: number|null }>} distances
+ * @param {Array<{ ops: Array<{ x?: number, y?: number }> }>} cableSegments
+ * @returns {Array<{ from: number, to: number }>}
+ */
+export function detectGaps(posts, distances, cableSegments) {
+  const gaps = [];
+  const distMap = new Map();
+  for (const d of distances) {
+    distMap.set(`${d.from}->${d.to}`, d.meters);
+    distMap.set(`${d.to}->${d.from}`, d.meters);
+  }
+
+  const topology = detectRouteTopology(posts);
+  const branchStarts = new Set(topology.branches.map(b => b.start));
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+
+  const nearPost = (op, post, threshold) => Math.hypot(op.x - post.x, op.y - post.y) < threshold;
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i];
+    const next = sorted[i + 1];
+
+    if (branchStarts.has(next.number)) {
+      continue; // This pair crosses a branch boundary
+    }
+
+    // Check if ANY cable segment passes near both posts
+    let connected = false;
+    for (const segment of (cableSegments || [])) {
+      let nearA = false;
+      let nearB = false;
+      for (const op of segment.ops) {
+        if (!nearA && op.x !== undefined && nearPost(op, curr, 50)) nearA = true;
+        if (!nearB && op.x !== undefined && nearPost(op, next, 50)) nearB = true;
+        if (nearA && nearB) {
+          connected = true;
+          break;
+        }
+      }
+      if (connected) break;
+    }
+
+    const hasDistance = distMap.get(`${curr.number}->${next.number}`) != null;
+
+    // D-10: It's a gap if no cable connects them AND there's no distance label
+    if (!connected && !hasDistance) {
+      gaps.push({ from: curr.number, to: next.number });
+    }
+  }
+
+  return gaps;
+}
+
+/**
+ * Calculate GPS coordinates for all posts in the route graph (main route + branches).
+ * Also outputs a connections array for KMZ drawing.
  *
  * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} posts
  * @param {Array<{ from: number, to: number, meters: number|null }>} distances
  * @param {number} startLat  Latitude of post #1.
  * @param {number} startLon  Longitude of post #1.
- * @returns {Array<{ number: number, x: number, y: number, lat: number, lon: number, pageNum?: number, postType?: string }>}
- *   Posts enriched with lat/lon fields (D-16). Posts with no distance get undefined lat/lon.
+ * @param {Array<{ ops: Array<{ x?: number, y?: number }> }>} cableSegments
+ * @returns {{ posts: Array, connections: Array }}
  */
-export function calculateCoordinates(posts, distances, startLat, startLon) {
-  if (!posts || posts.length === 0) return [];
+export function calculateCoordinates(posts, distances, startLat, startLon, cableSegments = []) {
+  if (!posts || posts.length === 0) return { posts: [], connections: [] };
 
-  // 1. Sort posts by number ascending
   const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const postMap = new Map(sorted.map(p => [p.number, p]));
 
-  // Build a lookup map: distance from post A -> post B
   const distMap = new Map();
   for (const d of distances) {
     distMap.set(`${d.from}->${d.to}`, d.meters);
     distMap.set(`${d.to}->${d.from}`, d.meters); // bidirectional lookup
   }
 
-  // 2. Assign starting coordinates to post #1 (D-14)
+  const topology = detectRouteTopology(sorted);
+  const gaps = detectGaps(sorted, distances, cableSegments);
+  const gapSet = new Set(gaps.map(g => `${g.from}->${g.to}`));
+
+  const connections = [];
+
+  // Calculate scale factor (average meters / pdfDistance) for gap crossing (D-11)
+  let sumMeters = 0;
+  let sumPdf = 0;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (topology.branches.some(br => br.start === b.number)) continue;
+    const m = distMap.get(`${a.number}->${b.number}`);
+    if (m != null && m > 0) {
+      sumMeters += m;
+      sumPdf += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+  }
+  const scaleFactor = sumPdf > 0 ? sumMeters / sumPdf : 0;
+
+  if (scaleFactor === 0 && gaps.length > 0) {
+    console.warn("[pdf-to-kmz] No known distances found. Gap estimation fallback to unscaled PDF points.");
+  }
+
+  // Assign starting coordinates
   sorted[0].lat = startLat;
   sorted[0].lon = startLon;
 
-  // 3. Propagate coordinates for each sequential pair
-  for (let i = 0; i < sorted.length - 1; i++) {
+  const branchStarts = new Set(topology.branches.map(b => b.start));
+  const branchJunctionMap = new Map(topology.branches.map(b => [b.start, b.junctionPost]));
+
+  for (let i = 0; i < sorted.length; i++) {
     const curr = sorted[i];
-    const next = sorted[i + 1];
 
-    // Skip if current post has no coordinates (gap from earlier)
-    if (curr.lat === undefined || curr.lon === undefined) continue;
+    // Check if this is a branch start
+    if (branchStarts.has(curr.number)) {
+      const junctionId = branchJunctionMap.get(curr.number);
+      if (junctionId != null) {
+        const junc = postMap.get(junctionId);
+        if (junc && junc.lat !== undefined && junc.lon !== undefined) {
+          let m = distMap.get(`${junc.number}->${curr.number}`);
+          const pdfD = Math.hypot(curr.x - junc.x, curr.y - junc.y);
+          if (m == null) {
+            m = pdfD * (scaleFactor || 1); // fallback to 1 if scaleFactor is 0
+          }
+          
+          const dx = curr.x - junc.x;
+          const dy = junc.y - curr.y;
+          const bearingRad = Math.atan2(dx, dy);
+          const bearingDeg = (bearingRad * 180 / Math.PI + 360) % 360;
 
-    // Calculate bearing from PDF x,y positions
-    // After flipY: +x = east, y increases downward = south
-    // North component = curr.y - next.y (smaller y = further north)
-    const dx = next.x - curr.x;
-    const northward = curr.y - next.y;
-    const bearingRad = Math.atan2(dx, northward);
-    const bearingDeg = (bearingRad * 180 / Math.PI + 360) % 360;
+          if (m > 0) {
+            const dLat = (m * Math.cos(bearingRad)) / 111320;
+            const dLon = (m * Math.sin(bearingRad)) / (111320 * Math.cos(junc.lat * Math.PI / 180));
+            curr.lat = junc.lat + dLat;
+            curr.lon = junc.lon + dLon;
+          } else {
+            curr.lat = junc.lat;
+            curr.lon = junc.lon;
+          }
 
-    // Look up distance between this pair
-    const meters = distMap.get(`${curr.number}->${next.number}`);
-
-    if (meters != null && meters > 0) {
-      // Project GPS using flat-Earth approximation (D-05)
-      // 111320 meters ≈ 1 degree of latitude at WGS-84
-      const dLat = (meters * Math.cos(bearingRad)) / 111320;
-      const dLon = (meters * Math.sin(bearingRad)) / (111320 * Math.cos(curr.lat * Math.PI / 180));
-
-      next.lat = curr.lat + dLat;
-      next.lon = curr.lon + dLon;
+          connections.push({
+            from: junc.number,
+            to: curr.number,
+            meters: m,
+            bearing: bearingDeg,
+            gap: false // branch junction lines are always logically connected
+          });
+        }
+      }
     }
-    // If meters is null (gap), leave lat/lon undefined — Plan 02-02 handles gaps.
+
+    // Process forward connection within the same route sequence
+    if (i < sorted.length - 1) {
+      const next = sorted[i + 1];
+
+      // Skip if the next post starts a new branch
+      if (branchStarts.has(next.number)) continue;
+
+      if (curr.lat !== undefined && curr.lon !== undefined) {
+        let m = distMap.get(`${curr.number}->${next.number}`);
+        const isGap = gapSet.has(`${curr.number}->${next.number}`);
+        
+        const pdfD = Math.hypot(next.x - curr.x, next.y - curr.y);
+        
+        if (m == null) {
+          m = pdfD * (scaleFactor || 1);
+        }
+
+        const dx = next.x - curr.x;
+        const dy = curr.y - next.y;
+        const bearingRad = Math.atan2(dx, dy);
+        const bearingDeg = (bearingRad * 180 / Math.PI + 360) % 360;
+
+        if (m > 0) {
+          const dLat = (m * Math.cos(bearingRad)) / 111320;
+          const dLon = (m * Math.sin(bearingRad)) / (111320 * Math.cos(curr.lat * Math.PI / 180));
+          
+          next.lat = curr.lat + dLat;
+          next.lon = curr.lon + dLon;
+        } else {
+          next.lat = curr.lat;
+          next.lon = curr.lon;
+        }
+
+        connections.push({
+          from: curr.number,
+          to: next.number,
+          meters: m,
+          bearing: bearingDeg,
+          gap: isGap
+        });
+      }
+    }
   }
 
-  return sorted;
+  return { posts: sorted, connections };
 }
