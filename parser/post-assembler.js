@@ -189,19 +189,31 @@ export function assemblePostsFromOcr(ocrResults) {
     return a.circle.y - b.circle.y;         // same column — top-to-bottom
   });
 
+  // Compute a generous upper bound from total circle count (CR-02).
+  // Any OCR number above this is certainly a coordinate/label value, not a post number.
+  const MAX_PLAUSIBLE_POST = Math.max(ocrResults.length * 2, 50);
   const posts = [];
 
   for (let i = 0; i < sorted.length; i++) {
     const { circle, number } = sorted[i];
 
     if (number !== null) {
-      posts.push({
-        number,
-        x: circle.x,
-        y: circle.y,
-        ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
-      });
-      continue;
+      if (number < 1 || number > MAX_PLAUSIBLE_POST) {
+        warnings.push(
+          `OCR at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
+          `page ${circle.pageNum ?? '?'}: rejected implausible number ${number} ` +
+          `(valid range 1–${MAX_PLAUSIBLE_POST})`
+        );
+        // fall through to sequence-inference block
+      } else {
+        posts.push({
+          number,
+          x: circle.x,
+          y: circle.y,
+          ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
+        });
+        continue;
+      }
     }
 
     // OCR failed — infer from nearest known neighbours in sorted order (D-07)
