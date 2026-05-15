@@ -345,6 +345,20 @@ export async function parsePdf(arrayBuffer) {
     warnings.push(...postWarnings);
     const posts = deduplicatePostsPreferLowerPage(rawPosts);
 
+    // ── WR-04: Sanity-check post numbers vs total count ──────────────────────
+    // If the maximum post number greatly exceeds the count, OCR likely read
+    // coordinate values or label numbers as post numbers.
+    if (posts.length > 0) {
+      const maxNum = Math.max(...posts.map(p => p.number));
+      if (maxNum > posts.length * 3) {
+        warnings.push(
+          `Suspicious post numbers: highest number ${maxNum} is more than 3× the ` +
+          `post count ${posts.length}. OCR may have read coordinate or label values ` +
+          `as post numbers. Check graphics layer filtering (layer '0' span filter).`
+        );
+      }
+    }
+
     console.info(
       '[pdf-to-kmz] parse: ocrResults=', allOcrResults.length,
       'rawPosts=', rawPosts.length, 'final posts=', posts.length,
