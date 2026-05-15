@@ -238,7 +238,7 @@ export function assemblePostsFromOcr(ocrResults) {
       inferred = upper.number - 1;
     }
 
-    if (inferred !== null && inferred >= 1) {
+    if (inferred !== null && inferred >= 1 && inferred <= MAX_PLAUSIBLE_POST) {
       posts.push({
         number: inferred,
         x: circle.x,
