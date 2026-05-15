@@ -31,7 +31,7 @@ Implement GPS coordinate calculation for all extracted posts using a UTM-grid-ba
 ### Page 2 overview — calibrating detail page coordinate systems
 
 - **D-REV-08:** Page 2 is used for coordinate calibration — NOT ignored entirely. Page 2 provides: (a) the UTM grid for scale/orientation, (b) the viewport rectangle positions of each detail page labeled "03", "04", "05"… The viewport labels are large PDF text elements readable via `getTextContent()` (no OCR). Post OCR is still skipped on page 2 (D-04 partially preserved).
-- **D-REV-09:** Viewport boxes on page 2 are matched to detail pages by extracting the large label text ("03", "04", "05") near each rectangle via `getTextContent()`. The rectangle geometry comes from the graphics layer (likely "Moldura" or similar — exact layer name to be determined during research by inspecting real PDF layer names).
+- **D-REV-09:** Viewport boxes on page 2 are matched to detail pages by extracting the large label text ("03", "04", "05") near each rectangle via `getTextContent()`. The rectangle geometry comes from the **"Padrão"** OCG layer (confirmed by user inspection of real INFOVIAS PDF, 2026-05-15).
 - **D-REV-10:** Post #1 is never looked for on page 2 via OCR. Post #1's page-3 coordinates are already known from detail page parsing (Phase 1). To establish the page-2 coordinate system, post #1's position is mathematically projected from page-3 space into page-2 space using the viewport box geometry:
   ```
   x_p2 = box.x + (x1_p3 / page3_width)  * box.width
@@ -142,7 +142,7 @@ Implement GPS coordinate calculation for all extracted posts using a UTM-grid-ba
 
 - The "UTM" OCG layer name is confirmed — add to `layer-sources.js`.
 - The viewport box labels "03", "04", "05" on page 2 are large PDF text elements (not rendered image) — readable via `getTextContent()` without OCR.
-- The viewport box rectangle geometry on page 2 comes from the graphics layer (exact layer name to be determined during research — look for "Moldura", "Layout", "Quadro", or any layer containing the blue rectangles visible in the overview screenshot).
+- The viewport box rectangle geometry on page 2 comes from the **"Padrão"** OCG layer (confirmed by user inspection of real INFOVIAS PDF, 2026-05-15).
 - The overview page 2 is the same PDF page that D-04 excluded from post OCR. D-04 remains in effect for OCR. What changes: the "UTM" layer and viewport rectangles ARE extracted from page 2 for calibration purposes.
 - Post #1 location in page-2 overview space is computed, not OCR'd: `x_p2 = box.x + (x1_p3 / page3_width) * box.width` (and similarly for y). No rendering needed.
 - SIRGAS zone for Brazil: determine from longitude — zone = floor((lon + 180) / 6) + 1. Most of Brazil falls in zones 18–25S.

@@ -213,11 +213,9 @@ function medianGridSpacing(lines, posKey) {
 
 ## 3. Page 2 Viewport Rectangle Extraction
 
-### Layer Name — To Be Confirmed by Inspection
+### Layer Name — CONFIRMED: "Padrão"
 
-CONTEXT.md D-REV-09 identifies "Moldura", "Layout", or "Quadro" as candidates for the layer containing viewport rectangles. [ASSUMED: exact layer name unknown until real PDF inspection]
-
-**What we know:** `byLayer` in `gfxResult` collects all non-special layers. At runtime, logging `Object.keys(gfxResult.byLayer)` on page 2 will reveal the actual layer names. The planner should include a walking skeleton task (inspection step) before committing to a specific layer name.
+The viewport rectangle layer is named **"Padrão"** — confirmed by user inspection of the real INFOVIAS PDF. [VERIFIED: user-provided, 2026-05-15]
 
 **Pattern to add to `layer-sources.js`:**
 
@@ -225,12 +223,7 @@ CONTEXT.md D-REV-09 identifies "Moldura", "Layout", or "Quadro" as candidates fo
 // Source: layer-sources.js pattern [VERIFIED: codebase inspection]
 export function isViewportRectLayerName(rawName) {
   if (rawName == null || rawName === '') return false;
-  const n = normalizeName(rawName);
-  if (n === normalizeName('Moldura')) return true;
-  if (n === normalizeName('Layout')) return true;
-  if (n === normalizeName('Quadro')) return true;
-  // Add more as discovered from real PDF inspection
-  return false;
+  return normalizeName(rawName) === normalizeName('Padrão');
 }
 ```
 
@@ -903,11 +896,9 @@ parsePdf(arrayBuffer)
 
 **How to avoid:** Always verify: moving a post DOWN the page (increasing y) should produce a smaller northing (further south). Test: if origin post is at y=100 and a post is at y=200, its northing should be `origin_n - 100 * scale` (less northing = further south). [VERIFIED: sign convention confirmed by algorithm analysis]
 
-### Pitfall 3: Viewport Layer Name Unknown at Code Time
+### Pitfall 3: Viewport Layer Name — RESOLVED
 
-**What goes wrong:** Hardcoding "Moldura" or "Quadro" before inspecting a real PDF, then finding the actual layer has a different name.
-
-**How to avoid:** The first plan (walking skeleton / inspection task) MUST log `Object.keys(gfxResult.byLayer)` for page 2 and identify which layer contains the large rectangular paths. Add all confirmed names to `isViewportRectLayerName()`.
+Layer name is **"Padrão"** — confirmed by user inspection of real INFOVIAS PDF (2026-05-15). `isViewportRectLayerName()` checks for this exact name. No walking skeleton inspection needed for this question.
 
 ### Pitfall 4: UTM Grid Not Found on Page 2
 
@@ -963,7 +954,7 @@ e = origin_e + (px * scaleX) * scaleFactor
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Viewport rectangle layer is named "Moldura", "Layout", or "Quadro" | §3 | Layer not found → viewport extraction fails → no page calibration; walking skeleton will resolve |
+| A1 | Viewport rectangle layer is named "Padrão" | §3 | [VERIFIED: user-confirmed 2026-05-15] — no risk |
 | A2 | getTextContent() is not affected by OCG visibility settings | §3 | Viewport labels "03","04","05" not returned → no page matching; verified empirically against pdfjs behavior |
 | A3 | WGS-84 constants used for SIRGAS-2000 (difference < 1mm) | §5 | < 1mm positional error — negligible for this application |
 | A4 | cross-page post transitions in detectRouteTopology() treated as branch boundaries is acceptable | §10 | Could produce spurious "branch" entries for cross-page sequential routes; needs validation with real multi-page PDF |
@@ -974,15 +965,14 @@ e = origin_e + (px * scaleX) * scaleFactor
 
 ## Open Questions
 
-1. **Exact viewport rectangle layer name**
-   - What we know: CONTEXT.md suggests "Moldura", "Layout", or "Quadro"
-   - What's unclear: the actual OCG name in the real INFOVIAS PDF
-   - Recommendation: Walking skeleton task — log `Object.keys(gfxResult.byLayer)` on page 2, identify the layer with large rectangular paths
+1. **Exact viewport rectangle layer name** — **RESOLVED**
+   - Layer name is **"Padrão"** — confirmed by user inspection of real INFOVIAS PDF (2026-05-15)
+   - No walking skeleton inspection needed for this question
 
-2. **Whether viewport boxes and UTM grid appear on the same layer or separate layers on page 2**
-   - What we know: The UTM layer name "UTM" is confirmed; viewport rectangle layer is separate
-   - What's unclear: whether the viewport rectangles are in a dedicated OCG or in a catch-all layer
-   - Recommendation: Same walking skeleton inspection as above
+2. **Whether viewport boxes and UTM grid appear on the same layer or separate layers on page 2** — **RESOLVED**
+   - "UTM" layer: UTM grid lines
+   - "Padrão" layer: viewport rectangle boxes
+   - These are separate OCG layers on page 2
 
 3. **How detectRouteTopology behaves with cross-page posts in the actual PDF**
    - What we know: cross-page posts have different page-local coords; `Math.hypot` distances will be large
