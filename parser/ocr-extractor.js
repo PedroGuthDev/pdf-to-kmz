@@ -1,11 +1,32 @@
 // parser/ocr-extractor.js
 // OCR-based post number extraction using Tesseract.js.
-// Renders each PDF route page to OffscreenCanvas at 2× scale, crops a 120px window
+// Renders each PDF route page to OffscreenCanvas at 2× scale, crops a tight window
 // around each circle centroid, and runs Tesseract (digits whitelist, PSM-7).
 //
-// Named ESM export only — no default export, no CommonJS require.
+// Worker lifecycle is managed by the caller (pdf-parser.js) — create once before
+// the page loop, pass into ocrCircleNumbers, terminate after all pages (WR-05).
+//
+// Named ESM exports only — no default export, no CommonJS require.
 
-const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+export const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+
+/**
+ * Create and configure a Tesseract worker for digit OCR.
+ * Caller is responsible for calling worker.terminate() when done.
+ *
+ * @returns {Promise<import('tesseract.js').Worker>}
+ */
+export async function createOcrWorker() {
+  // Dynamic import so a CDN failure at load time doesn't prevent the event listener from registering.
+  // v5 ESM bundle uses `export default { createWorker, ... }` — destructure from .default.
+  const { createWorker } = (await import(TESSERACT_CDN)).default;
+  const worker = await createWorker('eng', 1, { logger: () => {} });
+  await worker.setParameters({
+    tessedit_char_whitelist: '0123456789',
+    tessedit_pageseg_mode: '7',
+  });
+  return worker;
+}
 
 /**
  * OCR post numbers from rendered circle crops on a single PDF page.
@@ -14,9 +35,11 @@ const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesserac
  * @param {number} pageHeight  page.view[3]
  * @param {Array<{x: number, y: number, pageNum?: number}>} circles
  *   Circle centroids with flipY already applied (y = pageHeight - rawY, y increases downward).
+ * @param {object|null} ocConfigPromise  Optional OptionalContentConfig promise for forcing all layers visible.
+ * @param {import('tesseract.js').Worker} worker  Pre-created Tesseract worker (WR-05: shared across pages).
  * @returns {Promise<Array<{circle: {x: number, y: number, pageNum?: number}, number: number|null}>>}
  */
-export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise = null) {
+export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise = null, worker) {
   if (circles.length === 0) return [];
 
   // STEP 2 — Render full page to OffscreenCanvas at scale 2 (D-08: one render call, multiple crops)
@@ -31,17 +54,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
   if (ocConfigPromise) renderOpts.optionalContentConfigPromise = ocConfigPromise;
   await page.render(renderOpts).promise;
 
-  // STEP 3 — Initialize Tesseract.js worker (D-09: digits whitelist, PSM-7)
-  // Dynamic import so a CDN failure at load time doesn't prevent the event listener from registering.
-  // v5 ESM bundle uses `export default { createWorker, ... }` — destructure from .default.
-  const { createWorker } = (await import(TESSERACT_CDN)).default;
-  const worker = await createWorker('eng', 1, { logger: () => {} });
-  await worker.setParameters({
-    tessedit_char_whitelist: '0123456789',
-    tessedit_pageseg_mode: '7',
-  });
-
-  // STEP 4 — For each circle, crop and OCR
+  // STEP 3 — For each circle, crop and OCR
   // Crop tightly around the circle. Post circles are ~35pt radius; at scale=2
   // that is 70px. Using 40px (20pt radius) crops the inner region of the circle
   // where the digit is printed, excluding labels placed outside the circle edge (CR-04).
@@ -77,7 +90,5 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     results.push({ circle, number: num });
   }
 
-  // STEP 5 — Terminate worker and return
-  await worker.terminate();
   return results;
 }

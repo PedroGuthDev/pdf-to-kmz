@@ -24,7 +24,7 @@ import { isPostLabelSourceLayerName, isDistanceSourceLayerName } from './layer-s
 import { extractLayerText }                            from './text-extractor.js';
 import { extractLayerGraphics }                        from './graphics-extractor.js';
 import { deduplicatePostsPreferLowerPage } from './post-assembler.js';
-import { ocrCircleNumbers }                            from './ocr-extractor.js';
+import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js';
 import { assemblePostsFromOcr }                        from './post-assembler.js';
 import { associateDistances }                          from './distance-associator.js';
 import { buildCableSegments, minDistancePointToCablesOnPage } from './cable-builder.js';
@@ -228,6 +228,12 @@ export async function parsePdf(arrayBuffer) {
     // ── Distance fallback collector ──────────────────────────────────────────
     const allDistItemsFallback = [];
 
+
+    // ── WR-05: Create Tesseract worker once before page loop ─────────────────
+    // Creating a worker per page caused N CDN imports and N WASM inits on multi-page PDFs.
+    // The worker is shared across all pages and terminated after the loop.
+    const ocrWorker = await createOcrWorker();
+
     // ── Process all pages (D-09): each page is independent user space; results merged below ─
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
@@ -327,10 +333,14 @@ export async function parsePdf(arrayBuffer) {
 
       // ── OCR post numbers for this page (D-06, D-08) ──────────────────────────
       if (flippedCircles.length > 0) {
-        const pageOcrResults = await ocrCircleNumbers(page, pageHeight, flippedCircles, ocrOcPromise);
+        const pageOcrResults = await ocrCircleNumbers(page, pageHeight, flippedCircles, ocrOcPromise, ocrWorker);
         allOcrResults.push(...pageOcrResults);
       }
     }
+
+    // ── WR-05: Terminate shared OCR worker after all pages are processed ──────
+    await ocrWorker.terminate();
+
 
     // ── Merge distance fallback only when layer-filtered result is empty (CR-02) ─
     if (allDistItems.length === 0) {
