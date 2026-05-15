@@ -86,3 +86,27 @@ export function isPosteGraphicsLayerName(rawName) {
   if (rawName == null || rawName === '') return false;
   return normalizeName(rawName) === normalizeName('Poste');
 }
+
+/**
+ * Layers containing the 50m UTM grid lines used for per-page coordinate calibration.
+ * Canonical name: "UTM" (confirmed from INFOVIAS PDF metadata).
+ *
+ * @param {string|null|undefined} rawName
+ * @returns {boolean}
+ */
+export function isUtmGridLayerName(rawName) {
+  if (rawName == null || rawName === '') return false;
+  return normalizeName(rawName) === 'utm';
+}
+
+/**
+ * Layer containing viewport rectangle boundaries on page 2 (overview).
+ * Canonical name: "Padrão" — confirmed by user inspection of real INFOVIAS PDF (2026-05-15).
+ *
+ * @param {string|null|undefined} rawName
+ * @returns {boolean}
+ */
+export function isViewportRectLayerName(rawName) {
+  if (rawName == null || rawName === '') return false;
+  return normalizeName(rawName) === normalizeName('Padrão');
+}

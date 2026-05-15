@@ -20,7 +20,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
 
 import { buildOcgMap, validateLayers, normalizeName } from './ocg-map.js';
-import { isPostLabelSourceLayerName, isDistanceSourceLayerName } from './layer-sources.js';
+import { isPostLabelSourceLayerName, isDistanceSourceLayerName, isViewportRectLayerName, isUtmGridLayerName } from './layer-sources.js';
 import { extractLayerText }                            from './text-extractor.js';
 import { extractLayerGraphics }                        from './graphics-extractor.js';
 import { deduplicatePostsPreferLowerPage } from './post-assembler.js';
@@ -183,6 +183,55 @@ function flipYInOp(op, pageHeight) {
 }
 
 /**
+ * Extract an axis-aligned rectangle from a PathOp subpath.
+ * Operates on raw PDF coords (pre-flipY). Converts to flipY on return.
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {number} pageHeight
+ * @returns {{ x: number, y: number, w: number, h: number } | null}
+ */
+function extractRectFromSubpath(ops, pageHeight) {
+  const pts = ops.filter(o => o.type === 'M' || o.type === 'L');
+  if (pts.length < 3) return null;
+  const xs = pts.map(p => p.x);
+  const ys = pts.map(p => p.y);
+  const distinctX = [...new Set(xs.map(v => Math.round(v)))];
+  const distinctY = [...new Set(ys.map(v => Math.round(v)))];
+  if (distinctX.length !== 2 || distinctY.length !== 2) return null;
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = maxX - minX, h = maxY - minY;
+  if (w < 50 || h < 50) return null;
+  // Convert from raw PDF (y-up) to flipY (y-down): top-left corner = (minX, pageHeight - maxY)
+  return { x: minX, y: pageHeight - maxY, w, h };
+}
+
+/**
+ * Pair viewport labels to rectangles by nearest centroid.
+ * Labels use raw y (item.transform[5]); rect.y is flipY. Convert label.y to flipY for pairing.
+ *
+ * @param {Array<{ label: string, x: number, y: number }>} labels  raw PDF coords
+ * @param {Array<{ rect: { x: number, y: number, w: number, h: number } }>} rects  flipY coords
+ * @param {number} pageHeight
+ * @returns {Array<{ pageNum: number, rect: { x: number, y: number, w: number, h: number } }>}
+ */
+function pairLabelsToRects(labels, rects, pageHeight) {
+  const paired = [];
+  for (const lbl of labels) {
+    const lblY_flipY = pageHeight - lbl.y; // convert label raw y to flipY
+    let best = null, bestDist = Infinity;
+    for (const r of rects) {
+      const cx = r.rect.x + r.rect.w / 2;
+      const cy = r.rect.y + r.rect.h / 2; // rect already in flipY
+      const d = Math.hypot(lbl.x - cx, lblY_flipY - cy);
+      if (d < bestDist) { bestDist = d; best = r; }
+    }
+    if (best) paired.push({ pageNum: parseInt(lbl.label, 10), rect: best.rect });
+  }
+  return paired;
+}
+
+/**
  * Parse an INFOVIAS PDF and return structured post, distance, and cable data.
  *
  * @param {ArrayBuffer} arrayBuffer  PDF file contents from FileReader.arrayBuffer().
@@ -213,6 +262,10 @@ export async function parsePdf(arrayBuffer) {
     const allDistItems = [];
     const allCablePaths = [];
     const allPosteRaw = [];
+    const utmGridPathsPerPage = new Map();   // Map<pageNum, PathOp[][]> — UTM layer, flipY applied
+    const viewportBoxes = [];                // Array<{ pageNum, rect }> — page-2 boxes in flipY space
+    const viewportLabels = [];               // Array<{ label, x, y }> — raw PDF coords (pre-flipY)
+    const pageDimensions = new Map();        // Map<pageNum, { w, h }>
 
     // ── OCR collector (D-06) ─────────────────────────────────────────────────
     const allOcrResults = [];
@@ -252,6 +305,8 @@ export async function parsePdf(arrayBuffer) {
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
+      const pageWidth = page.view[2];
+      pageDimensions.set(pageNum, { w: pageWidth, h: pageHeight });
       if (pageNum === 1) console.info('[pdf-to-kmz] parse: page 1 view', page.view);
 
       const textByLayer = await extractLayerText(page, idToName);
@@ -265,6 +320,19 @@ export async function parsePdf(arrayBuffer) {
         ` posteGfx=${(gfxResult.posteSymbols ?? []).length}` +
         ` cablePaths=${gfxResult.cablePaths.length}`
       );
+
+      // ── Collect UTM grid paths for this page (flipY applied) ────────────────
+      {
+        const utmLayerPaths = [];
+        for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
+          if (isUtmGridLayerName(layerName)) {
+            for (const pathOps of pathArrays) {
+              utmLayerPaths.push(pathOps.map(op => flipYInOp(op, pageHeight)));
+            }
+          }
+        }
+        utmGridPathsPerPage.set(pageNum, utmLayerPaths);
+      }
 
       // ── Collect post-label text (canonical TEXTO / Numero_Poste + vendor OCG aliases) ─
       for (const [layerName, items] of Object.entries(textByLayer)) {
@@ -336,6 +404,26 @@ export async function parsePdf(arrayBuffer) {
         }
       }
 
+      // ── Page-2 overview: collect viewport rectangles and labels ─────────────
+      if (pageNum === 2) {
+        // Collect viewport rectangle boxes from "Padrão" layer (raw PDF coords — pre-flipY)
+        for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
+          if (isViewportRectLayerName(layerName)) {
+            for (const pathOps of pathArrays) {
+              const rect = extractRectFromSubpath(pathOps, pageHeight);
+              if (rect) viewportBoxes.push({ rect });
+            }
+          }
+        }
+        // Collect viewport labels "03", "04", "05" via getTextContent (no OCR needed)
+        for (const item of textContent.items) {
+          const s = (item.str ?? '').trim();
+          if (/^\d{2}$/.test(s) && parseInt(s, 10) >= 3) {
+            viewportLabels.push({ label: s, x: item.transform[4], y: item.transform[5] });
+          }
+        }
+      }
+
       // ── D-10 bad-page CTM filter: skip pages where ALL named-layer circles cluster near origin ──
       // Raw PDF: degenerate CTM pushes paths to (x≈2, rawY≈2). After flipY: x≈2, y≈pageHeight-2.
       // WR-03: evaluate only named-layer circles — layer-0 centroids are linework and not relevant.
@@ -358,6 +446,9 @@ export async function parsePdf(arrayBuffer) {
     // ── WR-05: Terminate shared OCR worker after all pages are processed ──────
     await ocrWorker.terminate();
 
+    // ── Pair page-2 viewport labels to rectangles ────────────────────────────
+    const page2Height = pageDimensions.get(2)?.h ?? 0;
+    const pairedViewportBoxes = pairLabelsToRects(viewportLabels, viewportBoxes, page2Height);
 
     // ── Merge distance fallback only when layer-filtered result is empty (CR-02) ─
     if (allDistItems.length === 0) {
@@ -414,6 +505,10 @@ export async function parsePdf(arrayBuffer) {
     const { cableSegments, warnings: cw } =
       buildCableSegments(allCablePaths.map(r => r.ops), []);
     warnings.push(...cw);
+    // Re-attach pageNum to cableSegments for same-page gap detection (RESEARCH.md §8)
+    allCablePaths.forEach((path, idx) => {
+      if (cableSegments[idx]) cableSegments[idx].pageNum = path.pageNum;
+    });
 
     // ── Return success contract (D-16) ───────────────────────────────────────
     return {
@@ -422,6 +517,9 @@ export async function parsePdf(arrayBuffer) {
       cableSegments,
       warnings,
       layerMap: { allNames },
+      utmGridPathsPerPage,
+      viewportBoxes: pairedViewportBoxes,
+      pageDimensions,
     };
 
   } catch (err) {
