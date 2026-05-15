@@ -102,12 +102,19 @@
   </section>
 
   <script>
-    // Polyfill Map.prototype.getOrInsertComputed — required by pdfjs-dist 5.x and
-    // Tesseract.js built against Chrome 136+ (TC39 upsert proposal, not yet in all browsers).
+    // Polyfills for TC39 APIs used by pdfjs-dist 5.x / Tesseract.js 5.x but not yet
+    // in all browsers (Chrome 136+/137+ required without these).
     if (!Map.prototype.getOrInsertComputed) {
       Map.prototype.getOrInsertComputed = function(key, callbackfn) {
         if (!this.has(key)) this.set(key, callbackfn(key));
         return this.get(key);
+      };
+    }
+    if (!Math.sumPrecise) {
+      Math.sumPrecise = function(values) {
+        let sum = 0;
+        for (const v of values) sum += v;
+        return sum;
       };
     }
   </script>
