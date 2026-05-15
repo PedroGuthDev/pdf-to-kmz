@@ -5,7 +5,7 @@
 //
 // Named ESM export only — no default export, no CommonJS require.
 
-const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.esm.min.js';
+const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
 /**
  * OCR post numbers from rendered circle crops on a single PDF page.
