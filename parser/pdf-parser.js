@@ -213,14 +213,24 @@ export async function parsePdf(arrayBuffer) {
     // ── OCR collector (D-06) ─────────────────────────────────────────────────
     const allOcrResults = [];
 
-    // Force all OCG layers visible for OCR rendering — post-number paths may be on a layer
-    // that is off by default in the PDF's display state, causing blank crops.
+    // Selective OCG visibility for OCR rendering (F-01):
+    // Only Numero_Poste and TEXTO layers are shown; all other layers are hidden.
+    // Forcing ALL layers visible caused stacked geometry (cables, dimensions, legends)
+    // to bleed over circle crops, producing corrupted Tesseract input.
     let ocrOcPromise = null;
     try {
       const ocConfig = await pdfDoc.getOptionalContentConfig();
+      const OCR_LAYER_NAMES = [
+        normalizeName('Numero_Poste'),
+        normalizeName('TEXTO'),
+      ];
       const flatOrder = arr => (arr ?? []).flatMap(item => Array.isArray(item) ? flatOrder(item) : [item]);
       for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
-        try { ocConfig.setVisibility(id, true); } catch (_) {}
+        try {
+          const layerName = idToName[id] ?? idToName[String(id)] ?? '';
+          const isOcrLayer = OCR_LAYER_NAMES.includes(normalizeName(layerName));
+          ocConfig.setVisibility(id, isOcrLayer);
+        } catch (_) {}
       }
       ocrOcPromise = Promise.resolve(ocConfig);
     } catch (_) {}
