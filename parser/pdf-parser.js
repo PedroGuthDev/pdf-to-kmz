@@ -146,22 +146,28 @@ function clusterPosteSymbolHints(allRaw, mergeRadius) {
  */
 function snapPostsToPosteLayerSymbols(posts, hints, maxSnapPt) {
   if (!posts.length || !hints.length) return;
-  for (const p of posts) {
+  // One-to-one greedy assignment: each Poste symbol claimed by at most one post.
+  // Prevents two posts from snapping to the same symbol when they're both within
+  // maxSnapPt of the nearest hint (which produced duplicate x,y coordinates).
+  const candidates = [];
+  for (let pi = 0; pi < posts.length; pi++) {
+    const p = posts[pi];
     const pg = p.pageNum ?? 1;
-    let best = null;
-    let bestD = maxSnapPt;
-    for (const h of hints) {
-      if ((h.pageNum ?? 1) !== pg) continue;
-      const d = Math.hypot(h.x - p.x, h.y - p.y);
-      if (d < bestD) {
-        bestD = d;
-        best = h;
-      }
+    for (let hi = 0; hi < hints.length; hi++) {
+      if ((hints[hi].pageNum ?? 1) !== pg) continue;
+      const d = Math.hypot(hints[hi].x - p.x, hints[hi].y - p.y);
+      if (d < maxSnapPt) candidates.push({ pi, hi, d });
     }
-    if (best) {
-      p.x = best.x;
-      p.y = best.y;
-    }
+  }
+  candidates.sort((a, b) => a.d - b.d);
+  const usedPost = new Set();
+  const usedHint = new Set();
+  for (const { pi, hi, d: _ } of candidates) {
+    if (usedPost.has(pi) || usedHint.has(hi)) continue;
+    posts[pi].x = hints[hi].x;
+    posts[pi].y = hints[hi].y;
+    usedPost.add(pi);
+    usedHint.add(hi);
   }
 }
 
@@ -421,12 +427,16 @@ export async function parsePdf(arrayBuffer) {
         // Two strategies:
         //   Pass 1 — each constructPath call is a complete closed rectangle (M L L L Z)
         //   Pass 2 — rectangles drawn as 4 separate line segments; reconstruct from H/V segments
+        // After CTM fix, coords are page-space. Filter out rects that span ≥60% of
+        // the page — those are the drawing border, not viewport thumbnails.
+        const maxVpW = pageWidth * 0.60;
+        const maxVpH = pageHeight * 0.60;
         for (const [layerName, pathArrays] of Object.entries(gfxResult.byLayer)) {
           if (!isViewportRectLayerName(layerName)) continue;
           // Pass 1: single-path rectangles
           for (const pathOps of pathArrays) {
             const rect = extractRectFromSubpath(pathOps, pageHeight);
-            if (rect) viewportBoxes.push({ rect });
+            if (rect && rect.w < maxVpW && rect.h < maxVpH) viewportBoxes.push({ rect });
           }
           // Pass 2: aggregate all H/V segments and reconstruct rectangles
           if (viewportBoxes.length === 0) {

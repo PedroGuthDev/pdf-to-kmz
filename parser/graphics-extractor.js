@@ -14,6 +14,38 @@
 import { parseConstructPath, circleCentroidsFromSubpaths } from './construct-path-parser.js';
 import { isCircleCentroidLayerName, isPosteGraphicsLayerName } from './layer-sources.js';
 
+/**
+ * Apply the current CTM to all coordinate fields of a PathOp array,
+ * converting from local/CAD space to page space.
+ * Required for byLayer and cablePaths so their coordinates are consistent
+ * with circle centroids (which already go through circleCentroidsFromSubpaths+CTM).
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {{ a: number, b: number, c: number, d: number, e: number, f: number }} ctm
+ * @returns {Array<import('./construct-path-parser.js').PathOp>}
+ */
+function applyCtmToPathOps(ops, ctm) {
+  const tx = (x, y) => ({
+    x: x * ctm.a + y * ctm.c + ctm.e,
+    y: x * ctm.b + y * ctm.d + ctm.f,
+  });
+  return ops.map(op => {
+    if (op.type === 'M' || op.type === 'L') {
+      const p = tx(op.x, op.y);
+      return { type: op.type, x: p.x, y: p.y };
+    }
+    if (op.type === 'C') {
+      const p1 = tx(op.x1, op.y1), p2 = tx(op.x2, op.y2), p3 = tx(op.x3, op.y3);
+      return { type: 'C', x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: p3.x, y3: p3.y };
+    }
+    if (op.type === 'C2') {
+      const p1 = tx(op.x1, op.y1), p2 = tx(op.x2, op.y2);
+      return { type: 'C2', x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+    }
+    return op; // Z or unknown — no coords
+  });
+}
+
 // Read 6 matrix values from operator args — handles both standard (6 individual
 // numbers) and packed (single Array/Float32Array in args[0]) formats.
 let _diagMatrixFormat = null;
@@ -172,13 +204,14 @@ export async function extractLayerGraphics(page, idToName) {
               }
             }
           } else if (activeLayer === LAYER_CABO_PROJETADO) {
-            cablePaths.push(parseConstructPath(args));
+            cablePaths.push(applyCtmToPathOps(parseConstructPath(args), ctm));
           } else {
             // Collect other layer paths for completeness.
+            // CTM applied so coordinates are in page-space (consistent with circle positions).
             if (!byLayer[activeLayer]) {
               byLayer[activeLayer] = [];
             }
-            byLayer[activeLayer].push(parseConstructPath(args));
+            byLayer[activeLayer].push(applyCtmToPathOps(parseConstructPath(args), ctm));
           }
         }
         break;
