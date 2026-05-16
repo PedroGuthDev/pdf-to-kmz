@@ -111,6 +111,29 @@
     <pre id="outputPreview" style="background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px;"></pre>
   </section>
 
+  <section id="debugSection" style="display: none; margin-top: 32px;">
+    <h2>Debug: Calibration Data</h2>
+    <pre id="debugOutput" style="background: #1e1e1e; color: #d4d4d4; padding: 14px; border-radius: 4px; overflow-x: auto; font-size: 12px; line-height: 1.5;"></pre>
+  </section>
+
+  <section id="refCompareSection" style="display: none; margin-top: 32px;">
+    <h2>Comparison vs Reference (coordenadas postes.txt)</h2>
+    <p style="font-size:0.9em; color:#555;">Enter reference coordinates below (one per line: "num; lat, lon") to compare against computed output.</p>
+    <textarea id="refInput" rows="12" style="width:100%; font-family:monospace; font-size:12px; padding:8px; box-sizing:border-box;">1	poste 01; -27.6594603999238, -48.699240275151034
+2	poste 02; -27.65942120761788, -48.699602010469185
+3	poste 03; -27.659382015296377, -48.700021269466035
+4	poste 04; -27.659346742194973, -48.700345393166934
+5	poste 05; -27.65930559022924, -48.700762439716044
+6	poste 06; -27.659270317104404, -48.70108213852094
+7	poste 07; -27.659231796350753, -48.70147947750159
+8	poste 08; -27.65918966453256, -48.70188546179813
+9	poste 09; -27.65914949231848, -48.70230140211723
+10	poste 10; -27.6591063806582, -48.702660924999286
+11	poste 11; -27.659066208413993, -48.702999429619396</textarea>
+    <button id="compareBtn" style="padding:6px 12px; margin-top:8px;">Compare</button>
+    <pre id="compareOutput" style="background:#f4f4f4; padding:12px; border-radius:4px; overflow-x:auto; font-size:12px; margin-top:8px; display:none;"></pre>
+  </section>
+
   <script>
     // Polyfills for TC39 APIs used by pdfjs-dist 5.x / Tesseract.js 5.x but not yet
     // in all browsers (Chrome 136+/137+ required without these).
@@ -131,6 +154,96 @@
 
   <script type="module">
     import { parsePdf, parseCoordinateInput, validateBrazilBounds, calculateCoordinates } from './parser/pdf-parser.js';
+    import { computeScaleFactor, buildPageTransforms } from './parser/geo/utm-calibrator.js';
+
+    // ── Debug helpers ──────────────────────────────────────────────────────────
+    const debugSection = document.getElementById('debugSection');
+    const debugOutput  = document.getElementById('debugOutput');
+
+    function showDebug(text) {
+      debugOutput.textContent = text;
+      debugSection.style.display = 'block';
+    }
+
+    function dumpCalibrationData(parseResult) {
+      const lines = [];
+      lines.push('══ PARSE DEBUG DUMP ══════════════════════════════════════════════════');
+
+      // Posts
+      lines.push(`\nPosts found: ${parseResult.posts.length}`);
+      for (const p of parseResult.posts) {
+        lines.push(`  Post ${String(p.number).padStart(2,'0')}: page=${p.pageNum ?? '?'}  x=${p.x != null ? p.x.toFixed(2) : '?'}  y=${p.y != null ? p.y.toFixed(2) : '?'}  type=${p.postType ?? '—'}`);
+      }
+
+      // Page dimensions
+      lines.push(`\nPage dimensions (w × h in PDF points):`);
+      if (parseResult.pageDimensions instanceof Map) {
+        for (const [pn, dim] of parseResult.pageDimensions) {
+          lines.push(`  Page ${pn}: ${dim.w.toFixed(2)} × ${dim.h.toFixed(2)} pt`);
+        }
+      } else {
+        lines.push('  pageDimensions is not a Map — empty or missing');
+      }
+
+      // UTM grid paths per page
+      lines.push(`\nUTM grid paths per page (isUtmGridLayerName hits):`);
+      if (parseResult.utmGridPathsPerPage instanceof Map) {
+        for (const [pn, paths] of parseResult.utmGridPathsPerPage) {
+          lines.push(`  Page ${pn}: ${paths.length} path(s)  total ops=${paths.reduce((s,p)=>s+p.length,0)}`);
+        }
+        if (parseResult.utmGridPathsPerPage.size === 0) {
+          lines.push('  (none found — UTM layer may be named differently or absent)');
+        }
+      } else {
+        lines.push('  utmGridPathsPerPage is not a Map');
+      }
+
+      // Scale factor (live computation)
+      lines.push(`\nScale factor computation:`);
+      const warnings = [];
+      let scaleFactor = null;
+      if (parseResult.utmGridPathsPerPage instanceof Map) {
+        const page2Paths = parseResult.utmGridPathsPerPage.get(2) ?? [];
+        scaleFactor = computeScaleFactor(page2Paths, warnings);
+        lines.push(`  Page 2 UTM paths: ${page2Paths.length}`);
+        lines.push(`  computeScaleFactor(page2) → ${scaleFactor !== null ? scaleFactor.toFixed(6) + ' m/pt' : 'null (not found)'}`);
+        if (scaleFactor === null) {
+          for (const [pn, paths] of parseResult.utmGridPathsPerPage) {
+            if (pn === 2) continue;
+            const sf = computeScaleFactor(paths, warnings);
+            lines.push(`  computeScaleFactor(page ${pn}) → ${sf !== null ? sf.toFixed(6) + ' m/pt' : 'null'}`);
+            if (sf !== null && scaleFactor === null) scaleFactor = sf;
+          }
+        }
+        if (scaleFactor !== null) {
+          lines.push(`  → Using scale factor: ${scaleFactor.toFixed(6)} m/pt`);
+          lines.push(`  → Implied 50m UTM grid spacing: ${(50 / scaleFactor).toFixed(1)} PDF points`);
+        } else {
+          lines.push(`  → NO scale factor found — all posts will get lat: null`);
+        }
+        if (warnings.length > 0) {
+          for (const w of warnings) lines.push(`  [warn] ${w}`);
+        }
+      }
+
+      // Viewport boxes (paired)
+      lines.push(`\nViewport boxes (paired from page-2 Padrão layer):`);
+      if (Array.isArray(parseResult.viewportBoxes)) {
+        lines.push(`  Count: ${parseResult.viewportBoxes.length}`);
+        for (const v of parseResult.viewportBoxes) {
+          const r = v.rect;
+          lines.push(`  pageNum=${v.pageNum}  x=${r.x.toFixed(1)}  y=${r.y.toFixed(1)}  w=${r.w.toFixed(1)}  h=${r.h.toFixed(1)}`);
+        }
+        if (parseResult.viewportBoxes.length === 0) {
+          lines.push('  (none found — Padrão layer rects may not be extractable)');
+        }
+      } else {
+        lines.push('  viewportBoxes is not an array');
+      }
+
+      lines.push('\n══ END DUMP ══════════════════════════════════════════════════════════');
+      return lines.join('\n');
+    }
 
     const pdfInput   = document.getElementById('pdfInput');
     const statusEl   = document.getElementById('status');
@@ -264,6 +377,10 @@
 
       // D-07: Show all parser warnings
       showWarnings(result.warnings);
+
+      // Debug: dump calibration data on-page
+      showDebug(dumpCalibrationData(result));
+      document.getElementById('refCompareSection').style.display = 'block';
     });
 
     calcBtn.addEventListener('click', () => {
@@ -313,6 +430,21 @@
 
       console.log("[pdf-to-kmz] Generated connections:", connections);
 
+      // Debug: dump post transforms and projected coords
+      {
+        const dbLines = debugOutput.textContent.split('\n');
+        const calcLines = [];
+        calcLines.push('\n══ CALCULATION DEBUG ═══════════════════════════════════════════════════');
+        calcLines.push(`\nProjected coordinates:`);
+        for (const p of calculatedPosts) {
+          const latStr = p.lat != null ? p.lat.toFixed(8) : 'null';
+          const lonStr = p.lon != null ? p.lon.toFixed(8) : 'null';
+          calcLines.push(`  Post ${String(p.number).padStart(2,'0')}: lat=${latStr}  lon=${lonStr}  page=${p.pageNum ?? '?'}  x=${p.x != null ? p.x.toFixed(2) : '?'}  y=${p.y != null ? p.y.toFixed(2) : '?'}`);
+        }
+        calcLines.push('\n══ END CALCULATION DEBUG ═══════════════════════════════════════════════');
+        showDebug(dbLines.join('\n') + '\n' + calcLines.join('\n'));
+      }
+
       const branchStarts = connections.filter(c => c.from !== c.to - 1).length;
       const gaps = connections.filter(c => c.gap).length;
 
@@ -328,6 +460,98 @@
       }).join('\n');
       
       outputPreview.textContent = summaryText + preview + (calculatedPosts.length > 10 ? '\n... and ' + (calculatedPosts.length - 10) + ' more' : '');
+    });
+    // ── Reference comparison ───────────────────────────────────────────────────
+    const compareBtn    = document.getElementById('compareBtn');
+    const compareOutput = document.getElementById('compareOutput');
+    const refInput      = document.getElementById('refInput');
+
+    // Haversine in-browser (no import needed)
+    function haversineM(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const phi1 = lat1 * Math.PI / 180, phi2 = lat2 * Math.PI / 180;
+      const dPhi = (lat2-lat1)*Math.PI/180, dLam = (lon2-lon1)*Math.PI/180;
+      const a = Math.sin(dPhi/2)**2 + Math.cos(phi1)*Math.cos(phi2)*Math.sin(dLam/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    compareBtn.addEventListener('click', () => {
+      if (!currentParseData) {
+        compareOutput.textContent = 'No parse data yet — upload a PDF first.';
+        compareOutput.style.display = 'block';
+        return;
+      }
+
+      // Parse reference lines: "1\tposte 01; -27.xxx, -48.xxx"
+      const refLines = refInput.value.trim().split('\n');
+      const refs = [];
+      for (const line of refLines) {
+        const m = line.match(/poste\s+(\d+)\s*;\s*([-\d.]+)\s*,\s*([-\d.]+)/i);
+        if (m) refs.push({ num: parseInt(m[1], 10), lat: parseFloat(m[2]), lon: parseFloat(m[3]) });
+      }
+      if (refs.length === 0) {
+        compareOutput.textContent = 'Could not parse reference lines. Expected format: "poste 01; -27.xxx, -48.xxx"';
+        compareOutput.style.display = 'block';
+        return;
+      }
+
+      // Re-run calculateCoordinates with post1 = first ref
+      const ref1 = refs.find(r => r.num === 1);
+      if (!ref1) {
+        compareOutput.textContent = 'Reference must include post #1.';
+        compareOutput.style.display = 'block';
+        return;
+      }
+
+      const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
+      const utmCalibrationData = {
+        utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
+        viewportBoxes: currentParseData.viewportBoxes,
+        pageDimensions: currentParseData.pageDimensions,
+      };
+      const { posts: calcPosts } = calculateCoordinates(
+        postsCopy,
+        currentParseData.distances,
+        ref1.lat, ref1.lon,
+        currentParseData.cableSegments,
+        utmCalibrationData
+      );
+
+      const postMap = new Map(calcPosts.map(p => [p.number, p]));
+
+      const lines = [];
+      const pad = (s, n) => String(s).padEnd(n);
+      lines.push(
+        pad('Post', 6) + pad('Ref lat', 20) + pad('Calc lat', 20) +
+        pad('Ref lon', 20) + pad('Calc lon', 20) + pad('Error (m)', 12) + 'Status'
+      );
+      lines.push('─'.repeat(102));
+
+      let maxErr = 0, nullCount = 0;
+      for (const ref of refs) {
+        const calc = postMap.get(ref.num);
+        if (!calc || calc.lat == null) {
+          lines.push(pad(ref.num, 6) + pad(ref.lat.toFixed(8), 20) + pad('null', 20) +
+                     pad(ref.lon.toFixed(8), 20) + pad('null', 20) + pad('—', 12) + '✗ NO GPS');
+          nullCount++;
+          continue;
+        }
+        const errM = haversineM(ref.lat, ref.lon, calc.lat, calc.lon);
+        if (errM > maxErr) maxErr = errM;
+        const ok = errM < 5 ? '✓' : errM < 50 ? '~' : '✗';
+        lines.push(
+          pad(ref.num, 6) + pad(ref.lat.toFixed(8), 20) + pad(calc.lat.toFixed(8), 20) +
+          pad(ref.lon.toFixed(8), 20) + pad(calc.lon.toFixed(8), 20) +
+          pad(errM.toFixed(2) + 'm', 12) + ok
+        );
+      }
+      lines.push('─'.repeat(102));
+      lines.push(`Max error: ${maxErr.toFixed(2)} m  |  Posts with null GPS: ${nullCount}/${refs.length}`);
+      lines.push('');
+      lines.push('Legend: ✓ < 5m  ~ 5–50m  ✗ > 50m or null');
+
+      compareOutput.textContent = lines.join('\n');
+      compareOutput.style.display = 'block';
     });
   </script>
 

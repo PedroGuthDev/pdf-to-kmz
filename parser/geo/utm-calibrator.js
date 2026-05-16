@@ -224,11 +224,22 @@ export function computeScaleFactor(utmPathArrays, warnings) {
 export function buildPageTransforms(post1, pageDimensions, viewportBoxes, scaleFactor, zone, warnings = []) {
   const transforms = new Map();
 
+  console.debug('[utm-calibrator] buildPageTransforms called:',
+    `post1.pageNum=${post1.pageNum} post1.x=${post1.x?.toFixed(2)} post1.y=${post1.y?.toFixed(2)}`,
+    `scaleFactor=${scaleFactor?.toFixed(6)} zone=${zone}`,
+    `viewportBoxes.length=${viewportBoxes?.length}`,
+    `pageDimensions.size=${pageDimensions?.size}`
+  );
+
   // Step 1: Convert post #1 GPS to UTM
   const { easting: e1, northing: n1 } = latLonToUtm(post1.lat, post1.lon);
 
   // Step 2: Find viewport box for post1's detail page
   const box_pk = viewportBoxes.find(v => v.pageNum === post1.pageNum);
+  console.debug('[utm-calibrator] post1 UTM:', `e1=${e1.toFixed(3)} n1=${n1.toFixed(3)}`,
+    `box_pk found=${!!box_pk}`,
+    box_pk ? `rect=(${box_pk.rect.x.toFixed(1)},${box_pk.rect.y.toFixed(1)},${box_pk.rect.w.toFixed(1)}×${box_pk.rect.h.toFixed(1)})` : 'MISSING'
+  );
   if (!box_pk) {
     warnings.push(
       `buildPageTransforms: no viewport box found for post #1 page ${post1.pageNum}. ` +
@@ -268,6 +279,10 @@ export function buildPageTransforms(post1, pageDimensions, viewportBoxes, scaleF
     const x_scale_sf = (box_K.w / pageDim_K.w) * scaleFactor;
     const y_scale_sf = (box_K.h / pageDim_K.h) * scaleFactor;
 
+    console.debug(`[utm-calibrator] page ${v.pageNum} transform:`,
+      `origin_e=${origin_e.toFixed(3)} origin_n=${origin_n.toFixed(3)}`,
+      `x_sf=${x_scale_sf.toFixed(6)} y_sf=${y_scale_sf.toFixed(6)}`
+    );
     transforms.set(v.pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone });
   }
 
