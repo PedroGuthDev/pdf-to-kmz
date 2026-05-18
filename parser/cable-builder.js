@@ -158,12 +158,22 @@ export function minDistancePointToCablesOnPage(px, py, pageNum, cablesByPage) {
  * @returns {{ x: number, y: number, d: number, t: number }}
  */
 export function nearestPointOnCablesOnPage(px, py, pageNum, cablesByPage) {
+  const hit = nearestCableHitOnPage(px, py, pageNum, cablesByPage);
+  return { x: hit.x, y: hit.y, d: hit.d, t: hit.t };
+}
+
+/**
+ * Nearest point on Cabo Projetado, including which polyline path was used (for arc-length compare).
+ *
+ * @returns {{ x: number, y: number, d: number, t: number, pathIndex: number }}
+ */
+export function nearestCableHitOnPage(px, py, pageNum, cablesByPage) {
   const paths = cablesByPage.get(pageNum) ?? [];
-  if (paths.length === 0) return { x: px, y: py, d: Infinity, t: 0 };
-  let best = { x: px, y: py, d: Infinity, t: 0 };
-  for (const ops of paths) {
-    const hit = nearestPointOnPathOps(px, py, ops);
-    if (hit.d < best.d) best = hit;
+  if (paths.length === 0) return { x: px, y: py, d: Infinity, t: 0, pathIndex: -1 };
+  let best = { x: px, y: py, d: Infinity, t: 0, pathIndex: 0 };
+  for (let i = 0; i < paths.length; i++) {
+    const hit = nearestPointOnPathOps(px, py, paths[i]);
+    if (hit.d < best.d) best = { ...hit, pathIndex: i };
   }
   return best;
 }

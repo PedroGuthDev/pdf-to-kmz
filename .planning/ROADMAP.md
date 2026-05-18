@@ -47,7 +47,7 @@ Plans:
 - [x] 02-02-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
 - [x] 02-03-PLAN.md — UTM calibration foundation: utm-calibrator.js module, layer-sources.js extensions, pdf-parser.js pipeline extension
 - [x] 02-04-PLAN.md — Coordinate calculation rewrite: calculateCoordinates() UTM projection, detectGaps() page filter, index.html wiring ✓ 2026-05-15
-- [ ] 02-05-PLAN.md — Accuracy fix (D-ACC-01 through D-ACC-09): snapPostsToPolyline(), 2nd-anchor similarity, label sanity-check, post-positioning.js — IN PROGRESS
+- [x] 02-05-PLAN.md — Accuracy fix: Poste-symbol PDF positions + cable-aware match; Palhoça 11/11 < 5 m ✓ 2026-05-18
 
 **Success Criteria**:
 

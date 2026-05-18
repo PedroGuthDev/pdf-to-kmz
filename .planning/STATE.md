@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_execute
-stopped_at: Phase 02 plan 02-05 created (D-ACC-01..09 accuracy fix)
-last_updated: "2026-05-18T11:31:21.588Z"
+stopped_at: Phase 02 accuracy verified — 11/11 posts < 5 m (max 4.19 m)
+last_updated: "2026-05-18T18:00:00Z"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Current Status
 
-- **Phase:** 2 of 4 — Coordinate Calculator (accuracy iteration)
-- **State:** Plans 02-03/02-04 shipped; hybrid UTM transform + post 08 repair in progress
+- **Phase:** 2 of 4 — Coordinate Calculator
+- **State:** Accuracy verified on Palhoça sample (Poste-symbol PDF positions + UTM projection)
 - **Milestone:** v1.0
-- **Plans:** 4/4 phase plans executed; ad-hoc accuracy work via HANDOFF tasks 5–8
+- **Plans:** 02-03/02-04/02-05 accuracy path complete — see `02-VERIFICATION.md`
 
 ## Phase History
 
@@ -46,15 +46,15 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Last Session
 
-- **Stopped at:** Phase 02 accuracy-fix context gathered (D-ACC-01..09)
-- **Next:** Improve parser PDF x,y (OCR/pages 3–4); re-run `node debug-run-calc.mjs`; browser UAT
+- **Stopped at:** Phase 02 UAT passed — all 11 posts within 5 m of reference GPS
+- **Next:** Phase 3 (KMZ export) or browser UAT on compare UI
 
 ## Session Continuity
 
-Last session: 2026-05-18T11:31:21.564Z
-Stopped at: Session resumed — baseline confirmed; next is parser geometry (tasks 5–6) or browser UAT (task 7)  
-Resume file: .planning/phases/02-coordinate-calculator/02-CONTEXT.md
-Baseline: post 01 ~0.04 m; posts 02–11 ~12–50 m; post 08 ~14 m (max ~49.5 m); 0/11 null GPS.
+Last session: 2026-05-18  
+Stopped at: Poste-symbol positioning shipped; Palhoça max error 4.19 m (post 9)  
+Resume file: `.planning/phases/02-coordinate-calculator/02-VERIFICATION.md`  
+Accuracy: 11/11 posts < 5 m; 0 null GPS.
 
 ## Active Decisions
 
@@ -66,12 +66,13 @@ Baseline: post 01 ~0.04 m; posts 02–11 ~12–50 m; post 08 ~14 m (max ~49.5 m)
 | OCR via Tesseract.js (per-page crop) | Phase 1 | Post numbers are vector paths — OCR is the only viable extraction method |
 | Bad-CTM page filter (x<10 AND y<10) | Phase 1 | Skips flipY pages that would produce garbage coordinates |
 | Sequence inference for OCR misses | Phase 1 | Fills gaps using lower/upper neighbours to preserve sequential numbering |
+| Poste symbol = canonical PDF (x,y) | Phase 2 | Label+cable-aware match in parsePdf; not cable vertices (D-ACC-10) |
 
 ## Accumulated Context
 
 ### Pending Todos
 
-1. [Derive post positions from Cabo Projetado offset](.planning/todos/pending/20260518-derive-post-positions-from-cabo-offset.md) — invert uniform cable offset to recover pole centers (vs D-ACC-01 vertex snap)
+(none)
 
 ---
-*Last updated: 2026-05-18 after todo capture*
+*Last updated: 2026-05-18 after accuracy verification*

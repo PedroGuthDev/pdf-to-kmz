@@ -281,7 +281,8 @@ function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchS
 }
 
 /**
- * Snap post OCR-centroid positions to the nearest Cabo_Projetado polyline vertex on the same page.
+ * Legacy: snap posts to Cabo_Projetado polyline vertices. Not used in calculateCoordinates();
+ * pole positions come from the Poste layer in parsePdf().
  * One-to-one greedy assignment by ascending distance prevents two posts from snapping to the same vertex.
  * Mutates posts in-place. Posts with no pageNum or no nearby vertex are left at their OCR position.
  *
@@ -481,8 +482,8 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   const warnings = [];
   const sorted = [...posts].sort((a, b) => a.number - b.number);
 
-  // ── Snap post positions to nearest Cabo_Projetado polyline vertex (D-ACC-01, D-ACC-05) ────────
-  snapPostsToPolyline(sorted, cableSegments, warnings);
+  // Post (x,y) must already be Poste-layer pole symbols from parsePdf(). Cable geometry is
+  // used below for gaps/topology and connection bearings — not to override pole positions.
 
   // postMap entries are live refs into sorted; lat/lon are current.
   const postMap = new Map(sorted.map(p => [p.number, p]));

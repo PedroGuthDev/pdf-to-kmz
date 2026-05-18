@@ -1,7 +1,7 @@
 # Phase 2: Coordinate Calculator - Context
 
 **Gathered:** 2026-05-15 (original) / 2026-05-18 (accuracy revision)
-**Status:** Ready for replanning — accuracy iteration to reach <5 m on most posts
+**Status:** Accuracy verified 2026-05-18 — 11/11 posts < 5 m on Palhoça sample (see `02-VERIFICATION.md`)
 
 <domain>
 ## Phase Boundary
@@ -17,9 +17,13 @@ Implement GPS coordinate calculation for all extracted posts using a UTM-grid-ba
 <decisions>
 ## Implementation Decisions
 
-### Accuracy fix (2026-05-18) — polyline-vertex post positions, isotropic per-page scale
+### Accuracy fix (2026-05-18) — Poste pole symbols as PDF position (verified)
 
-- **D-ACC-01: Replace OCR circle centroids with cable-polyline vertices as the canonical post (x, y).** OCR + `Numero_Poste` circle centroids place posts at the *label circle* (drafted for readability), not at the pole. The `Cabo_Projetado` polyline physically passes through every pole — its vertices are the true positions.
+- **D-ACC-10: Canonical post (x, y) from Poste-layer pole symbol centroids (2026-05-18, verified).** Numero_Poste / OCR identifies post *number* only. `assignPostPositionsFromPosteSymbols()` in `post-positioning.js` matches raw Poste centroids using: label proximity (≤100 pt), label near Cabo Projetado (≤95 pt), same-polyline arc (≤150 pt), one-to-one greedy assignment; relaxed arc + label-only fallbacks for branches. `calculateCoordinates()` does **not** re-snap posts to cable vertices. Palhoça UAT: max error 4.19 m, 11/11 < 5 m. **Supersedes D-ACC-01 for positioning.**
+
+### Accuracy fix (2026-05-18) — polyline-vertex post positions, isotropic per-page scale (partially superseded)
+
+- **D-ACC-01: Replace OCR circle centroids with cable-polyline vertices as the canonical post (x, y).** *(Superseded by D-ACC-10 for PDF x,y; cable still used for gaps/topology.)* OCR + `Numero_Poste` circle centroids place posts at the *label circle* (drafted for readability), not at the pole. The `Cabo_Projetado` polyline physically passes through every pole — its vertices are the true positions.
 - **D-ACC-02: Snap each post to its nearest polyline vertex by proximity to the OCR-derived position.** OCR is still authoritative for *which* post is which (number + initial rough position). Snap each post independently to the nearest `Cabo_Projetado` vertex on the same page within a threshold (e.g. 30 PDF pt). If no vertex is within threshold, keep the OCR centroid as fallback and emit a warning.
 - **D-ACC-03: One-to-one assignment guard at branch points.** At branch junctions (already detected by `cable-builder.js:detectBranches`), multiple polyline vertices converge. Use globally-shortest-edge greedy assignment (same pattern as `assemblePostData`'s OCR matching) so two posts cannot snap to the same vertex. Each post gets a unique vertex.
 - **D-ACC-04: Branch / page-jump safety.** Per-post proximity matching is inherently branch-safe — each post is identified independently by OCR; the snap step does not walk the chain. The user's scenario (e.g., pages 4–5 form one branch, page 6 restarts off the end of page 3) works automatically: post 06's OCR position lives on its own branch, so it snaps to the vertex on its own branch.

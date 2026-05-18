@@ -3,7 +3,7 @@ phase: 02-coordinate-calculator
 plan: "05"
 subsystem: coordinate-accuracy
 tags: [utm, gps, snap, accuracy, post-positioning, index-html]
-status: in_progress
+status: complete
 dependency_graph:
   requires:
     - parser/geo/utm-calibrator.js (plan 02-03/02-04)
@@ -63,11 +63,11 @@ metrics:
     - "705dd33 fix(02-05): reorder 2nd-anchor before label chain; wire compare button to use gpsInputLast"
 ---
 
-# Phase 2 Plan 05: Coordinate Accuracy Fix — Partial Summary (IN PROGRESS)
+# Phase 2 Plan 05: Coordinate Accuracy Fix — Summary (COMPLETE)
 
-**One-liner:** snapPostsToPolyline() and 2nd-anchor similarity implemented; hybrid scale retained after empirical testing showed isotropic was worse; post-positioning.js created; browser UAT and commit pending.
+**One-liner:** Poste-layer pole symbols are canonical PDF positions (label + cable arc matching); Palhoça UAT 11/11 posts < 5 m, max 4.19 m.
 
-**Status:** In progress. Accuracy on Node pipeline: max 26.24 m (post 01 = 0.04 m). Browser UAT not yet run.
+**Status:** Complete 2026-05-18. See `02-VERIFICATION.md` for per-post table.
 
 ## What Was Built
 

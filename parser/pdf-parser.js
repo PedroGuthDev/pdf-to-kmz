@@ -4,9 +4,8 @@
 //
 // Output contract (success):
 //   { posts, distances, cableSegments, warnings, layerMap: { allNames } }
-//   posts[]: { number, x, y, pageNum?, postType? } — route numbers (01, 02…) extracted via
-//     OCR (Tesseract.js) from rendered circle crops; x,y from circle centroids.
-//     postType from Poste text (e.g. "10-300 (U)").
+//   posts[]: { number, x, y, pageNum?, postType? } — numbers from OCR/Numero_Poste labels;
+//     x,y from Poste-layer pole symbol centroids (double circle, square+X). postType from Poste text.
 // Output contract (error cases):
 //   { error: 'missing_layers', missing: String[], allNames: String[] }
 //   { error: 'parse_failed', message: String, warnings: String[] }
@@ -44,14 +43,10 @@ import {
   assemblePostsFromOcr,
 } from './post-assembler.js';
 import {
-  clusterPosteSymbolHints,
-  snapPostsToPosteLayerSymbols,
+  assignPostPositionsFromPosteSymbols,
   attachMarkerAnchors,
   alignPostPositionsToRouteMarkers,
   assignPostsByRouteOrder,
-  SNAP_POST_TO_POSTE_SYMBOL_MAX_PT,
-  SNAP_POST_TO_POSTE_SECOND_PASS_MAX_PT,
-  POSTE_SYMBOL_CLUSTER_MERGE_PT,
 } from './post-positioning.js';
 import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js';
 import { associateDistances }                          from './distance-associator.js';
@@ -496,10 +491,6 @@ export async function parsePdf(arrayBuffer) {
       allDistItems.push(...allDistItemsFallback);
     }
 
-    const posteHints = clusterPosteSymbolHints(allPosteRaw, POSTE_SYMBOL_CLUSTER_MERGE_PT);
-    // Poste snap runs after assembly (one-to-one). Pre-OCR hint snapping collapsed
-    // multiple circles onto the same cluster (e.g. posts 4–6 at identical x,y).
-
     // ── Assemble posts from OCR results (D-06, D-07) ────────────────────────
     const { posts: rawPosts, warnings: postWarnings } = assemblePostsFromOcr(allOcrResults);
     warnings.push(...postWarnings);
@@ -517,8 +508,6 @@ export async function parsePdf(arrayBuffer) {
       }));
       posts = assignPostsByRouteOrder(circles, allCablePaths);
       attachMarkerAnchors(posts);
-    } else if (posts.length > 0 && allOcrResults.length > 0) {
-      alignPostPositionsToRouteMarkers(posts, allOcrResults, allCablePaths);
     }
 
     // ── WR-04: Sanity-check post numbers vs total count ──────────────────────
@@ -543,27 +532,19 @@ export async function parsePdf(arrayBuffer) {
 
     attachMarkerAnchors(posts);
 
-    // ── Snap posts to Poste layer symbols (two-pass greedy, anchor-guarded) ─
-    const postByNum = new Map(posts.map(p => [p.number, p]));
-    const usedHints = new Set();
-    const snapOpts = { usedHintIndices: usedHints, postByNum };
-    const snappedPosts = snapPostsToPosteLayerSymbols(
-      posts,
-      posteHints,
-      SNAP_POST_TO_POSTE_SYMBOL_MAX_PT,
-      snapOpts
-    );
-    snapPostsToPosteLayerSymbols(
-      posts,
-      posteHints,
-      SNAP_POST_TO_POSTE_SECOND_PASS_MAX_PT,
-      {
-        skipPostIndices: snappedPosts,
-        usedHintIndices: usedHints,
-        snappedPostIndices: snappedPosts,
-        postByNum,
+    // ── Canonical PDF position: Poste pole symbol + Cabo Projetado (OCR only picks the number) ─
+    if (allPosteRaw.length > 0) {
+      assignPostPositionsFromPosteSymbols(posts, allPosteRaw, allCablePaths, warnings, {
+        postByNum: new Map(posts.map(p => [p.number, p])),
+      });
+    } else {
+      warnings.push(
+        'No Poste-layer pole symbols extracted — using Numero_Poste circle positions for (x,y).'
+      );
+      if (posts.length > 0 && allOcrResults.length > 0) {
+        alignPostPositionsToRouteMarkers(posts, allOcrResults, allCablePaths);
       }
-    );
+    }
 
     // ── Attach post type labels from Poste OCG layer ─────────────────────────
     attachPostTypeLabels(posts, allTextoItems, warnings);
