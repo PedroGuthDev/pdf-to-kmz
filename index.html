@@ -525,11 +525,13 @@
       }
 
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-      // 2nd-anchor input not wired into the compare flow yet (manual UAT uses calcBtn).
+      const compareLastVal = document.getElementById('gpsInputLast').value;
+      const compareLastParsed = compareLastVal && compareLastVal.trim() ? parseCoordinateInput(compareLastVal) : null;
       const utmCalibrationData = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
         pageDimensions: currentParseData.pageDimensions,
+        ...(compareLastParsed ? { lastPostGps: compareLastParsed } : {}),
       };
       const { posts: calcPosts } = calculateCoordinates(
         postsCopy,

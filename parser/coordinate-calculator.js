@@ -227,7 +227,9 @@ function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchS
   for (const { startIdx, endIdx } of runs) {
     if (endIdx <= startIdx) continue;
 
-    // Page-3 UTM projection is usually closer than label chaining; page-4 benefits from chaining.
+    // Skip the run that starts at the page-1 anchor when all posts are on the same page
+    // (page-3 UTM projection is more reliable than label chaining for that run; label
+    // accuracy for intra-page segments can't be guaranteed without snap fixes on all posts).
     const runPage = sorted[startIdx].pageNum;
     if (startIdx === 0 && runPage === sorted[endIdx].pageNum) {
       continue;
@@ -554,7 +556,11 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   }
 
+  const branchStarts = new Set(topology.branches.map(b => b.start));
+
   // ── Optional 2nd-anchor similarity refinement (D-ACC-07) ─────────────────
+  // Runs BEFORE label chaining so the page-4 label chain starts from a
+  // similarity-corrected post-7 anchor rather than the raw UTM position.
   if (lastPostGps &&
       typeof lastPostGps.lat === 'number' && isFinite(lastPostGps.lat) &&
       typeof lastPostGps.lon === 'number' && isFinite(lastPostGps.lon)) {
@@ -612,11 +618,8 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   }
 
-  // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
-  const connections = [];
-  const branchStarts = new Set(topology.branches.map(b => b.start));
-
   // ── Distance-label route chain (when Distância_Poste labels cover the route) ─
+  // Runs after 2nd anchor so the page-4 chain starts from a similarity-corrected anchor.
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
     const chained = applyDistanceLabelGpsChain(
       sorted,
@@ -632,6 +635,9 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       );
     }
   }
+
+  // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
+  const connections = [];
   const branchJunctionMap = new Map(topology.branches.map(b => [b.start, b.junctionPost]));
 
   // Helper: same-page bearing from PDF coords (D-02, D-REV-14)
