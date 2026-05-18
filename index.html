@@ -101,6 +101,9 @@
     <p>Provide the GPS coordinates for post #1 to calculate the entire route.</p>
     <label for="gpsInput">Post #1 Coordinates (Lat, Lon):</label>
     <input type="text" id="gpsInput" placeholder="-27.645312, -48.671234" style="width: 300px; padding: 6px;">
+    <br>
+    <label for="gpsInputLast" style="display: inline-block; margin-top: 8px;">Last Post Coordinates (optional, improves accuracy):</label>
+    <input type="text" id="gpsInputLast" placeholder="-27.659066, -48.702999" style="width: 300px; padding: 6px;">
     <button id="calcBtn" style="padding: 6px 12px; margin-left: 8px;">Calculate Route</button>
     <div id="coordWarning" style="color: #b00020; margin-top: 8px; font-size: 0.9em; display: none;"></div>
   </section>
@@ -411,24 +414,42 @@
         return;
       }
 
+      // Read optional 2nd-anchor input (D-ACC-07)
+      const lastInputVal = document.getElementById('gpsInputLast').value;
+      const lastParsed = lastInputVal && lastInputVal.trim() ? parseCoordinateInput(lastInputVal) : null;
+      if (lastInputVal && lastInputVal.trim() && !lastParsed) {
+        coordWarning.textContent = 'Last post coordinate format invalid — proceeding with single anchor.';
+        coordWarning.style.display = 'block';
+      }
+
       // Deep clone to avoid mutating the original parse result on multiple runs
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-      
-      const utmCalibrationData = {
+
+      const opts = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
         pageDimensions: currentParseData.pageDimensions,
+        ...(lastParsed ? { lastPostGps: lastParsed } : {}),
       };
-      const { posts: calculatedPosts, connections } = calculateCoordinates(
+      const result = calculateCoordinates(
         postsCopy,
         currentParseData.distances,
         lat,
         lon,
         currentParseData.cableSegments,
-        utmCalibrationData
+        opts
       );
+      const { posts: calculatedPosts, connections } = result;
 
       console.log("[pdf-to-kmz] Generated connections:", connections);
+
+      // Surface calculation warnings into #warningsList (D-ACC-08 label sanity, snap fallbacks, 2nd-anchor)
+      const calcWarnings = result && Array.isArray(result.warnings) ? result.warnings : [];
+      for (const w of calcWarnings) {
+        const li = document.createElement('li');
+        li.textContent = '[calc] ' + w;
+        document.getElementById('warningsList').appendChild(li);
+      }
 
       // Debug: dump post transforms and projected coords
       {
@@ -504,6 +525,7 @@
       }
 
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
+      // 2nd-anchor input not wired into the compare flow yet (manual UAT uses calcBtn).
       const utmCalibrationData = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
