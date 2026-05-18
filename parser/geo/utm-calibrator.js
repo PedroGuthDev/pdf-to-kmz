@@ -208,20 +208,51 @@ export function computeScaleFactor(utmPathArrays, warnings) {
 // ── Per-page affine transforms ────────────────────────────────────────────────────────────────
 
 /**
+ * Isotropic scale for a detail page: prefer that page's own UTM grid (true easting/northing),
+ * else viewport-width ratio × overview scale (D-ACC-06).
+ *
+ * @param {number} pageNum
+ * @param {{ w: number, h: number }} box_K
+ * @param {{ w: number, h: number }} pageDim_K
+ * @param {number} overviewScaleFactor  m/pt from page-2 UTM grid
+ * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>|null} utmGridPathsPerPage
+ * @param {string[]} warnings
+ */
+function detailPageScale(pageNum, box_K, pageDim_K, overviewScaleFactor, utmGridPathsPerPage, warnings) {
+  const paths = utmGridPathsPerPage?.get(pageNum);
+  if (paths?.length) {
+    const sf = computeScaleFactor(paths, warnings);
+    if (sf != null) return sf;
+  }
+  // Viewport-width ratio fallback when the page has no UTM grid (D-ACC-06)
+  return (box_K.w / pageDim_K.w) * overviewScaleFactor;
+}
+
+/**
  * Build per-detail-page UTM affine transforms from post #1 GPS and page-2 viewport geometry.
  * Returns a Map from pageNum to { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }.
  *
+ * Isotropic per-page UTM scale: prefer each detail page's own UTM grid; fall back to
+ * viewport-width ratio × page-2 overview scale only when the page has no UTM grid paths (D-ACC-06).
+ *
  * @param {{ x: number, y: number, pageNum: number, lat: number, lon: number }} post1
- *   Post #1 with GPS (user-provided) and page-local flipY coords.
- * @param {Map<number, { w: number, h: number }>} pageDimensions  page.view[2]/[3] per page
+ * @param {Map<number, { w: number, h: number }>} pageDimensions
  * @param {Array<{ pageNum: number, rect: { x: number, y: number, w: number, h: number } }>} viewportBoxes
- *   Page-2 viewport boxes in flipY space, keyed by detail page number.
- * @param {number} scaleFactor  Meters per page-2 PDF point (from computeScaleFactor)
- * @param {number} zone  UTM zone (auto-detected from post1 longitude)
- * @param {string[]} [warnings]  Optional mutable warnings accumulator
+ * @param {number} scaleFactor  Meters per page-2 PDF point (overview UTM grid)
+ * @param {number} zone
+ * @param {string[]} [warnings]
+ * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>} [utmGridPathsPerPage]
  * @returns {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, zone: number }>}
  */
-export function buildPageTransforms(post1, pageDimensions, viewportBoxes, scaleFactor, zone, warnings = []) {
+export function buildPageTransforms(
+  post1,
+  pageDimensions,
+  viewportBoxes,
+  scaleFactor,
+  zone,
+  warnings = [],
+  utmGridPathsPerPage = null
+) {
   const transforms = new Map();
 
   console.debug('[utm-calibrator] buildPageTransforms called:',
@@ -231,57 +262,54 @@ export function buildPageTransforms(post1, pageDimensions, viewportBoxes, scaleF
     `pageDimensions.size=${pageDimensions?.size}`
   );
 
-  // Step 1: Convert post #1 GPS to UTM
   const { easting: e1, northing: n1 } = latLonToUtm(post1.lat, post1.lon);
 
-  // Step 2: Find viewport box for post1's detail page
   const box_pk = viewportBoxes.find(v => v.pageNum === post1.pageNum);
-  console.debug('[utm-calibrator] post1 UTM:', `e1=${e1.toFixed(3)} n1=${n1.toFixed(3)}`,
-    `box_pk found=${!!box_pk}`,
-    box_pk ? `rect=(${box_pk.rect.x.toFixed(1)},${box_pk.rect.y.toFixed(1)},${box_pk.rect.w.toFixed(1)}×${box_pk.rect.h.toFixed(1)})` : 'MISSING'
-  );
   if (!box_pk) {
     warnings.push(
       `buildPageTransforms: no viewport box found for post #1 page ${post1.pageNum}. ` +
       `Cannot establish page-2 UTM transform.`
     );
-    return transforms; // empty Map
-  }
-
-  // Step 3: Project post1 from its page-local coords into page-2 flipY space
-  const pageDim_pk = pageDimensions.get(post1.pageNum);
-  if (!pageDim_pk) {
-    warnings.push(
-      `buildPageTransforms: no pageDimensions for post #1 page ${post1.pageNum}.`
-    );
     return transforms;
   }
 
-  const x1_p2 = box_pk.rect.x + (post1.x / pageDim_pk.w) * box_pk.rect.w;
-  const y1_p2 = box_pk.rect.y + (post1.y / pageDim_pk.h) * box_pk.rect.h;
+  const pageDim_pk = pageDimensions.get(post1.pageNum);
+  if (!pageDim_pk) {
+    warnings.push(`buildPageTransforms: no pageDimensions for post #1 page ${post1.pageNum}.`);
+    return transforms;
+  }
 
-  // Step 4: For each viewport box (each detail page K), compute UTM origin
+  const rect_pk = box_pk.rect;
+  const scale_pk = detailPageScale(
+    post1.pageNum, rect_pk, pageDim_pk, scaleFactor, utmGridPathsPerPage, warnings
+  );
+
+  // Anchor origins so post #1 projects exactly to its known GPS (isotropic scale).
+  const origin_e_pk = e1 - post1.x * scale_pk;
+  const origin_n_pk = n1 + post1.y * scale_pk;
+
   for (const v of viewportBoxes) {
     const pageDim_K = pageDimensions.get(v.pageNum);
     if (!pageDim_K) {
-      warnings.push(
-        `buildPageTransforms: no pageDimensions for page ${v.pageNum}. Skipping.`
-      );
+      warnings.push(`buildPageTransforms: no pageDimensions for page ${v.pageNum}. Skipping.`);
       continue;
     }
 
     const box_K = v.rect;
-    // UTM origin at top-left of page K's viewport box (in page-2 flipY space)
-    const origin_e = e1 + (box_K.x - x1_p2) * scaleFactor;
-    const origin_n = n1 - (box_K.y - y1_p2) * scaleFactor; // negative: down = south
+    const scale_K = detailPageScale(
+      v.pageNum, box_K, pageDim_K, scaleFactor, utmGridPathsPerPage, warnings
+    );
+    // Both scale fields equal scale_K — backward compat: projectPost reads both keys (D-ACC-06)
+    const x_scale_sf = scale_K;
+    const y_scale_sf = scale_K;
 
-    // Combined scale: page-K local coords → page-2 coords → meters
-    const x_scale_sf = (box_K.w / pageDim_K.w) * scaleFactor;
-    const y_scale_sf = (box_K.h / pageDim_K.h) * scaleFactor;
+    // Shift origin by viewport thumbnail offset on page 2 (meters), not by normalized x1_p2.
+    const origin_e = origin_e_pk + (box_K.x - rect_pk.x) * scaleFactor;
+    const origin_n = origin_n_pk - (box_K.y - rect_pk.y) * scaleFactor;
 
     console.debug(`[utm-calibrator] page ${v.pageNum} transform:`,
       `origin_e=${origin_e.toFixed(3)} origin_n=${origin_n.toFixed(3)}`,
-      `x_sf=${x_scale_sf.toFixed(6)} y_sf=${y_scale_sf.toFixed(6)}`
+      `iso_sf=${scale_K.toFixed(6)}`
     );
     transforms.set(v.pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone });
   }
@@ -349,4 +377,29 @@ export function gpsBearing(lat1, lon1, lat2, lon2) {
   const y2 = Math.sin(dLambda) * Math.cos(phi2);
   const x2 = Math.cos(phi1)*Math.sin(phi2) - Math.sin(phi1)*Math.cos(phi2)*Math.cos(dLambda);
   return ((Math.atan2(y2, x2) * 180 / Math.PI) + 360) % 360;
+}
+
+/**
+ * Destination point given start, initial bearing, and ground distance (haversine direct).
+ *
+ * @param {number} lat_deg
+ * @param {number} lon_deg
+ * @param {number} bearing_deg  0–360, 0 = north
+ * @param {number} distance_m
+ * @returns {{ lat: number, lon: number }}
+ */
+export function destinationPoint(lat_deg, lon_deg, bearing_deg, distance_m) {
+  const R = 6371000;
+  const br = bearing_deg * Math.PI / 180;
+  const lat1 = lat_deg * Math.PI / 180;
+  const lon1 = lon_deg * Math.PI / 180;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(distance_m / R) +
+    Math.cos(lat1) * Math.sin(distance_m / R) * Math.cos(br)
+  );
+  const lon2 = lon1 + Math.atan2(
+    Math.sin(br) * Math.sin(distance_m / R) * Math.cos(lat1),
+    Math.cos(distance_m / R) - Math.sin(lat1) * Math.sin(lat2)
+  );
+  return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
 }
