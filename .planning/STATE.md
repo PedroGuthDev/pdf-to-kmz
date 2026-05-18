@@ -3,13 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-last_updated: "2026-05-15T17:35:00.000Z"
+stopped_at: Phase 02 accuracy-fix context gathered (D-ACC-01..09)
+last_updated: "2026-05-18T11:31:21.588Z"
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 25
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 8
+  percent: 50
 ---
 
 # Project State
@@ -23,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Current Status
 
-- **Phase:** 2 of 4 — READY TO PLAN
-- **State:** Phase 1 complete — Phase 2 not started
+- **Phase:** 2 of 4 — Coordinate Calculator (accuracy iteration)
+- **State:** Plans 02-03/02-04 shipped; hybrid UTM transform + post 08 repair in progress
 - **Milestone:** v1.0
-- **Plans:** 0/? (Phase 2 not yet planned)
+- **Plans:** 4/4 phase plans executed; ad-hoc accuracy work via HANDOFF tasks 5–8
 
 ## Phase History
 
@@ -45,13 +46,15 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Last Session
 
-- **Completed:** Phase 1 closed — UAT passed, 0 gaps (2026-05-15)
-- **Next:** Phase 2 — Coordinate Calculator (GPS coordinate calculation from PDF positions)
+- **Stopped at:** Phase 02 accuracy-fix context gathered (D-ACC-01..09)
+- **Next:** Improve parser PDF x,y (OCR/pages 3–4); re-run `node debug-run-calc.mjs`; browser UAT
 
 ## Session Continuity
 
-Last session: 2026-05-15T17:35:00Z
-Phase 1 complete. UAT passed (all 7 console checks confirmed). Phase closed — ready to plan Phase 2.
+Last session: 2026-05-18T11:31:21.564Z
+Stopped at: Session resumed — baseline confirmed; next is parser geometry (tasks 5–6) or browser UAT (task 7)  
+Resume file: .planning/phases/02-coordinate-calculator/02-CONTEXT.md
+Baseline: post 01 ~0.04 m; posts 02–11 ~12–50 m; post 08 ~14 m (max ~49.5 m); 0/11 null GPS.
 
 ## Active Decisions
 
@@ -65,4 +68,4 @@ Phase 1 complete. UAT passed (all 7 console checks confirmed). Phase closed — 
 | Sequence inference for OCR misses | Phase 1 | Fills gaps using lower/upper neighbours to preserve sequential numbering |
 
 ---
-*Last updated: 2026-05-15 after Phase 1 complete*
+*Last updated: 2026-05-16 after resume-work*
