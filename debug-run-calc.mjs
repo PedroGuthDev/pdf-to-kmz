@@ -110,8 +110,9 @@ const { posts, warnings = [] } = calculateCoordinates(
     utmGridPathsPerPage: parsed.utmGridPathsPerPage,
     viewportBoxes: parsed.viewportBoxes,
     pageDimensions: parsed.pageDimensions,
-    // 2nd-anchor similarity refinement (D-ACC-07): pin post 11 to ground truth.
-    lastPostGps: { lat: REFERENCE[10].lat, lon: REFERENCE[10].lon },
+    // Uncomment the line below to enable 2nd-anchor similarity refinement (D-ACC-07).
+    // Uses post 11 ground-truth GPS to pin both ends and refine middle posts.
+    // lastPostGps: { lat: REFERENCE[10].lat, lon: REFERENCE[10].lon },
   }
 );
 

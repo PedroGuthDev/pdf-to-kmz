@@ -208,31 +208,32 @@ export function computeScaleFactor(utmPathArrays, warnings) {
 // ── Per-page affine transforms ────────────────────────────────────────────────────────────────
 
 /**
- * Easting scale for a detail page: UTM grid on the sheet when present, else viewport-width ratio.
+ * Isotropic scale for a detail page: prefer that page's own UTM grid (true easting/northing),
+ * else viewport-width ratio × overview scale (D-ACC-06).
+ *
+ * @param {number} pageNum
+ * @param {{ w: number, h: number }} box_K
+ * @param {{ w: number, h: number }} pageDim_K
+ * @param {number} overviewScaleFactor  m/pt from page-2 UTM grid
+ * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>|null} utmGridPathsPerPage
+ * @param {string[]} warnings
  */
-function detailPageXScale(pageNum, box_K, pageDim_K, overviewScaleFactor, utmGridPathsPerPage, warnings) {
+function detailPageScale(pageNum, box_K, pageDim_K, overviewScaleFactor, utmGridPathsPerPage, warnings) {
   const paths = utmGridPathsPerPage?.get(pageNum);
   if (paths?.length) {
     const sf = computeScaleFactor(paths, warnings);
     if (sf != null) return sf;
   }
+  // Viewport-width ratio fallback when the page has no UTM grid (D-ACC-06)
   return (box_K.w / pageDim_K.w) * overviewScaleFactor;
-}
-
-/**
- * Northing scale from viewport height ratio × page-2 overview scale (route linework is often
- * vertically exaggerated relative to the 50 m UTM grid on INFOVIAS-style sheets).
- */
-function detailPageYScale(box_K, pageDim_K, overviewScaleFactor) {
-  return (box_K.h / pageDim_K.h) * overviewScaleFactor;
 }
 
 /**
  * Build per-detail-page UTM affine transforms from post #1 GPS and page-2 viewport geometry.
  * Returns a Map from pageNum to { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }.
  *
- * Hybrid per-page scale: X from detail-page UTM grid (or viewport width), Y from viewport height
- * ratio × page-2 overview scale (D-ACC-06). Isotropic fallback when only one axis is available.
+ * Isotropic per-page UTM scale: prefer each detail page's own UTM grid; fall back to
+ * viewport-width ratio × page-2 overview scale only when the page has no UTM grid paths (D-ACC-06).
  *
  * @param {{ x: number, y: number, pageNum: number, lat: number, lon: number }} post1
  * @param {Map<number, { w: number, h: number }>} pageDimensions
@@ -279,13 +280,13 @@ export function buildPageTransforms(
   }
 
   const rect_pk = box_pk.rect;
-  const scale_x_pk = detailPageXScale(
+  const scale_pk = detailPageScale(
     post1.pageNum, rect_pk, pageDim_pk, scaleFactor, utmGridPathsPerPage, warnings
   );
-  const scale_y_pk = detailPageYScale(rect_pk, pageDim_pk, scaleFactor);
 
-  const origin_e_pk = e1 - post1.x * scale_x_pk;
-  const origin_n_pk = n1 + post1.y * scale_y_pk;
+  // Anchor origins so post #1 projects exactly to its known GPS (isotropic scale).
+  const origin_e_pk = e1 - post1.x * scale_pk;
+  const origin_n_pk = n1 + post1.y * scale_pk;
 
   for (const v of viewportBoxes) {
     const pageDim_K = pageDimensions.get(v.pageNum);
@@ -295,17 +296,20 @@ export function buildPageTransforms(
     }
 
     const box_K = v.rect;
-    const x_scale_sf = detailPageXScale(
+    const scale_K = detailPageScale(
       v.pageNum, box_K, pageDim_K, scaleFactor, utmGridPathsPerPage, warnings
     );
-    const y_scale_sf = detailPageYScale(box_K, pageDim_K, scaleFactor);
+    // Both scale fields equal scale_K — backward compat: projectPost reads both keys (D-ACC-06)
+    const x_scale_sf = scale_K;
+    const y_scale_sf = scale_K;
 
+    // Shift origin by viewport thumbnail offset on page 2 (meters), not by normalized x1_p2.
     const origin_e = origin_e_pk + (box_K.x - rect_pk.x) * scaleFactor;
     const origin_n = origin_n_pk - (box_K.y - rect_pk.y) * scaleFactor;
 
     console.debug(`[utm-calibrator] page ${v.pageNum} transform:`,
       `origin_e=${origin_e.toFixed(3)} origin_n=${origin_n.toFixed(3)}`,
-      `x_sf=${x_scale_sf.toFixed(6)} y_sf=${y_scale_sf.toFixed(6)}`
+      `iso_sf=${scale_K.toFixed(6)}`
     );
     transforms.set(v.pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone });
   }

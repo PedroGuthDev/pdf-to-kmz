@@ -223,8 +223,6 @@ export function snapPostsToPosteLayerSymbols(posts, hints, maxSnapPt, opts = {})
 
     p.x = hx;
     p.y = hy;
-    p.anchorX = hx;
-    p.anchorY = hy;
     snappedPosts.add(pi);
     usedHint.add(hi);
   }
