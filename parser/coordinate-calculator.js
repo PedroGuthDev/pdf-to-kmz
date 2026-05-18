@@ -216,6 +216,123 @@ function repairPostsOnUncalibratedPages(posts, calibratedPages, warnings) {
 }
 
 /**
+ * Iterative distance-constraint relaxation with two pinned endpoints (D-ACC-09).
+ *
+ * Pins the first and last posts to ground truth in UTM space, then iteratively
+ * pulls every interior post toward a position that satisfies the distance labels
+ * to BOTH neighbors. Each iteration preserves the segment direction from the
+ * current estimate but rescales segment lengths to match labels. A small prior
+ * weight keeps positions from drifting away from their initial projection when
+ * label constraints are weak. Pure 2-anchor traverse adjustment — superior to
+ * single-direction label chain + Bowditch when the route has non-uniform PDF
+ * distortion that a global similarity cannot capture.
+ *
+ * Runs only when a 2nd anchor (last post truth) is available; without it, the
+ * problem is under-constrained and falls back to similarity + label chain.
+ *
+ * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} sorted
+ * @param {Map<string, number|null>} distMap  Label distances by `from->to` key.
+ * @param {{ easting: number, northing: number }} firstUtm  Pinned start anchor (post 1 truth).
+ * @param {{ easting: number, northing: number }} lastUtm   Pinned end anchor (last post truth).
+ * @param {number} zone                              UTM zone for inverse projection.
+ * @param {{ iterations?: number, priorWeight?: number, convergenceEpsM?: number }} [options]
+ * @returns {boolean}  true when relaxation actually ran (at least 2 distance labels available).
+ */
+function applyDistanceConstraintRelaxation(sorted, distMap, firstUtm, lastUtm, zone, options = {}) {
+  const iterations = options.iterations ?? 100;
+  const priorWeight = options.priorWeight ?? 0;
+  const convergenceEpsM = options.convergenceEpsM ?? 0.005;
+
+  if (sorted.length < 3) return false;
+  // Need at least 2 distance labels along the chain for relaxation to be meaningful
+  let labelCount = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    if (distMap.get(`${sorted[i - 1].number}->${sorted[i].number}`) != null) labelCount++;
+  }
+  if (labelCount < 2) return false;
+
+  // Convert positions to UTM; skip posts with null lat/lon (uncalibrated pages).
+  /** @type {Array<{ e: number, n: number, fixed: boolean }|null>} */
+  const utm = sorted.map((p, i) => {
+    if (p.lat == null || p.lon == null) return null;
+    const { easting, northing } = latLonToUtm(p.lat, p.lon);
+    return { e: easting, n: northing, fixed: false };
+  });
+
+  // Pin endpoints to truth
+  utm[0] = { e: firstUtm.easting, n: firstUtm.northing, fixed: true };
+  utm[utm.length - 1] = { e: lastUtm.easting, n: lastUtm.northing, fixed: true };
+
+  // Save initial UTM positions as PDF prior
+  const prior = utm.map(u => (u ? { e: u.e, n: u.n } : null));
+
+  for (let iter = 0; iter < iterations; iter++) {
+    let maxDelta = 0;
+    const next = utm.map(u => (u ? { ...u } : null));
+
+    for (let i = 1; i < utm.length - 1; i++) {
+      const curr = utm[i];
+      if (!curr || curr.fixed) continue;
+      const prev = utm[i - 1];
+      const nextP = utm[i + 1];
+      if (!prev || !nextP) continue;
+
+      const L_prev = distMap.get(`${sorted[i - 1].number}->${sorted[i].number}`);
+      const L_next = distMap.get(`${sorted[i].number}->${sorted[i + 1].number}`);
+
+      let targetE = 0;
+      let targetN = 0;
+      let w = 0;
+
+      if (L_prev != null && L_prev > 0) {
+        const dx = curr.e - prev.e;
+        const dy = curr.n - prev.n;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-6) {
+          targetE += prev.e + (dx / len) * L_prev;
+          targetN += prev.n + (dy / len) * L_prev;
+          w += 1;
+        }
+      }
+      if (L_next != null && L_next > 0) {
+        const dx = curr.e - nextP.e;
+        const dy = curr.n - nextP.n;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-6) {
+          targetE += nextP.e + (dx / len) * L_next;
+          targetN += nextP.n + (dy / len) * L_next;
+          w += 1;
+        }
+      }
+      if (w === 0) continue;
+
+      targetE /= w;
+      targetN /= w;
+
+      const blendedE = targetE * (1 - priorWeight) + prior[i].e * priorWeight;
+      const blendedN = targetN * (1 - priorWeight) + prior[i].n * priorWeight;
+      const delta = Math.hypot(blendedE - curr.e, blendedN - curr.n);
+      if (delta > maxDelta) maxDelta = delta;
+      next[i].e = blendedE;
+      next[i].n = blendedN;
+    }
+
+    for (let i = 0; i < utm.length; i++) utm[i] = next[i];
+    if (maxDelta < convergenceEpsM) break;
+  }
+
+  // Write back to sorted posts
+  for (let i = 0; i < sorted.length; i++) {
+    const u = utm[i];
+    if (!u) continue;
+    const r = utmToLatLon(u.e, u.n, zone);
+    sorted[i].lat = r.lat;
+    sorted[i].lon = r.lon;
+  }
+  return true;
+}
+
+/**
  * Refine projected GPS along the main route using Distância_Poste labels.
  * Bearings come from the UTM projection shape; segment lengths from PDF labels.
  * Post #1 stays at the user anchor. Requires most consecutive pairs to have labels.
@@ -674,9 +791,42 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   }
 
+  // ── Distance-constraint refinement (D-ACC-09) ────────────────────────────
+  // When a 2nd anchor (lastPostGps) is available, prefer iterative 2-anchor
+  // traverse adjustment over the single-direction label chain: it pins both
+  // endpoints simultaneously and lets label distances pull every interior post
+  // toward a position that satisfies the chain constraints — corrects residual
+  // local distortion that a global similarity cannot.
+  let relaxationApplied = false;
+  if (pageTransforms.size > 0 &&
+      sorted[0].lat != null &&
+      sorted[sorted.length - 1].lat != null &&
+      lastPostGps &&
+      typeof lastPostGps.lat === 'number' && isFinite(lastPostGps.lat) &&
+      typeof lastPostGps.lon === 'number' && isFinite(lastPostGps.lon) &&
+      validateBrazilBounds(lastPostGps.lat, lastPostGps.lon).valid) {
+    const firstUtm = latLonToUtm(startLat, startLon);
+    const lastUtm = latLonToUtm(lastPostGps.lat, lastPostGps.lon);
+    relaxationApplied = applyDistanceConstraintRelaxation(
+      sorted,
+      distMap,
+      firstUtm,
+      lastUtm,
+      utmZone ?? firstUtm.zone
+    );
+    if (relaxationApplied) {
+      warnings.push(
+        '[coordinate-calculator] GPS refined via 2-anchor distance-constraint relaxation ' +
+          '(post #1 and last post pinned; interior posts adjusted to satisfy Distância_Poste labels).'
+      );
+    }
+  }
+
   // ── Distance-label route chain (when Distância_Poste labels cover the route) ─
   // Runs after 2nd anchor so the page-4 chain starts from a similarity-corrected anchor.
-  if (pageTransforms.size > 0 && sorted[0].lat != null) {
+  // Skipped when the 2-anchor relaxation already ran — relaxation supersedes the
+  // single-direction chain.
+  if (!relaxationApplied && pageTransforms.size > 0 && sorted[0].lat != null) {
     const chained = applyDistanceLabelGpsChain(
       sorted,
       distMap,
