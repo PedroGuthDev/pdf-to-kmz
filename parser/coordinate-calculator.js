@@ -15,6 +15,29 @@ import {
   utmToLatLon,
   destinationPoint,
 } from './geo/utm-calibrator.js';
+import { nearestPointOnCablesOnPage } from './cable-builder.js';
+import { attachMarkerAnchors } from './post-positioning.js';
+
+const VERTEX_SNAP_MAX_PT = 45;
+const SEGMENT_SNAP_MAX_PT = 75;
+const SEGMENT_SNAP_MAX_MOVE_PT = 75;
+
+/**
+ * @param {{ x: number, y: number, anchorX?: number, anchorY?: number }} post
+ * @param {number} nx
+ * @param {number} ny
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} maxMove
+ */
+function applyCableAlignedSnap(post, nx, ny, ax, ay, maxMove) {
+  if (Math.hypot(nx - ax, ny - ay) > maxMove) return false;
+  post.x = nx;
+  post.y = ny;
+  post.anchorX = nx;
+  post.anchorY = ny;
+  return true;
+}
 
 /**
  * Parse decimal-degree coordinate string (Google Maps paste support — D-13).
@@ -291,6 +314,12 @@ function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchS
 export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 30) {
   if (!posts || posts.length === 0 || !cableSegments || cableSegments.length === 0) return;
 
+  attachMarkerAnchors(posts);
+  const anchorOrig = posts.map(p => ({
+    x: p.anchorX ?? p.x,
+    y: p.anchorY ?? p.y,
+  }));
+
   // Build vertex pool grouped by pageNum.
   // Each vertex: { x, y, pageNum, id: `${pageNum}:${flatIndex}` }
   /** @type {Map<number, Array<{ x: number, y: number, id: string }>>} */
@@ -333,9 +362,11 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
     const bucket = verticesByPage.get(pageNum);
     if (!bucket || bucket.length === 0) continue;
 
+    const ax = anchorOrig[pi].x;
+    const ay = anchorOrig[pi].y;
     for (const v of bucket) {
-      const d = Math.hypot(v.x - post.x, v.y - post.y);
-      if (d <= threshold) {
+      const d = Math.hypot(v.x - ax, v.y - ay);
+      if (d <= VERTEX_SNAP_MAX_PT) {
         candidates.push({ postIdx: pi, vertex: v, d });
       }
     }
@@ -349,10 +380,12 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
 
   for (const { postIdx, vertex } of candidates) {
     if (usedPost.has(postIdx) || usedVertex.has(vertex.id)) continue;
-    posts[postIdx].x = vertex.x;
-    posts[postIdx].y = vertex.y;
-    usedPost.add(postIdx);
-    usedVertex.add(vertex.id);
+    const ax = anchorOrig[postIdx].x;
+    const ay = anchorOrig[postIdx].y;
+    if (applyCableAlignedSnap(posts[postIdx], vertex.x, vertex.y, ax, ay, VERTEX_SNAP_MAX_PT)) {
+      usedPost.add(postIdx);
+      usedVertex.add(vertex.id);
+    }
   }
 
   // Emit warnings for missed snaps (D-ACC-02 fallback)
@@ -380,6 +413,29 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
     warnings.push(
       `[coordinate-calculator] snap: post ${post.number} (page ${pageNum}) kept OCR position — nearest cable vertex was ${dMin.toFixed(2)} pt away (> ${threshold} pt threshold).`
     );
+  }
+
+  // Second pass: snap to nearest point ON polyline segments (not just vertices).
+  const cablesByPage = new Map();
+  for (const seg of cableSegments) {
+    const pageNum = seg.pageNum;
+    if (pageNum == null) continue;
+    if (!cablesByPage.has(pageNum)) cablesByPage.set(pageNum, []);
+    cablesByPage.get(pageNum).push(seg.ops);
+  }
+
+  for (let pi = 0; pi < posts.length; pi++) {
+    if (usedPost.has(pi)) continue;
+    const post = posts[pi];
+    const pageNum = post.pageNum;
+    if (pageNum == null) continue;
+    const ax = anchorOrig[pi].x;
+    const ay = anchorOrig[pi].y;
+    const near = nearestPointOnCablesOnPage(ax, ay, pageNum, cablesByPage);
+    if (near.d > SEGMENT_SNAP_MAX_PT) continue;
+    if (applyCableAlignedSnap(post, near.x, near.y, ax, ay, SEGMENT_SNAP_MAX_MOVE_PT)) {
+      usedPost.add(pi);
+    }
   }
 }
 

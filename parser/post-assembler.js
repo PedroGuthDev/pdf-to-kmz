@@ -4,6 +4,8 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
+import { attachMarkerAnchors } from './post-positioning.js';
+
 // ~200 pt: Poste anchors are often on the label block, not at the circle centroid.
 export const PROXIMITY_THRESHOLD = 200;
 
@@ -156,17 +158,69 @@ export function deduplicatePosts(allPosts) {
  * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} allPosts
  * @returns {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>}
  */
-export function deduplicatePostsPreferLowerPage(allPosts) {
+/**
+ * Prefer viewport-calibrated detail pages (3, 4, …) over overview/technical pages.
+ * When no calibratedPageNums provided, keeps the higher pageNum (detail over overview).
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} allPosts
+ * @param {number[] | null} [calibratedPageNums]
+ */
+export function deduplicatePostsPreferLowerPage(allPosts, calibratedPageNums = null) {
+  const calSet = calibratedPageNums ? new Set(calibratedPageNums) : null;
   const byNum = new Map();
   for (const p of allPosts) {
     const n = p.number;
     const prev = byNum.get(n);
-    const pPage = p.pageNum ?? 0;
-    const prevPage = prev?.pageNum ?? 0;
-    if (!prev || pPage > prevPage) byNum.set(n, p);
+    if (!prev) {
+      byNum.set(n, p);
+      continue;
+    }
+    const score = post => {
+      const pg = post.pageNum ?? 0;
+      if (calSet) return calSet.has(pg) ? 1000 + pg : pg;
+      return pg;
+    };
+    if (score(p) >= score(prev)) byNum.set(n, p);
   }
   return [...byNum.values()].sort((a, b) => a.number - b.number);
 }
+
+/** Max distance (pt) to replace Numero_Poste circle centroid with Poste symbol cluster. */
+export const POSTE_POSITION_MAX_PT = 150;
+
+/**
+ * Shift OCR circle anchors onto Poste-layer pole graphics when a cluster is nearby.
+ *
+ * @param {Array<{ circle: { x: number, y: number, pageNum?: number }, number: number|null }>} ocrResults
+ * @param {Array<{ x: number, y: number, pageNum?: number }>} posteHints
+ */
+export function applyPosteHintPositions(ocrResults, posteHints) {
+  if (!posteHints.length) return ocrResults;
+  const candidates = [];
+  for (let ri = 0; ri < ocrResults.length; ri++) {
+    const { circle } = ocrResults[ri];
+    const pg = circle.pageNum ?? 1;
+    for (let hi = 0; hi < posteHints.length; hi++) {
+      if ((posteHints[hi].pageNum ?? 1) !== pg) continue;
+      const d = Math.hypot(posteHints[hi].x - circle.x, posteHints[hi].y - circle.y);
+      if (d < POSTE_POSITION_MAX_PT) candidates.push({ ri, hi, d });
+    }
+  }
+  candidates.sort((a, b) => a.d - b.d);
+  const usedResult = new Set();
+  const usedHint = new Set();
+  const out = ocrResults.map(r => ({ ...r, circle: { ...r.circle } }));
+  for (const { ri, hi } of candidates) {
+    if (usedResult.has(ri) || usedHint.has(hi)) continue;
+    out[ri].circle.x = posteHints[hi].x;
+    out[ri].circle.y = posteHints[hi].y;
+    usedResult.add(ri);
+    usedHint.add(hi);
+  }
+  return out;
+}
+
+export { assignPostsByRouteOrder, attachMarkerAnchors } from './post-positioning.js';
 
 /**
  * Build posts[] from Tesseract.js OCR results.
@@ -208,7 +262,7 @@ export function assemblePostsFromOcr(ocrResults) {
   );
 
   for (let i = 0; i < sorted.length; i++) {
-    const { circle, number } = sorted[i];
+    const { circle, number, ringCenter } = sorted[i];
 
     if (number !== null) {
       if (number < 1 || number > MAX_PLAUSIBLE_POST) {
@@ -223,6 +277,8 @@ export function assemblePostsFromOcr(ocrResults) {
           number,
           x: circle.x,
           y: circle.y,
+          anchorX: circle.x,
+          anchorY: circle.y,
           ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
         });
         continue;
@@ -260,6 +316,8 @@ export function assemblePostsFromOcr(ocrResults) {
         number: inferred,
         x: circle.x,
         y: circle.y,
+        anchorX: circle.x,
+        anchorY: circle.y,
         ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
       });
       warnings.push(
@@ -274,5 +332,6 @@ export function assemblePostsFromOcr(ocrResults) {
     }
   }
 
+  attachMarkerAnchors(posts);
   return { posts, warnings };
 }

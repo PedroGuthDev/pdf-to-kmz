@@ -65,22 +65,21 @@ let parserPosts = parsed.posts;
 if (parserPosts.length < 11) {
   if (browserPosts) {
     console.warn(
-      `\nNode OCR: ${parserPosts.length}/11 posts — using debug_results.txt (browser parse dump).\n`
+      `\nParser: ${parserPosts.length}/11 posts — using debug_results.txt (browser parse dump).\n`
     );
     parserPosts = browserPosts.map(p => ({ ...p }));
   } else {
-    console.error('No posts from Node OCR and no debug_results.txt parse dump.');
+    console.error('No posts from parser and no debug_results.txt parse dump.');
     process.exit(1);
   }
 } else if (browserPosts) {
-  console.log('\nBrowser debug_results.txt positions (for comparison):');
+  console.log('\nBrowser debug_results.txt positions (comparison only — using parser positions):');
   for (const p of browserPosts) {
     console.log(
       `  Post ${String(p.number).padStart(2)}: page=${p.pageNum}  x=${p.x.toFixed(2)}  y=${p.y.toFixed(2)}`
     );
   }
-  parserPosts = browserPosts.map(p => ({ ...p }));
-  console.log('(Using browser positions from debug_results.txt for coordinate check.)\n');
+  console.log('');
 }
 
 const start = REFERENCE[0];

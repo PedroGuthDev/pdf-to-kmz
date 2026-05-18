@@ -175,7 +175,9 @@
       // Posts
       lines.push(`\nPosts found: ${parseResult.posts.length}`);
       for (const p of parseResult.posts) {
-        lines.push(`  Post ${String(p.number).padStart(2,'0')}: page=${p.pageNum ?? '?'}  x=${p.x != null ? p.x.toFixed(2) : '?'}  y=${p.y != null ? p.y.toFixed(2) : '?'}  type=${p.postType ?? '—'}`);
+        const ax = p.anchorX != null ? p.anchorX.toFixed(2) : '—';
+        const ay = p.anchorY != null ? p.anchorY.toFixed(2) : '—';
+        lines.push(`  Post ${String(p.number).padStart(2,'0')}: page=${p.pageNum ?? '?'}  x=${p.x != null ? p.x.toFixed(2) : '?'}  y=${p.y != null ? p.y.toFixed(2) : '?'}  anchor=(${ax},${ay})  type=${p.postType ?? '—'}`);
       }
 
       // Page dimensions

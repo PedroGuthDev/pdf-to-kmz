@@ -38,13 +38,22 @@ Plans:
 
 ### Phase 2: Coordinate Calculator
 
-**Goal:** Implement GPS coordinate calculation from a user-provided starting point, using extracted distances and inferred bearings from PDF layout
+**Goal:** Implement GPS coordinate calculation from a user-provided starting point, using per-page UTM-grid calibration from PDF layout
 **Mode:** mvp
+**Plans:** 3 active plans (02-01/02-02 obsolete, replaced by 02-03/02-04/02-05)
+
+Plans:
+- [x] 02-01-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
+- [x] 02-02-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
+- [x] 02-03-PLAN.md — UTM calibration foundation: utm-calibrator.js module, layer-sources.js extensions, pdf-parser.js pipeline extension
+- [x] 02-04-PLAN.md — Coordinate calculation rewrite: calculateCoordinates() UTM projection, detectGaps() page filter, index.html wiring ✓ 2026-05-15
+- [ ] 02-05-PLAN.md — Accuracy fix (D-ACC-01 through D-ACC-09): snapPostsToPolyline(), 2nd-anchor similarity, label sanity-check, post-positioning.js — IN PROGRESS
+
 **Success Criteria**:
 
 1. User can input latitude/longitude for the first post
 2. Bearings between consecutive posts are calculated from PDF x,y positions
-3. GPS coordinates are calculated for all posts using distance + bearing
+3. GPS coordinates are calculated for all posts using per-page UTM-grid calibration (not sequential chaining)
 4. Branching routes produce correct coordinates on each branch
 5. Route gaps are handled (disconnected segments get correct positions)
 
@@ -99,4 +108,4 @@ All phases are sequential — each depends on the previous phase's output.
 ---
 
 _Roadmap created: 2026-05-12_
-_Last updated: 2026-05-15 after Phase 1 complete_
+_Last updated: 2026-05-18 — Plan 02-04 complete, Plan 02-05 in progress (accuracy iteration)_

@@ -13,19 +13,47 @@
 //
 // Named ESM export only — no default export, no CommonJS require.
 
-import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.mjs';
-
-// Set worker URL immediately after import (required before any getDocument() call).
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
+/** Browser CDN vs Node legacy build (debug-run-calc.mjs). */
+let _pdfjsLibPromise = null;
+async function getPdfjsLib() {
+  if (!_pdfjsLibPromise) {
+    _pdfjsLibPromise = (async () => {
+      if (typeof process !== 'undefined' && process.versions?.node) {
+        const lib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        lib.GlobalWorkerOptions.workerSrc = new URL(
+          '../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
+          import.meta.url
+        ).href;
+        return lib;
+      }
+      const lib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.mjs');
+      lib.GlobalWorkerOptions.workerSrc =
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
+      return lib;
+    })();
+  }
+  return _pdfjsLibPromise;
+}
 
 import { buildOcgMap, validateLayers, normalizeName } from './ocg-map.js';
 import { isPostLabelSourceLayerName, isDistanceSourceLayerName, isViewportRectLayerName, isUtmGridLayerName } from './layer-sources.js';
 import { extractLayerText }                            from './text-extractor.js';
 import { extractLayerGraphics }                        from './graphics-extractor.js';
-import { deduplicatePostsPreferLowerPage } from './post-assembler.js';
+import {
+  deduplicatePostsPreferLowerPage,
+  assemblePostsFromOcr,
+} from './post-assembler.js';
+import {
+  clusterPosteSymbolHints,
+  snapPostsToPosteLayerSymbols,
+  attachMarkerAnchors,
+  alignPostPositionsToRouteMarkers,
+  assignPostsByRouteOrder,
+  SNAP_POST_TO_POSTE_SYMBOL_MAX_PT,
+  SNAP_POST_TO_POSTE_SECOND_PASS_MAX_PT,
+  POSTE_SYMBOL_CLUSTER_MERGE_PT,
+} from './post-positioning.js';
 import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js';
-import { assemblePostsFromOcr }                        from './post-assembler.js';
 import { associateDistances }                          from './distance-associator.js';
 import { buildCableSegments, minDistancePointToCablesOnPage } from './cable-builder.js';
 import { calculateCoordinates, parseCoordinateInput, validateBrazilBounds, detectRouteTopology, detectGaps } from './coordinate-calculator.js';
@@ -87,87 +115,6 @@ function attachPostTypeLabels(posts, textoItems, warnings) {
     warnings.push(
       `${missing} post(s) had no nearby Poste-layer type label (pattern dd-ddd like 10-300 (U)).`
     );
-  }
-}
-
-/** Merge Poste-layer subpath centroids (e.g. square + X) into one pole anchor. */
-const POSTE_SYMBOL_CLUSTER_MERGE_PT = 88;
-/** Snap assembled post to Poste symbol when this close (same page). */
-const SNAP_POST_TO_POSTE_SYMBOL_MAX_PT = 138;
-
-/**
- * @param {Array<{ x: number, y: number, pageNum?: number }>} allRaw
- * @param {number} mergeRadius
- */
-function clusterPosteSymbolHints(allRaw, mergeRadius) {
-  const byPage = new Map();
-  for (const p of allRaw) {
-    const pg = p.pageNum ?? 1;
-    if (!byPage.has(pg)) byPage.set(pg, []);
-    byPage.get(pg).push(p);
-  }
-  const hints = [];
-  for (const pts of byPage.values()) {
-    const n = pts.length;
-    if (n === 0) continue;
-    const parent = [...Array(n).keys()];
-    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-    const union = (a, b) => {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra !== rb) parent[ra] = rb;
-    };
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) <= mergeRadius) {
-          union(i, j);
-        }
-      }
-    }
-    const groups = new Map();
-    for (let i = 0; i < n; i++) {
-      const r = find(i);
-      if (!groups.has(r)) groups.set(r, []);
-      groups.get(r).push(pts[i]);
-    }
-    for (const memb of groups.values()) {
-      const sx = memb.reduce((s, q) => s + q.x, 0) / memb.length;
-      const sy = memb.reduce((s, q) => s + q.y, 0) / memb.length;
-      hints.push({ x: sx, y: sy, pageNum: memb[0].pageNum ?? 1 });
-    }
-  }
-  return hints;
-}
-
-/**
- * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} posts
- * @param {Array<{ x: number, y: number, pageNum?: number }>} hints
- * @param {number} maxSnapPt
- */
-function snapPostsToPosteLayerSymbols(posts, hints, maxSnapPt) {
-  if (!posts.length || !hints.length) return;
-  // One-to-one greedy assignment: each Poste symbol claimed by at most one post.
-  // Prevents two posts from snapping to the same symbol when they're both within
-  // maxSnapPt of the nearest hint (which produced duplicate x,y coordinates).
-  const candidates = [];
-  for (let pi = 0; pi < posts.length; pi++) {
-    const p = posts[pi];
-    const pg = p.pageNum ?? 1;
-    for (let hi = 0; hi < hints.length; hi++) {
-      if ((hints[hi].pageNum ?? 1) !== pg) continue;
-      const d = Math.hypot(hints[hi].x - p.x, hints[hi].y - p.y);
-      if (d < maxSnapPt) candidates.push({ pi, hi, d });
-    }
-  }
-  candidates.sort((a, b) => a.d - b.d);
-  const usedPost = new Set();
-  const usedHint = new Set();
-  for (const { pi, hi, d: _ } of candidates) {
-    if (usedPost.has(pi) || usedHint.has(hi)) continue;
-    posts[pi].x = hints[hi].x;
-    posts[pi].y = hints[hi].y;
-    usedPost.add(pi);
-    usedHint.add(hi);
   }
 }
 
@@ -263,8 +210,17 @@ export async function parsePdf(arrayBuffer) {
   const warnings = [];
 
   try {
+    const pdfjsLib = await getPdfjsLib();
+    const isNode = typeof process !== 'undefined' && process.versions?.node;
+    const docOpts = { data: arrayBuffer };
+    if (isNode) {
+      docOpts.standardFontDataUrl = new URL(
+        '../node_modules/pdfjs-dist/standard_fonts/',
+        import.meta.url
+      ).href;
+    }
     // ── Load PDF ────────────────────────────────────────────────────────────
-    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdfDoc = await pdfjsLib.getDocument(docOpts).promise;
 
     // ── Build OCG layer map ──────────────────────────────────────────────────
     const { idToName, allNames } = await buildOcgMap(pdfDoc);
@@ -285,29 +241,30 @@ export async function parsePdf(arrayBuffer) {
     const viewportLabels = [];               // Array<{ label, x, y }> — raw PDF coords (pre-flipY)
     const pageDimensions = new Map();        // Map<pageNum, { w, h }>
 
-    // ── OCR collector (D-06) ─────────────────────────────────────────────────
-    const allOcrResults = [];
+    // ── OCR collector (D-06) — run after viewport pairing (calibrated pages only) ─
+    const pendingOcrBatches = [];
 
-    // Selective OCG visibility for OCR rendering (F-01):
-    // Only Numero_Poste and TEXTO layers are shown; all other layers are hidden.
-    // Forcing ALL layers visible caused stacked geometry (cables, dimensions, legends)
-    // to bleed over circle crops, producing corrupted Tesseract input.
+    // Selective OCG visibility for OCR rendering (F-01) — browser only.
+    // Node: pdf.js + node-canvas currently rasterizes blank pages; OCR is skipped and
+    // post numbers fall back to route-order assignment after assembly.
     let ocrOcPromise = null;
     try {
       const ocConfig = await pdfDoc.getOptionalContentConfig();
-      const OCR_LAYER_NAMES = [
-        normalizeName('Numero_Poste'),
-        normalizeName('TEXTO'),
-      ];
-      const flatOrder = arr => (arr ?? []).flatMap(item => Array.isArray(item) ? flatOrder(item) : [item]);
-      for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
-        try {
-          const layerName = idToName[id] ?? idToName[String(id)] ?? '';
-          const isOcrLayer = OCR_LAYER_NAMES.includes(normalizeName(layerName));
-          ocConfig.setVisibility(id, isOcrLayer);
-        } catch (_) {}
+      if (!isNode) {
+        const OCR_LAYER_NAMES = [
+          normalizeName('Numero_Poste'),
+          normalizeName('TEXTO'),
+        ];
+        const flatOrder = arr => (arr ?? []).flatMap(item => Array.isArray(item) ? flatOrder(item) : [item]);
+        for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
+          try {
+            const layerName = idToName[id] ?? idToName[String(id)] ?? '';
+            const isOcrLayer = OCR_LAYER_NAMES.includes(normalizeName(layerName));
+            ocConfig.setVisibility(id, isOcrLayer);
+          } catch (_) {}
+        }
+        ocrOcPromise = Promise.resolve(ocConfig);
       }
-      ocrOcPromise = Promise.resolve(ocConfig);
     } catch (_) {}
 
     // ── Distance fallback collector ──────────────────────────────────────────
@@ -317,7 +274,7 @@ export async function parsePdf(arrayBuffer) {
     // ── WR-05: Create Tesseract worker once before page loop ─────────────────
     // Creating a worker per page caused N CDN imports and N WASM inits on multi-page PDFs.
     // The worker is shared across all pages and terminated after the loop.
-    const ocrWorker = await createOcrWorker();
+    const ocrWorker = isNode ? null : await createOcrWorker();
 
     // ── Process all pages (D-09): each page is independent user space; results merged below ─
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
@@ -492,19 +449,44 @@ export async function parsePdf(arrayBuffer) {
         continue; // skip this page for post extraction (distances/cable already collected)
       }
 
-      // ── OCR post numbers for this page (D-06, D-08) ──────────────────────────
+      // ── Queue OCR (runs only on viewport-calibrated detail pages after pairing) ─
       if (flippedCircles.length > 0) {
-        const pageOcrResults = await ocrCircleNumbers(page, pageHeight, flippedCircles, ocrOcPromise, ocrWorker);
-        allOcrResults.push(...pageOcrResults);
+        pendingOcrBatches.push({ page, pageHeight, circles: flippedCircles });
       }
     }
-
-    // ── WR-05: Terminate shared OCR worker after all pages are processed ──────
-    await ocrWorker.terminate();
 
     // ── Pair page-2 viewport labels to rectangles ────────────────────────────
     const page2Height = pageDimensions.get(2)?.h ?? 0;
     const pairedViewportBoxes = pairLabelsToRects(viewportLabels, viewportBoxes, page2Height);
+    const calibratedPageNums = pairedViewportBoxes.map(v => v.pageNum);
+    const calibratedPageSet = new Set(calibratedPageNums);
+
+    const allOcrResults = [];
+    for (const batch of pendingOcrBatches) {
+      const pageNum = batch.circles[0]?.pageNum;
+      if (!calibratedPageSet.has(pageNum)) {
+        warnings.push(
+          `Page ${pageNum}: skipped post OCR — not a viewport-calibrated route detail page`
+        );
+        continue;
+      }
+      let pageOcrResults;
+      if (isNode) {
+        pageOcrResults = batch.circles.map(circle => ({ circle, number: null, ringCenter: null }));
+      } else {
+        pageOcrResults = await ocrCircleNumbers(
+          batch.page,
+          batch.pageHeight,
+          batch.circles,
+          ocrOcPromise,
+          ocrWorker
+        );
+      }
+      allOcrResults.push(...pageOcrResults);
+    }
+
+    // ── WR-05: Terminate shared OCR worker after all pages are processed ──────
+    if (ocrWorker) await ocrWorker.terminate();
 
     // ── Merge distance fallback only when layer-filtered result is empty (CR-02) ─
     if (allDistItems.length === 0) {
@@ -514,10 +496,30 @@ export async function parsePdf(arrayBuffer) {
       allDistItems.push(...allDistItemsFallback);
     }
 
+    const posteHints = clusterPosteSymbolHints(allPosteRaw, POSTE_SYMBOL_CLUSTER_MERGE_PT);
+    // Poste snap runs after assembly (one-to-one). Pre-OCR hint snapping collapsed
+    // multiple circles onto the same cluster (e.g. posts 4–6 at identical x,y).
+
     // ── Assemble posts from OCR results (D-06, D-07) ────────────────────────
     const { posts: rawPosts, warnings: postWarnings } = assemblePostsFromOcr(allOcrResults);
     warnings.push(...postWarnings);
-    const posts = deduplicatePostsPreferLowerPage(rawPosts);
+    let posts = deduplicatePostsPreferLowerPage(rawPosts, calibratedPageNums);
+
+    if (posts.length === 0 && allOcrResults.length > 0) {
+      warnings.push(
+        'All OCR reads failed — assigning post numbers 1..N from route order on Numero_Poste circles ' +
+        `(viewport-calibrated pages ${calibratedPageNums.join(', ')}).`
+      );
+      const circles = allOcrResults.map(r => ({
+        x: r.circle.x,
+        y: r.circle.y,
+        pageNum: r.circle.pageNum,
+      }));
+      posts = assignPostsByRouteOrder(circles, allCablePaths);
+      attachMarkerAnchors(posts);
+    } else if (posts.length > 0 && allOcrResults.length > 0) {
+      alignPostPositionsToRouteMarkers(posts, allOcrResults, allCablePaths);
+    }
 
     // ── WR-04: Sanity-check post numbers vs total count ──────────────────────
     // If the maximum post number greatly exceeds the count, OCR likely read
@@ -539,16 +541,36 @@ export async function parsePdf(arrayBuffer) {
       posts.map(p => p.number).join(',')
     );
 
-    // ── Snap posts to Poste layer symbols ────────────────────────────────────
-    const posteHints = clusterPosteSymbolHints(allPosteRaw, POSTE_SYMBOL_CLUSTER_MERGE_PT);
-    snapPostsToPosteLayerSymbols(posts, posteHints, SNAP_POST_TO_POSTE_SYMBOL_MAX_PT);
+    attachMarkerAnchors(posts);
+
+    // ── Snap posts to Poste layer symbols (two-pass greedy, anchor-guarded) ─
+    const postByNum = new Map(posts.map(p => [p.number, p]));
+    const usedHints = new Set();
+    const snapOpts = { usedHintIndices: usedHints, postByNum };
+    const snappedPosts = snapPostsToPosteLayerSymbols(
+      posts,
+      posteHints,
+      SNAP_POST_TO_POSTE_SYMBOL_MAX_PT,
+      snapOpts
+    );
+    snapPostsToPosteLayerSymbols(
+      posts,
+      posteHints,
+      SNAP_POST_TO_POSTE_SECOND_PASS_MAX_PT,
+      {
+        skipPostIndices: snappedPosts,
+        usedHintIndices: usedHints,
+        snappedPostIndices: snappedPosts,
+        postByNum,
+      }
+    );
 
     // ── Attach post type labels from Poste OCG layer ─────────────────────────
     attachPostTypeLabels(posts, allTextoItems, warnings);
 
     if (rawPosts.length > posts.length) {
       warnings.push(
-        `Merged ${rawPosts.length - posts.length} duplicate post marker(s) across overview/detail pages (kept lowest page number per post).`
+        `Merged ${rawPosts.length - posts.length} duplicate post marker(s) across pages (kept viewport-calibrated detail page per post).`
       );
     }
 
@@ -576,6 +598,7 @@ export async function parsePdf(arrayBuffer) {
       utmGridPathsPerPage,
       viewportBoxes: pairedViewportBoxes,
       pageDimensions,
+      distanceLabelItems: allDistItems,
     };
 
   } catch (err) {

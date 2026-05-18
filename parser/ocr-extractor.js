@@ -10,6 +10,41 @@
 
 export const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
+/** @type {((w: number, h: number) => import('canvas').Canvas) | null} */
+let _nodeCreateCanvas = null;
+
+async function getNodeCreateCanvas() {
+  if (!_nodeCreateCanvas) {
+    ({ createCanvas: _nodeCreateCanvas } = await import('canvas'));
+  }
+  return _nodeCreateCanvas;
+}
+
+/**
+ * Browser OffscreenCanvas or Node `canvas` package (debug-run-calc.mjs).
+ * @param {number} w
+ * @param {number} h
+ */
+async function createOcrCanvas(w, h) {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(w, h);
+  }
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    const createCanvas = await getNodeCreateCanvas();
+    return createCanvas(w, h);
+  }
+  throw new Error('No canvas implementation (OffscreenCanvas or canvas package)');
+}
+
+/** @param {OffscreenCanvas | import('canvas').Canvas} */
+async function canvasToPngBytes(canvas) {
+  if (typeof canvas.convertToBlob === 'function') {
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  return canvas.toBuffer('image/png');
+}
+
 /**
  * Create and configure a Tesseract worker for digit OCR.
  * Caller is responsible for calling worker.terminate() when done.
@@ -17,9 +52,17 @@ export const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/t
  * @returns {Promise<import('tesseract.js').Worker>}
  */
 export async function createOcrWorker() {
-  // Dynamic import so a CDN failure at load time doesn't prevent the event listener from registering.
-  // v5 ESM bundle uses `export default { createWorker, ... }` — destructure from .default.
-  const { createWorker } = (await import(TESSERACT_CDN)).default;
+  // Dynamic import — browser uses CDN; Node uses local package when available.
+  let createWorker;
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    try {
+      ({ createWorker } = await import('tesseract.js'));
+    } catch {
+      ({ createWorker } = (await import(TESSERACT_CDN)).default);
+    }
+  } else {
+    ({ createWorker } = (await import(TESSERACT_CDN)).default);
+  }
   const worker = await createWorker('eng', 1, { logger: () => {} });
   await worker.setParameters({
     tessedit_char_whitelist: '0123456789',
@@ -55,7 +98,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
   const viewport = page.getViewport({ scale: SCALE });
   const canvasW = Math.ceil(viewport.width);
   const canvasH = Math.ceil(viewport.height);
-  const canvas = new OffscreenCanvas(canvasW, canvasH);
+  const canvas = await createOcrCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
   const renderOpts = { canvasContext: ctx, viewport };
   if (ocConfigPromise) renderOpts.optionalContentConfigPromise = ocConfigPromise;
@@ -165,6 +208,12 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       if (d < ringDist) { ringDist = d; ring = c; }
     }
 
+    // Ring center in flipY PDF pt — this is the visual center of the post symbol,
+    // more accurate than the CTM anchor stored in circle.x/y (which is a label offset).
+    const ringCenterPt = ring
+      ? { x: ring.center.x / SCALE, y: ring.center.y / SCALE }
+      : null;
+
     let cropX, cropY, cropW, cropH;
     if (ring) {
       // Adaptive shrink: 15% of the smaller dimension, floor 2 px. Keeps small
@@ -198,12 +247,11 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     }
 
     if (cropW <= 0 || cropH <= 0) {
-      results.push({ circle, number: null });
+      results.push({ circle, number: null, ringCenter: ringCenterPt });
       continue;
     }
 
-    // Extract crop into a fresh OffscreenCanvas for Tesseract (T-04-02: bounds clamped above)
-    const cropCanvas = new OffscreenCanvas(cropW, cropH);
+    const cropCanvas = await createOcrCanvas(cropW, cropH);
     const cropCtx = cropCanvas.getContext('2d');
     cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
@@ -230,7 +278,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       const scaleUp = Math.max(MIN_OCR_DIM / cropW, MIN_OCR_DIM / cropH);
       const upW = Math.round(cropW * scaleUp);
       const upH = Math.round(cropH * scaleUp);
-      ocrSource = new OffscreenCanvas(upW, upH);
+      ocrSource = await createOcrCanvas(upW, upH);
       const upCtx = ocrSource.getContext('2d');
       upCtx.imageSmoothingEnabled = true;
       upCtx.imageSmoothingQuality = 'high';
@@ -238,8 +286,12 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     }
 
     // Convert to Blob — more reliable than OffscreenCanvas across Tesseract.js versions
-    const blob = await ocrSource.convertToBlob({ type: 'image/png' });
-    const { data } = await worker.recognize(blob);
+    const pngBytes = await canvasToPngBytes(ocrSource);
+    if (!pngBytes?.length || pngBytes.length < 64) {
+      results.push({ circle, number: null, ringCenter: ringCenterPt });
+      continue;
+    }
+    const { data } = await worker.recognize(pngBytes);
     const text = data.text.trim();
     // Lenient parse: pick the last digit run (Tesseract may emit "001" when the
     // red ring is read as a leading "0", or " 1 " with stray spaces). The trailing
@@ -255,15 +307,14 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     // missed them. Successful reads don't need visual inspection. Open the URL
     // in a browser tab to see exactly what Tesseract was given.
     if (num === null && cropsLogged < DEBUG_CROPS_PER_PAGE) {
-      const ab = await blob.arrayBuffer();
-      const u8 = new Uint8Array(ab);
+      const u8 = pngBytes instanceof Uint8Array ? pngBytes : new Uint8Array(pngBytes);
       let bin = '';
       for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
       console.info(`[ocr-crop] page=${circle.pageNum ?? '?'} (${circle.x.toFixed(0)},${circle.y.toFixed(0)}) data:image/png;base64,${btoa(bin)}`);
       cropsLogged++;
     }
 
-    results.push({ circle, number: num });
+    results.push({ circle, number: num, ringCenter: ringCenterPt });
   }
 
   return results;

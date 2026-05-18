@@ -43,6 +43,8 @@ metrics:
 
 # Phase 2 Plan 04: UTM-Grid Coordinate Calculator Rewrite Summary
 
+> **Note (2026-05-18):** Plan 02-05 has been executed on top of 02-04. The `calculateCoordinates()` signature has changed (`utmCalibrationData` → `opts`, now includes `lastPostGps`), and the return value now includes `warnings`. See `02-05-SUMMARY.md` for the current state.
+
 **One-liner:** calculateCoordinates() rewritten for per-page UTM projection (no sequential chaining), detectGaps() page-filtered, index.html wired to pass utmCalibrationData as 6th argument.
 
 ## What Was Built

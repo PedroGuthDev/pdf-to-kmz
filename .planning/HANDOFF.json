@@ -1,0 +1,122 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-05-18T12:00:00.000Z",
+  "phase": "02",
+  "phase_name": "coordinate-calculator",
+  "phase_dir": ".planning/phases/02-coordinate-calculator",
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "in_progress",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Diagnose coordinate errors vs coordenadas postes.txt",
+      "status": "done",
+      "notes": "debug_results.txt, debug-run-calc.mjs, debug-compare.mjs; root cause split: transform model + wrong PDF x,y from OCR"
+    },
+    {
+      "id": 2,
+      "name": "Hybrid UTM transform (X from detail-page grid, Y from viewport ratio)",
+      "status": "done",
+      "notes": "parser/geo/utm-calibrator.js buildPageTransforms + detailPageXScale/detailPageYScale"
+    },
+    {
+      "id": 3,
+      "name": "Post 08 uncalibrated page repair",
+      "status": "done",
+      "notes": "parser/coordinate-calculator.js repairPostsOnUncalibratedPages — interpolate on page 4 between 07 and 09"
+    },
+    {
+      "id": 4,
+      "name": "Regression check",
+      "status": "done",
+      "notes": "node debug-run-calc.mjs — post 01 ~0.04m, post 08 ~14m (was null), max ~49.5m; coordinate-calculator tests 20/20 pass"
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 5,
+      "name": "Reduce 12–50m errors on posts 02–11",
+      "status": "in_progress",
+      "notes": "Node pipeline (route-order + Numero_Poste centroids) max 26.24m without debug_results.txt; browser OCR still needed for digit read"
+    },
+    {
+      "id": 5b,
+      "name": "Node parsePdf end-to-end without debug_results.txt",
+      "status": "done",
+      "notes": "assignPostsByRouteOrder descending-X; skip Tesseract on Node (blank canvas); max err 26.24m"
+    },
+    {
+      "id": 6,
+      "name": "Fix post 08 at source (OCR on page 8 vs detail page 4)",
+      "status": "not_started",
+      "notes": "Consider OCR only on viewport-calibrated pages (3, 4) or dedupe by route context"
+    },
+    {
+      "id": 7,
+      "name": "Browser UAT on index.html with sample PDF",
+      "status": "not_started",
+      "notes": "Hard refresh; enter post 01 from coordenadas postes.txt; compare ref compare section"
+    },
+    {
+      "id": 8,
+      "name": "Commit coordinate fixes",
+      "status": "not_started",
+      "notes": "User has not requested commit yet"
+    }
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {
+      "action": "Run node debug-run-calc.mjs after any parser/coord change",
+      "context": "Ground truth in coordenadas postes.txt; target post 01 <5m, others improving toward <15m",
+      "blocking": false
+    },
+    {
+      "action": "Browser test index.html with INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf",
+      "context": "Confirms parsePdf + calculateCoordinates integration",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Use hybrid scales: X from per-page UTM grid (~0.3546 m/pt on pages 3–4), Y from viewport height ratio × page-2 overview scale (~0.273 m/pt)",
+      "rationale": "Pure isotropic UTM scale on detail pages was worse (~33m avg) than viewport Y; route linework is vertically exaggerated vs 50m grid",
+      "phase": "02"
+    },
+    {
+      "decision": "Anchor origin with split X/Y at post 01 GPS; shift between detail pages via viewport box delta on page 2 (rect_pk.x/y), not x1_p2 normalized projection",
+      "rationale": "Mixing page-local anchor with x1_p2 offset broke post 01 anchor (~276m errors)",
+      "phase": "02"
+    },
+    {
+      "decision": "Do not use cable geometry for distance association (unchanged)",
+      "rationale": "Cable is for route/post identification only per user",
+      "phase": "01"
+    },
+    {
+      "decision": "Route sequential digits on TEXTO (nested in Numero_Poste in PDF); Poste layer = graphics + postType only",
+      "rationale": "User clarification; separate from coordinate work but affects parser accuracy",
+      "phase": "01"
+    }
+  ],
+  "uncommitted_files": [
+    "parser/geo/utm-calibrator.js",
+    "parser/coordinate-calculator.js",
+    "debug-run-calc.mjs",
+    "debug-compare.mjs"
+  ],
+  "next_action": "Improve posts 02–05/08/10–11 accuracy (cable snap threshold, Poste snap, or browser OCR); fix Node pdf.js canvas rasterization for Tesseract; browser UAT on index.html",
+  "context_notes": "Resumed from Claude session 4c5e13d3-7418-4809-b43c-3cd25d75ab54. Node pdf.js+canvas renders blank pages (0 non-white px) so OCR skipped; route-order (descending X) + Numero_Poste centroids gives 11 posts without debug_results.txt. debug-run-calc max err 26.24m (post 01 0.04m). Root cause for Node OCR: canvas rasterization, not red-ring threshold.",
+  "reference_files": [
+    "coordenadas postes.txt",
+    "debug_results.txt",
+    "INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf",
+    "debug-run-calc.mjs",
+    "debug-coordinates.mjs",
+    "debug-compare.mjs"
+  ],
+  "claude_session_resume": "claude --resume 4c5e13d3-7418-4809-b43c-3cd25d75ab54",
+  "cursor_resume": "Continue from .planning/HANDOFF.json — coordinate accuracy work"
+}

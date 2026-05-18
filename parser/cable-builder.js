@@ -14,6 +14,9 @@
  * @param {number} bx
  * @param {number} by
  */
+/**
+ * @returns {{ d: number, cx: number, cy: number, t: number }}
+ */
 function distPointToSegment(px, py, ax, ay, bx, by) {
   const abx = bx - ax;
   const aby = by - ay;
@@ -24,7 +27,7 @@ function distPointToSegment(px, py, ax, ay, bx, by) {
   t = Math.max(0, Math.min(1, t));
   const cx = ax + t * abx;
   const cy = ay + t * aby;
-  return Math.hypot(px - cx, py - cy);
+  return { d: Math.hypot(px - cx, py - cy), cx, cy, t };
 }
 
 /**
@@ -36,20 +39,45 @@ function distPointToSegment(px, py, ax, ay, bx, by) {
  * @param {Array<import('./construct-path-parser.js').PathOp>} ops
  * @returns {number}
  */
-export function minDistancePointToPathOps(px, py, ops) {
-  if (!ops || ops.length === 0) return Infinity;
+/**
+ * @param {number} px
+ * @param {number} py
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {{ x: number, y: number, d: number }}
+ */
+export function nearestPointOnPathOps(px, py, ops) {
+  if (!ops || ops.length === 0) return { x: px, y: py, d: Infinity };
+
   let minD = Infinity;
+  let bestX = px;
+  let bestY = py;
+  let arcLen = 0;
+  let bestT = 0;
   /** @type {{ x: number, y: number } | null} */
   let cur = null;
   /** @type {{ x: number, y: number } | null} */
   let subpathStart = null;
+
+  const consider = (ax, ay, bx, by, segStart) => {
+    const hit = distPointToSegment(px, py, ax, ay, bx, by);
+    const at = segStart + hit.t * Math.hypot(bx - ax, by - ay);
+    if (hit.d < minD) {
+      minD = hit.d;
+      bestX = hit.cx;
+      bestY = hit.cy;
+      bestT = at;
+    }
+  };
 
   for (const op of ops) {
     if (op.type === 'M') {
       cur = { x: op.x, y: op.y };
       subpathStart = cur;
     } else if (op.type === 'L' && cur) {
-      minD = Math.min(minD, distPointToSegment(px, py, cur.x, cur.y, op.x, op.y));
+      const segStart = arcLen;
+      const segLen = Math.hypot(op.x - cur.x, op.y - cur.y);
+      consider(cur.x, cur.y, op.x, op.y, segStart);
+      arcLen += segLen;
       cur = { x: op.x, y: op.y };
     } else if (op.type === 'C' && cur) {
       const x0 = cur.x;
@@ -71,7 +99,9 @@ export function minDistancePointToPathOps(px, py, ops) {
           3 * om * om * t * y1 +
           3 * om * t * t * y2 +
           t * t * t * y3;
-        minD = Math.min(minD, distPointToSegment(px, py, px0, py0, bx, by));
+        const segStart = arcLen;
+        consider(px0, py0, bx, by, segStart);
+        arcLen += Math.hypot(bx - px0, by - py0);
         px0 = bx;
         py0 = by;
       }
@@ -88,17 +118,25 @@ export function minDistancePointToPathOps(px, py, ops) {
         const om = 1 - t;
         const bx = om * om * x0 + 2 * om * t * x1 + t * t * x2;
         const by = om * om * y0 + 2 * om * t * y1 + t * t * y2;
-        minD = Math.min(minD, distPointToSegment(px, py, px0, py0, bx, by));
+        const segStart = arcLen;
+        consider(px0, py0, bx, by, segStart);
+        arcLen += Math.hypot(bx - px0, by - py0);
         px0 = bx;
         py0 = by;
       }
       cur = { x: op.x2, y: op.y2 };
     } else if (op.type === 'Z' && cur && subpathStart) {
-      minD = Math.min(minD, distPointToSegment(px, py, cur.x, cur.y, subpathStart.x, subpathStart.y));
+      const segStart = arcLen;
+      consider(cur.x, cur.y, subpathStart.x, subpathStart.y, segStart);
+      arcLen += Math.hypot(subpathStart.x - cur.x, subpathStart.y - cur.y);
       cur = { ...subpathStart };
     }
   }
-  return minD;
+  return { x: bestX, y: bestY, d: minD, t: bestT };
+}
+
+export function minDistancePointToPathOps(px, py, ops) {
+  return nearestPointOnPathOps(px, py, ops).d;
 }
 
 /**
@@ -109,13 +147,25 @@ export function minDistancePointToPathOps(px, py, ops) {
  * @returns {number}
  */
 export function minDistancePointToCablesOnPage(px, py, pageNum, cablesByPage) {
+  return nearestPointOnCablesOnPage(px, py, pageNum, cablesByPage).d;
+}
+
+/**
+ * @param {number} px
+ * @param {number} py
+ * @param {number} pageNum
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @returns {{ x: number, y: number, d: number, t: number }}
+ */
+export function nearestPointOnCablesOnPage(px, py, pageNum, cablesByPage) {
   const paths = cablesByPage.get(pageNum) ?? [];
-  if (paths.length === 0) return Infinity;
-  let m = Infinity;
+  if (paths.length === 0) return { x: px, y: py, d: Infinity, t: 0 };
+  let best = { x: px, y: py, d: Infinity, t: 0 };
   for (const ops of paths) {
-    m = Math.min(m, minDistancePointToPathOps(px, py, ops));
+    const hit = nearestPointOnPathOps(px, py, ops);
+    if (hit.d < best.d) best = hit;
   }
-  return m;
+  return best;
 }
 
 /**

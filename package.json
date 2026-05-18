@@ -11,8 +11,11 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.0",
+    "canvas": "^3.2.3",
     "pdf-parse": "^2.4.5",
     "pdf2json": "^4.0.3",
-    "pdfjs-dist": "^5.7.284"
+    "pdfjs-dist": "^5.7.284",
+    "tesseract.js": "^5.1.1"
   }
 }
