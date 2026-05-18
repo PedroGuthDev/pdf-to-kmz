@@ -55,7 +55,8 @@ assert(!src.includes('dLon = (m * Math.sin'), 'no sequential chaining dLon formu
 
 // ── Test 4: UTM calibration keywords present ───────────────────────────────
 console.log('\n[Test Group 4] UTM calibration keywords');
-assert(src.includes('utmCalibrationData'), 'utmCalibrationData param present');
+// D-ACC-07 renamed utmCalibrationData -> opts; verify new param name and key destructured fields
+assert(src.includes('opts = null') || src.includes('opts=null'), 'opts param present (renamed from utmCalibrationData)');
 assert(src.includes('buildPageTransforms'), 'buildPageTransforms called');
 assert(src.includes('projectPost'), 'projectPost called');
 assert(src.includes('computeScaleFactor'), 'computeScaleFactor called');
