@@ -67,5 +67,11 @@ Baseline: post 01 ~0.04 m; posts 02–11 ~12–50 m; post 08 ~14 m (max ~49.5 m)
 | Bad-CTM page filter (x<10 AND y<10) | Phase 1 | Skips flipY pages that would produce garbage coordinates |
 | Sequence inference for OCR misses | Phase 1 | Fills gaps using lower/upper neighbours to preserve sequential numbering |
 
+## Accumulated Context
+
+### Pending Todos
+
+1. [Derive post positions from Cabo Projetado offset](.planning/todos/pending/20260518-derive-post-positions-from-cabo-offset.md) — invert uniform cable offset to recover pole centers (vs D-ACC-01 vertex snap)
+
 ---
-*Last updated: 2026-05-16 after resume-work*
+*Last updated: 2026-05-18 after todo capture*
