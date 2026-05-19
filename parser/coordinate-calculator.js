@@ -507,7 +507,7 @@ export function detectGaps(posts, distances, cableSegments) {
  * @param {number} startLat  Latitude of post #1 (user-provided, D-14)
  * @param {number} startLon  Longitude of post #1
  * @param {Array<{ ops, pageNum? }>} cableSegments
- * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, enableCableArcPlacer?: boolean, overviewComposite?: boolean }|null} opts
+ * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, overviewComposite?: boolean }|null} opts
  * @returns {{ posts: Array, connections: Array, warnings: string[] }}
  */
 export function calculateCoordinates(posts, distances, startLat, startLon, cableSegments = [], opts = null) {
@@ -544,7 +544,6 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     viewportBoxes,
     pageDimensions,
     lastPostGps,
-    enableCableArcPlacer,
     overviewComposite,
   } = opts_;
 
@@ -595,6 +594,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       (overviewComposite || viewportBoxes.length >= 3) && cableSegments?.length && scaleFactor != null;
     if (routeCablePlacer) {
       const arcCablesByPage = buildCablesByPage(cableSegments);
+      // D-N1-03: missing-label fallback for N1 = augmentCrossPageDistances (existing wiring; no new code).
       const { map: arcAugDistMap } = overviewComposite
         ? { map: distMap }
         : augmentCrossPageDistances(sorted, distMap);
@@ -721,24 +721,6 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   } else {
     warnings.push('[coordinate-calculator] opts not provided or incomplete. Posts will have lat: null, lon: null.');
-  }
-
-  // ── N1-v3: Direction-detected straight-line walk (opt-in; regresses João Born by default) ──
-  if (enableCableArcPlacer && pageTransforms.size > 0) {
-    const arcCablesByPage = buildCablesByPage(cableSegments);
-    const { map: arcAugDistMap } = augmentCrossPageDistances(sorted, distMap);
-    const placer = placePostsOnCableByArcLength({
-      sortedPosts: sorted,
-      distMap: arcAugDistMap,
-      cablesByPage: arcCablesByPage,
-      perPageScale: pn => pageTransforms.get(pn)?.x_scale_sf ?? scaleFactor ?? null,
-      postByNum: postMap,
-      warnings,
-    });
-    warnings.push(
-      `[cable-arc-placer] placed ${placer.placed.size}/${sorted.length} posts; ` +
-      `skipped: ${placer.skipped.map(s => `${s.number}:${s.reason}`).join(', ')}.`
-    );
   }
 
   for (const w of warnings) console.warn(w);

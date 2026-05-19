@@ -141,11 +141,13 @@ export function placePostsOnCableByArcLength({
     byPage.get(pn).push(post);
   }
 
+  // D-N1-04: each page anchors and walks independently — no cross-page arc chaining.
   for (const [pageNum, pagePosts] of byPage) {
     const scale = perPageScale(pageNum);
     if (scale == null) continue;
 
     const sorted = [...pagePosts].sort((a, b) => a.number - b.number);
+    // D-N1-05: tap poles are excluded from N1 walk; isOffRouteCablePost is the canonical detector.
     const nonTapPosts = sorted.filter(p => !isOffRouteCablePost(p, postByNum, cablesByPage));
     if (nonTapPosts.length === 0) {
       for (const p of sorted) skipped.push({ number: p.number, reason: 'all-tap' });
@@ -159,6 +161,7 @@ export function placePostsOnCableByArcLength({
       !isOffRouteCablePost(routePost1, postByNum, cablesByPage)
         ? routePost1
         : nonTapPosts[0];
+    // D-N1-02: anchor input is the Viterbi-assigned pole position (post.x/post.y), not the label centroid (anchorX/anchorY).
     const anchorHit = nearestCableHitOnPage(anchorPost.x, anchorPost.y, pageNum, cablesByPage);
     if (anchorHit.d > ROUTE_CABLE_NEAR_PT) {
       for (const p of sorted) skipped.push({ number: p.number, reason: 'no-route-cable' });
