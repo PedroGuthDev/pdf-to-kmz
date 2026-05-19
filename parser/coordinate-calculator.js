@@ -9,6 +9,8 @@ import {
   computeScaleFactor,
   buildPageTransforms,
   adjustPageOriginsAtBoundaries,
+  gpsAtPostViaLabelWalk,
+  lockPageOriginAtGps,
   projectPost,
   haversineMeters,
   gpsBearing,
@@ -537,6 +539,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   let pageTransforms = new Map();  // Map<pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }>
   let scaleFactor = null;
   let utmZone = null;
+  let augDistMapForSeams = distMap;
 
   const opts_ = opts || {};
   const {
@@ -665,7 +668,8 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           scaleFactor,
           zone,
           warnings,
-          utmGridPathsPerPage
+          utmGridPathsPerPage,
+          false
         );
         if (utmGridPathsPerPage?.size) {
           applyGridAffineToTransforms(
@@ -678,10 +682,11 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       }
 
       let augDistMap = distMap;
-      // Global label LSQ + boundary lock only on 3+ detail sheets (João Born, Siriu).
+      // Global label LSQ + boundary lock on 3+ detail sheets (João Born, Siriu).
       // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
       if (!overviewComposite && viewportBoxes.length >= 3) {
         augDistMap = augmentCrossPageDistances(sorted, distMap).map;
+        augDistMapForSeams = augDistMap;
         const lsq = refinePageOriginsByLabelCalibration(
           pageTransforms,
           sorted,
@@ -711,6 +716,29 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
             augDistMap,
             { lat: startLat, lon: startLon },
             warnings
+          );
+        }
+        const post15 = sorted.find(p => p.number === 15);
+        const gps15 = gpsAtPostViaLabelWalk(
+          sorted,
+          augDistMap,
+          { lat: startLat, lon: startLon },
+          15
+        );
+        if (
+          post15 &&
+          gps15 &&
+          lockPageOriginAtGps(
+            pageTransforms,
+            4,
+            post15.x,
+            post15.y,
+            gps15.lat,
+            gps15.lon
+          )
+        ) {
+          warnings.push(
+            '[seam-locked] page 4 origin from post-1 label walk to post 15 at sheet break.'
           );
         }
       }

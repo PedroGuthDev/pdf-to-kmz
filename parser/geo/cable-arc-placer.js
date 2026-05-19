@@ -82,6 +82,12 @@ function detectCableDir(pagePosts, routeOps) {
 
 const ROUTE_CABLE_NEAR_PT = 80;
 
+/** Skip N1 walk when this fraction of labeled same-page pairs match Distância_Poste chords. */
+const N1_SKIP_CONSISTENCY_FRAC = 0.85;
+
+/** Poste-symbol posts within this distance of route cable are treated as trusted snaps. */
+const N1_POSTE_SNAP_CABLE_PT = 45;
+
 /**
  * @param {number} pageNum
  * @param {number} refX
@@ -181,6 +187,8 @@ export function placePostsOnCableByArcLength({
 
     let consistentPairs = 0;
     let totalLabeledPairs = 0;
+    /** @type {number[]} */
+    const labelRatios = [];
     for (let i = 0; i < sorted.length - 1; i++) {
       const p1 = sorted[i];
       const p2 = sorted[i + 1];
@@ -193,10 +201,43 @@ export function placePostsOnCableByArcLength({
       const expectedDist = mLabel / scale;
       if (expectedDist < 1e-6) continue;
       const ratio = actualDist / expectedDist;
-      if (ratio >= 0.8 && ratio <= 1.2) consistentPairs++;
+      labelRatios.push(ratio);
+      if (ratio >= 0.88 && ratio <= 1.12) consistentPairs++;
     }
 
-    if (totalLabeledPairs >= 2 && consistentPairs / totalLabeledPairs >= 0.7) {
+    const consistencyFrac =
+      totalLabeledPairs > 0 ? consistentPairs / totalLabeledPairs : 1;
+    const sortedRatios = [...labelRatios].sort((a, b) => a - b);
+    const medianRatio =
+      sortedRatios.length > 0
+        ? sortedRatios[Math.floor(sortedRatios.length / 2)]
+        : 1;
+    const medianOk = medianRatio >= 0.88 && medianRatio <= 1.12;
+
+    let nearCableCount = 0;
+    for (const p of nonTapPosts) {
+      const hit = nearestCableHitOnPage(p.x, p.y, pageNum, cablesByPage);
+      if (hit && hit.d <= N1_POSTE_SNAP_CABLE_PT) nearCableCount++;
+    }
+    const posteSnapMajority =
+      nonTapPosts.length > 0 &&
+      nearCableCount / nonTapPosts.length >= 0.6;
+    const anchorOnCable = anchorHit.d <= N1_POSTE_SNAP_CABLE_PT;
+
+    if (
+      totalLabeledPairs >= 2 &&
+      (consistencyFrac >= N1_SKIP_CONSISTENCY_FRAC ||
+        (medianOk && consistencyFrac >= 0.75))
+    ) {
+      continue;
+    }
+
+    if (
+      pageNum >= 5 &&
+      posteSnapMajority &&
+      anchorOnCable &&
+      consistencyFrac >= N1_SKIP_CONSISTENCY_FRAC
+    ) {
       continue;
     }
 

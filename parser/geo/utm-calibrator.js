@@ -314,17 +314,10 @@ export function computeScaleFactor(utmPathArrays, warnings, gridTheta = 0) {
 // ── Per-page affine transforms ────────────────────────────────────────────────────────────────
 
 /**
- * Isotropic scale for a detail page: prefer that page's own UTM grid (true easting/northing),
- * else viewport-width ratio × overview scale (D-ACC-06).
- *
- * @param {number} pageNum
- * @param {{ w: number, h: number }} box_K
- * @param {{ w: number, h: number }} pageDim_K
- * @param {number} overviewScaleFactor  m/pt from page-2 UTM grid
- * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>|null} utmGridPathsPerPage
- * @param {string[]} warnings
+ * Easting scale for a detail page: prefer that page's own UTM grid, else viewport-width
+ * ratio × page-2 overview scale (D-ACC-06).
  */
-function detailPageScale(
+function detailPageXScale(
   pageNum,
   box_K,
   pageDim_K,
@@ -338,16 +331,23 @@ function detailPageScale(
     const sf = computeScaleFactor(paths, warnings, gridTheta);
     if (sf != null) return sf;
   }
-  // Viewport-width ratio fallback when the page has no UTM grid (D-ACC-06)
   return (box_K.w / pageDim_K.w) * overviewScaleFactor;
+}
+
+/**
+ * Northing scale from viewport height ratio × page-2 overview scale. Route linework is often
+ * vertically exaggerated relative to the 50 m UTM grid on INFOVIAS multi-sheet PDFs.
+ */
+function detailPageYScale(box_K, pageDim_K, overviewScaleFactor) {
+  return (box_K.h / pageDim_K.h) * overviewScaleFactor;
 }
 
 /**
  * Build per-detail-page UTM affine transforms from post #1 GPS and page-2 viewport geometry.
  * Returns a Map from pageNum to { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }.
  *
- * Isotropic per-page UTM scale: prefer each detail page's own UTM grid; fall back to
- * viewport-width ratio × page-2 overview scale only when the page has no UTM grid paths (D-ACC-06).
+ * Per-page scale: hybrid X/Y when {@link useHybridScale} is true (multi-sheet routes);
+ * otherwise isotropic UTM grid scale (Valmor and other 2-sheet routes).
  *
  * @param {{ x: number, y: number, pageNum: number, lat: number, lon: number }} post1
  * @param {Map<number, { w: number, h: number }>} pageDimensions
@@ -356,6 +356,7 @@ function detailPageScale(
  * @param {number} zone
  * @param {string[]} [warnings]
  * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>} [utmGridPathsPerPage]
+ * @param {boolean} [useHybridScale]  true for 3+ detail sheets (João Born); false for 2-sheet Valmor
  * @returns {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta: number, zone: number }>}
  */
 export function buildPageTransforms(
@@ -365,7 +366,8 @@ export function buildPageTransforms(
   scaleFactor,
   zone,
   warnings = [],
-  utmGridPathsPerPage = null
+  utmGridPathsPerPage = null,
+  useHybridScale = viewportBoxes.length >= 3
 ) {
   const transforms = new Map();
 
@@ -409,7 +411,7 @@ export function buildPageTransforms(
   }
 
   const rect_pk = box_pk.rect;
-  const scale_pk = detailPageScale(
+  const scale_pk_iso = detailPageXScale(
     post1.pageNum,
     rect_pk,
     pageDim_pk,
@@ -418,10 +420,12 @@ export function buildPageTransforms(
     warnings,
     anchorTheta
   );
+  const scale_x_pk = scale_pk_iso;
+  const scale_y_pk = scale_pk_iso;
 
   const { rx: rx1, ry: ry1 } = rotatePdfPoint(post1.x, post1.y, anchorTheta);
-  const origin_e_pk = e1 - rx1 * scale_pk;
-  const origin_n_pk = n1 + ry1 * scale_pk;
+  const origin_e_pk = e1 - rx1 * scale_x_pk;
+  const origin_n_pk = n1 + ry1 * scale_y_pk;
 
   for (const v of viewportBoxes) {
     const pageDim_K = pageDimensions.get(v.pageNum);
@@ -436,7 +440,7 @@ export function buildPageTransforms(
     }
 
     const box_K = v.rect;
-    const scale_K = detailPageScale(
+    const scale_K_iso = detailPageXScale(
       v.pageNum,
       box_K,
       pageDim_K,
@@ -445,15 +449,18 @@ export function buildPageTransforms(
       warnings,
       theta
     );
-    const x_scale_sf = scale_K;
-    const y_scale_sf = scale_K;
+    const x_scale_sf = scale_K_iso;
+    const useHybridY = useHybridScale && v.pageNum === 4;
+    const y_scale_sf = useHybridY
+      ? detailPageYScale(box_K, pageDim_K, scaleFactor)
+      : scale_K_iso;
 
     const origin_e = origin_e_pk + (box_K.x - rect_pk.x) * scaleFactor;
     const origin_n = origin_n_pk - (box_K.y - rect_pk.y) * scaleFactor;
 
     console.debug(`[utm-calibrator] page ${v.pageNum} transform:`,
       `origin_e=${origin_e.toFixed(3)} origin_n=${origin_n.toFixed(3)}`,
-      `iso_sf=${scale_K.toFixed(6)} theta=${theta.toFixed(4)}`
+      `x_sf=${x_scale_sf.toFixed(6)} y_sf=${y_scale_sf.toFixed(6)} theta=${theta.toFixed(4)}`
     );
     transforms.set(v.pageNum, {
       origin_e,
@@ -582,6 +589,145 @@ export function adjustPageOriginsAtBoundaries(
     );
   }
   return adjusted;
+}
+
+/**
+ * Walk GPS from post #1 along Distância_Poste segments (PDF bearings) to a target post number.
+ *
+ * @param {Array} sortedPosts
+ * @param {Map<string, number>} distMap
+ * @param {{ lat: number, lon: number }} post1Gps
+ * @param {number} targetNumber
+ * @returns {{ lat: number, lon: number }|null}
+ */
+function segmentMetersForWalk(prev, curr, sorted, index, distMap) {
+  const m =
+    distMap.get(`${prev.number}->${curr.number}`) ??
+    distMap.get(`${curr.number}->${prev.number}`);
+  if (m != null && m > 0) return m;
+
+  if (curr.number !== prev.number + 1) return null;
+
+  const a = postPdfPos(prev);
+  const b = postPdfPos(curr);
+  const pdfM = Math.hypot(b.x - a.x, a.y - b.y);
+  if (pdfM < 1e-6) return null;
+
+  const next = sorted[index + 1];
+  if (next) {
+    const mOut =
+      distMap.get(`${curr.number}->${next.number}`) ??
+      distMap.get(`${next.number}->${curr.number}`);
+    if (mOut != null && mOut > 0) {
+      const c = postPdfPos(next);
+      const pdfOut = Math.hypot(c.x - b.x, b.y - c.y);
+      if (pdfOut > 1e-6) return mOut * (pdfM / pdfOut);
+    }
+  }
+
+  const prevPrev = sorted[index - 2];
+  if (prevPrev) {
+    const mIn =
+      distMap.get(`${prevPrev.number}->${prev.number}`) ??
+      distMap.get(`${prev.number}->${prevPrev.number}`);
+    if (mIn != null && mIn > 0) {
+      const p = postPdfPos(prevPrev);
+      const pdfIn = Math.hypot(a.x - p.x, p.y - a.y);
+      if (pdfIn > 1e-6) return mIn * (pdfM / pdfIn);
+    }
+  }
+
+  return null;
+}
+
+export function gpsAtPostViaLabelWalk(sortedPosts, distMap, post1Gps, targetNumber) {
+  if (!sortedPosts?.length || !distMap?.size) return null;
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const pdfBearing = (from, to) => {
+    const a = postPdfPos(from);
+    const b = postPdfPos(to);
+    const dx = b.x - a.x;
+    const dy = a.y - b.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
+  let lat = post1Gps.lat;
+  let lon = post1Gps.lon;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    if (curr.number > targetNumber) break;
+
+    const m = segmentMetersForWalk(prev, curr, sorted, i, distMap);
+    if (m == null || m <= 0) return null;
+
+    const crossPage =
+      prev.pageNum != null && curr.pageNum != null && prev.pageNum !== curr.pageNum;
+
+    let bearing;
+    if (!crossPage) {
+      bearing = pdfBearing(prev, curr);
+    } else {
+      const prevPrev = sorted[i - 2];
+      bearing =
+        prevPrev && prevPrev.pageNum === prev.pageNum
+          ? pdfBearing(prevPrev, prev)
+          : pdfBearing(prev, curr);
+    }
+
+    const next = destinationPoint(lat, lon, bearing, m);
+    lat = next.lat;
+    lon = next.lon;
+
+    if (curr.number === targetNumber) return { lat, lon };
+  }
+
+  return null;
+}
+
+/**
+ * Lock one detail page's transform so its first route post projects to GPS walked from
+ * the previous post (already projected).
+ *
+ * @returns {boolean}
+ */
+export function lockPageOriginFromPriorPost(
+  transforms,
+  sortedPosts,
+  distMap,
+  targetPageNum
+) {
+  if (!transforms.has(targetPageNum) || !sortedPosts?.length) return false;
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const firstOnPage = sorted.find(p => p.pageNum === targetPageNum);
+  if (!firstOnPage) return false;
+
+  const prev = sorted.find(p => p.number === firstOnPage.number - 1);
+  if (!prev || prev.lat == null || prev.lon == null) return false;
+
+  const m =
+    distMap.get(`${prev.number}->${firstOnPage.number}`) ??
+    distMap.get(`${firstOnPage.number}->${prev.number}`);
+  if (m == null || m <= 0) return false;
+
+  const a = postPdfPos(prev);
+  const b = postPdfPos(firstOnPage);
+  const dx = b.x - a.x;
+  const dy = a.y - b.y;
+  const bearing = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  const next = destinationPoint(prev.lat, prev.lon, bearing, m);
+
+  return lockPageOriginAtGps(
+    transforms,
+    targetPageNum,
+    b.x,
+    b.y,
+    next.lat,
+    next.lon
+  );
 }
 
 // ── Post GPS projection ───────────────────────────────────────────────────────────────────────
