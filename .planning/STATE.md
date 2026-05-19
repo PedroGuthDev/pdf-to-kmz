@@ -74,5 +74,14 @@ Accuracy: 11/11 posts < 5 m; 0 null GPS.
 
 (none)
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 20260519 | Web research: external techniques for GPS coordinate accuracy (HMM/Viterbi, N1 arc-length, Hungarian) | 2026-05-19 | — | [20260519-web-research-accuracy](./quick/20260519-web-research-accuracy/) |
+
 ---
-*Last updated: 2026-05-18 after accuracy verification*
+Last activity: 2026-05-19 - Completed quick task 20260519: web research on GPS accuracy solutions
+
+---
+*Last updated: 2026-05-19 after web research on accuracy improvements*
