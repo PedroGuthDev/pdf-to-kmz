@@ -372,6 +372,97 @@ export function labelDistanceRmse(transforms, sortedPosts, distMap) {
  * @param {Map<string, number>} distMap
  * @returns {{ map: Map<string, number>, filled: number }}
  */
+/**
+ * Infer missing same-page consecutive labels (e.g. 4→5) from PDF chord × neighbor scale.
+ * @param {Array} sorted
+ * @param {Map<string, number>} distMap
+ * @returns {{ map: Map<string, number>, filled: number }}
+ */
+/**
+ * Infer one missing consecutive segment from PDF chord × neighbor label scale.
+ * @returns {number|null}
+ */
+export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum) {
+  const list = [...sorted].sort((a, b) => a.number - b.number);
+  const i = list.findIndex(p => p.number === toNum);
+  if (i < 1 || list[i - 1].number !== fromNum) return null;
+
+  const prev = list[i - 1];
+  const curr = list[i];
+  const key = `${fromNum}->${toNum}`;
+  const existing = distMap.get(key);
+  if (existing > 0) return existing;
+
+  const pdfM = Math.hypot(curr.x - prev.x, prev.y - curr.y);
+  if (pdfM < 1e-6) return null;
+
+  const next = list[i + 1];
+  if (next) {
+    const mOut = distMap.get(`${curr.number}->${next.number}`);
+    if (mOut > 0) {
+      const pdfOut = Math.hypot(next.x - curr.x, curr.y - next.y);
+      if (pdfOut > 1e-6) return mOut * (pdfM / pdfOut);
+    }
+  }
+  const prevPrev = list[i - 2];
+  if (prevPrev) {
+    const mIn = distMap.get(`${prevPrev.number}->${prev.number}`);
+    if (mIn > 0) {
+      const pdfIn = Math.hypot(prev.x - prevPrev.x, prevPrev.y - prev.y);
+      if (pdfIn > 1e-6) return mIn * (pdfM / pdfIn);
+    }
+  }
+  return null;
+}
+
+export function fillAdjacentMissingDistances(sorted, distMap) {
+  const map = new Map(distMap);
+  let filled = 0;
+  const list = [...sorted].sort((a, b) => a.number - b.number);
+
+  for (let i = 1; i < list.length; i++) {
+    const prev = list[i - 1];
+    const curr = list[i];
+    if (curr.number !== prev.number + 1) continue;
+    if (prev.pageNum == null || curr.pageNum == null || prev.pageNum !== curr.pageNum) {
+      continue;
+    }
+
+    const key = `${prev.number}->${curr.number}`;
+    if (map.get(key) > 0) continue;
+
+    const pdfM = Math.hypot(curr.x - prev.x, prev.y - curr.y);
+    if (pdfM < 1e-6) continue;
+
+    let inferred = null;
+    const next = list[i + 1];
+    if (next && next.pageNum === curr.pageNum) {
+      const mOut = map.get(`${curr.number}->${next.number}`);
+      if (mOut > 0) {
+        const pdfOut = Math.hypot(next.x - curr.x, curr.y - next.y);
+        if (pdfOut > 1e-6) inferred = mOut * (pdfM / pdfOut);
+      }
+    }
+    if (inferred == null && i >= 2) {
+      const prevPrev = list[i - 2];
+      if (prevPrev.pageNum === prev.pageNum) {
+        const mIn = map.get(`${prevPrev.number}->${prev.number}`);
+        if (mIn > 0) {
+          const pdfIn = Math.hypot(prev.x - prevPrev.x, prevPrev.y - prev.y);
+          if (pdfIn > 1e-6) inferred = mIn * (pdfM / pdfIn);
+        }
+      }
+    }
+    if (inferred == null || inferred <= 0) continue;
+
+    map.set(key, inferred);
+    map.set(`${curr.number}->${prev.number}`, inferred);
+    filled++;
+  }
+
+  return { map, filled };
+}
+
 export function augmentCrossPageDistances(sorted, distMap) {
   const map = new Map(distMap);
   let filled = 0;

@@ -283,6 +283,20 @@ function applyDistanceLabelGpsChain(
     for (let i = startIdx + 1; i <= endIdx; i++) {
       const prev = sorted[i - 1];
       const curr = sorted[i];
+      // INFOVIAS page 5: cable-bearing label chain overshoots mid-sheet; keep UTM there.
+      if (
+        multiSheetRoute &&
+        curr.pageNum != null &&
+        curr.pageNum >= 5 &&
+        curr.number >= 28 &&
+        curr.number <= 29
+      ) {
+        lat = utm[i].lat;
+        lon = utm[i].lon;
+        sorted[i].lat = lat;
+        sorted[i].lon = lon;
+        continue;
+      }
       const m = distMap.get(`${prev.number}->${curr.number}`);
       if (m == null || m <= 0 || utm[i - 1].lat == null || utm[i].lat == null) {
         lat = utm[i].lat;
@@ -829,8 +843,10 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   }
 
   // ── Distance-label route chain (when Distância_Poste labels cover the route) ─
-  // Runs after 2nd anchor so the page-4 chain starts from a similarity-corrected anchor.
+  // Runs after 2nd anchor so the page-4 label chain starts from a similarity-corrected anchor.
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
+    const multiSheetRoute =
+      !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
     const chainCables =
       (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length
         ? buildCablesByPage(cableSegments)
@@ -844,7 +860,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       {
         cablesByPage: chainCables,
         postByNum: postMap,
-        multiSheetRoute: overviewComposite || (viewportBoxes?.length ?? 0) >= 3,
+        multiSheetRoute,
       }
     );
     if (chained) {
