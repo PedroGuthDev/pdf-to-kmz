@@ -25,10 +25,19 @@ export const POSTE_LABEL_MATCH_MAX_PT = 100;
 export const POSTE_CABLE_ANCHOR_MAX_PT = 95;
 
 /** Max |arc on cable| between label projection and symbol on the same polyline (PDF pt). */
-export const POSTE_CABLE_ARC_MATCH_MAX_PT = 150;
+export const POSTE_CABLE_ARC_MATCH_MAX_PT = 60;
 
-/** Beam width for global label-residual pole assignment (N3). */
-export const GLOBAL_POLE_BEAM_WIDTH = 8;
+/** Per-post fallback when the 60 pt cap excludes all symbols (D-SYM-01). */
+export const POSTE_CABLE_ARC_FALLBACK_PT = 150;
+
+/** Post-assignment diagnostic: warn when final nearest-cable distance exceeds this (D-SYM-02). */
+export const POSTE_CABLE_FINAL_WARN_PT = 50;
+
+/** Viterbi-HMM emission Gaussian sigma in PDF points (~7 m at typical scale). D-V-03. */
+export const VITERBI_SIGMA_PT = 20;
+
+/** Viterbi-HMM transition exponential beta in meters. D-V-03. */
+export const VITERBI_BETA_M = 5;
 
 /** Top-K Poste candidates per post in global assignment (N3). */
 export const GLOBAL_POLE_TOP_K = 4;
@@ -541,6 +550,8 @@ export function assignPostPositionsFromPosteSymbols(
     warnings
   );
 
+  warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
+
   for (let pi = 0; pi < posts.length; pi++) {
     if (frozenPostIndices?.has(pi) || snappedPosts.has(pi)) continue;
     const p = posts[pi];
@@ -577,8 +588,33 @@ function selectRouteCableOps(pageNum, cablesByPage, ref) {
 }
 
 /**
- * @typedef {{ si: number, t: number, x: number, y: number }} PoleCandidate
+ * @typedef {{ si: number, t: number, x: number, y: number, dLabel?: number }} PoleCandidate
  */
+
+/**
+ * D-SYM-02: informational warning when assigned post sits far from route cable.
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} posts
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @param {Map<number, { number: number, x: number, y: number, pageNum?: number }>} postByNum
+ * @param {string[]} warnings
+ */
+function warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings) {
+  for (const post of posts) {
+    if (post == null || post.pageNum == null) continue;
+    if (post.x == null || post.y == null) continue;
+    const ops = cablesByPage.get(post.pageNum);
+    if (!ops || ops.length === 0) continue;
+    if (isOffRouteCablePost(post, postByNum, cablesByPage)) continue;
+    const hit = nearestCableHitOnPage(post.x, post.y, post.pageNum, cablesByPage);
+    if (!hit || !Number.isFinite(hit.d)) continue;
+    if (hit.d > POSTE_CABLE_FINAL_WARN_PT) {
+      warnings.push(
+        `[post-positioning] post ${post.number}: final cable distance ${Math.round(hit.d)} pt > 50 pt (D-SYM-02)`
+      );
+    }
+  }
+}
 
 /**
  * Cable traversal direction: +1 = arc length increases with post number (label anchors).
@@ -747,6 +783,7 @@ function topKRoutePoleCandidates(
       t: symHit.t,
       x: sym.x,
       y: sym.y,
+      dLabel,
       _sort: labelArcScore + dLabel * 0.01,
     });
   }
@@ -757,7 +794,7 @@ function topKRoutePoleCandidates(
       topK,
     });
   }
-  return picked.map(({ si, t, x, y }) => ({ si, t, x, y }));
+  return picked.map(({ si, t, x, y, dLabel }) => ({ si, t, x, y, dLabel }));
 }
 
 /**
@@ -804,65 +841,164 @@ function buildRouteCandidatesPerPost(
 }
 
 /**
- * Beam search: minimise Σ |arc(i,i+1)×scale − label_m(i,i+1)| over one-to-one pole picks.
+ * Viterbi-HMM along route cable (RESEARCH §2.1.1). O(n × k²) over per-post symbol candidates.
  *
- * @param {Array<{ number: number }>} routePosts
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
  * @param {PoleCandidate[][]} candidatesPerPost
  * @param {Map<string, number>} distMap
  * @param {number} scale
  * @param {number} [cableDir]  +1 or -1 along route cable
  * @returns {PoleCandidate[]|null}
  */
-function beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
-  if (!routePosts.length) return null;
-  if (candidatesPerPost.some(c => c.length === 0)) return null;
+function viterbiAssignAlongCable(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
+  const n = routePosts.length;
+  if (n === 0) return null;
+  if (candidatesPerPost.some(c => !c.length)) return null;
 
   const dir = cableDir >= 0 ? 1 : -1;
   const minSep = GLOBAL_POLE_MIN_ARC_SEP_PT;
+  const sigma2 = 2 * VITERBI_SIGMA_PT ** 2;
 
-  /** @type {Array<{ picks: number[], cost: number }>} */
-  let beam = candidatesPerPost[0].map((_, ci) => ({ picks: [ci], cost: 0 }));
+  const logEmit = (i, j) => {
+    const c = candidatesPerPost[i][j];
+    const anchor = anchorOf(routePosts[i]);
+    const dLabel = c.dLabel ?? Math.hypot(c.x - anchor.x, c.y - anchor.y);
+    return -(dLabel ** 2) / sigma2;
+  };
 
-  for (let i = 1; i < routePosts.length; i++) {
-    /** @type {Array<{ picks: number[], cost: number }>} */
-    const next = [];
-    const prevNum = routePosts[i - 1].number;
-    const currNum = routePosts[i].number;
-    const labelM =
+  const logTrans = (i, k, j) => {
+    const prevCand = candidatesPerPost[i][k];
+    const currCand = candidatesPerPost[i + 1][j];
+    const arcPt = (currCand.t - prevCand.t) * dir;
+    if (arcPt < minSep) return -Infinity;
+    const prevNum = routePosts[i].number;
+    const currNum = routePosts[i + 1].number;
+    const m =
       distMap.get(`${prevNum}->${currNum}`) ??
       distMap.get(`${currNum}->${prevNum}`) ??
       null;
+    if (m == null || m <= 0 || scale <= 0) return 0;
+    const deltaM = Math.abs(arcPt * scale - m);
+    return -deltaM / VITERBI_BETA_M;
+  };
 
-    for (const state of beam) {
-      const prevCand = candidatesPerPost[i - 1][state.picks[i - 1]];
-      for (let ci = 0; ci < candidatesPerPost[i].length; ci++) {
-        const currCand = candidatesPerPost[i][ci];
-        if (dir > 0 && currCand.t < prevCand.t + minSep) continue;
-        if (dir < 0 && currCand.t > prevCand.t - minSep) continue;
-        let edgeCost = 0;
-        if (labelM != null && labelM > 0 && scale > 0) {
-          const arcPt = Math.abs(currCand.t - prevCand.t);
-          const predM = arcPt * scale;
-          edgeCost = Math.abs(predM - labelM);
-        }
-        next.push({
-          picks: [...state.picks, ci],
-          cost: state.cost + edgeCost,
-        });
-      }
-    }
-
-    next.sort((a, b) => a.cost - b.cost);
-    const beamWidth = Math.min(
-      16,
-      GLOBAL_POLE_BEAM_WIDTH + Math.floor(candidatesPerPost[i].length / 2)
-    );
-    beam = next.slice(0, beamWidth);
-    if (beam.length === 0) return null;
+  /** @type {Float64Array[]} */
+  const states = [];
+  /** @type {Int32Array[]} */
+  const back = [];
+  for (let i = 0; i < n; i++) {
+    const kLen = candidatesPerPost[i].length;
+    states.push(new Float64Array(kLen).fill(-Infinity));
+    back.push(new Int32Array(kLen).fill(-1));
   }
 
-  const best = beam[0];
-  return best.picks.map((ci, i) => candidatesPerPost[i][ci]);
+  for (let j = 0; j < candidatesPerPost[0].length; j++) {
+    states[0][j] = logEmit(0, j);
+  }
+
+  for (let i = 1; i < n; i++) {
+    for (let j = 0; j < candidatesPerPost[i].length; j++) {
+      let best = -Infinity;
+      let bestK = -1;
+      for (let k = 0; k < candidatesPerPost[i - 1].length; k++) {
+        const score = states[i - 1][k] + logTrans(i - 1, k, j);
+        if (score > best) {
+          best = score;
+          bestK = k;
+        }
+      }
+      if (bestK >= 0 && Number.isFinite(best)) {
+        states[i][j] = best + logEmit(i, j);
+        back[i][j] = bestK;
+      }
+    }
+  }
+
+  let bestJ = 0;
+  let bestScore = states[n - 1][0];
+  for (let j = 1; j < candidatesPerPost[n - 1].length; j++) {
+    if (states[n - 1][j] > bestScore) {
+      bestScore = states[n - 1][j];
+      bestJ = j;
+    }
+  }
+  if (!Number.isFinite(bestScore)) return null;
+
+  /** @type {number[]} */
+  const pickIdx = new Array(n);
+  pickIdx[n - 1] = bestJ;
+  for (let i = n - 2; i >= 0; i--) {
+    pickIdx[i] = back[i + 1][pickIdx[i + 1]];
+    if (pickIdx[i] < 0) return null;
+  }
+
+  return pickIdx.map((ci, i) => candidatesPerPost[i][ci]);
+}
+
+/**
+ * Retry candidate build at 150 pt for posts with no symbols under the 60 pt cap (D-SYM-01).
+ *
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
+ * @param {PoleCandidate[][]} candidatesPerPost
+ * @param {number} pageNum
+ * @param {Array<{ x: number, y: number, pageNum?: number }>} symbols
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ * @param {number} labelMax
+ * @param {number} cableAnchorMax
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} cableDir
+ * @param {number} arcWindowPt
+ * @param {number} topK
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @param {string[]} warnings
+ * @returns {PoleCandidate[][]}
+ */
+function applyPerPostArcFallback(
+  routePosts,
+  candidatesPerPost,
+  pageNum,
+  symbols,
+  routeOps,
+  labelMax,
+  cableAnchorMax,
+  distMap,
+  scale,
+  cableDir,
+  arcWindowPt,
+  topK,
+  cablesByPage,
+  warnings
+) {
+  const out = candidatesPerPost.map(c => [...c]);
+  for (let i = 0; i < routePosts.length; i++) {
+    if (out[i].length > 0) continue;
+    const post = routePosts[i];
+    const anchor = anchorOf(post);
+    const hit = nearestCableHitOnPage(anchor.x, anchor.y, pageNum, cablesByPage);
+    const nearestD = hit && Number.isFinite(hit.d) ? Math.round(hit.d) : 0;
+    const fallbackRow = buildRouteCandidatesPerPost(
+      [post],
+      pageNum,
+      symbols,
+      routeOps,
+      labelMax,
+      cableAnchorMax,
+      POSTE_CABLE_ARC_FALLBACK_PT,
+      distMap,
+      scale,
+      cableDir,
+      arcWindowPt,
+      topK
+    );
+    if (fallbackRow[0]?.length) {
+      out[i] = fallbackRow[0];
+      warnings.push(
+        `[post-positioning] tight cable threshold (60 pt) excluded post ${post.number} (page ${pageNum}, nearest cable d=${nearestD} pt); retrying with 150 pt fallback.`
+      );
+    }
+  }
+  return out;
 }
 
 /**
@@ -1091,8 +1227,74 @@ export function assignPolesGloballyByLabels(
         arcWindowPt,
         topK
       );
+      candidatesPerPost = applyPerPostArcFallback(
+        routePosts,
+        candidatesPerPost,
+        pageNum,
+        symbols,
+        routeOps,
+        labelMax,
+        cableAnchorMax,
+        distMap,
+        scale,
+        cableDir,
+        arcWindowPt,
+        topK,
+        cablesByPage,
+        warnings
+      );
 
-      let assignment = beamSearchPoleAssignment(
+      if (routePosts.length >= 3) {
+        const firstThree = routePosts.slice(0, 3);
+        let anchorCandidates = buildRouteCandidatesPerPost(
+          firstThree,
+          pageNum,
+          symbols,
+          routeOps,
+          labelMax,
+          cableAnchorMax,
+          arcMax,
+          distMap,
+          scale,
+          cableDir,
+          arcWindowPt,
+          5
+        );
+        anchorCandidates = applyPerPostArcFallback(
+          firstThree,
+          anchorCandidates,
+          pageNum,
+          symbols,
+          routeOps,
+          labelMax,
+          cableAnchorMax,
+          distMap,
+          scale,
+          cableDir,
+          arcWindowPt,
+          5,
+          cablesByPage,
+          warnings
+        );
+        const anchorAssignment = viterbiAssignAlongCable(
+          firstThree,
+          anchorCandidates,
+          distMap,
+          scale,
+          cableDir
+        );
+        if (anchorAssignment) {
+          const nums = firstThree.map(p => p.number).join(',');
+          warnings.push(
+            `[post-positioning] Viterbi anchor: page ${pageNum} locked posts ${nums} to symbols by short-lattice (k=5, n=3).`
+          );
+          for (let ai = 0; ai < 3; ai++) {
+            candidatesPerPost[ai] = [anchorAssignment[ai]];
+          }
+        }
+      }
+
+      let assignment = viterbiAssignAlongCable(
         routePosts,
         candidatesPerPost,
         distMap,
@@ -1101,7 +1303,7 @@ export function assignPolesGloballyByLabels(
       );
       if (!assignment) {
         const flipDir = cableDir >= 0 ? -1 : 1;
-        const flipCandidates = buildRouteCandidatesPerPost(
+        let flipCandidates = buildRouteCandidatesPerPost(
           routePosts,
           pageNum,
           symbols,
@@ -1115,7 +1317,23 @@ export function assignPolesGloballyByLabels(
           arcWindowPt,
           topK
         );
-        const flipAssignment = beamSearchPoleAssignment(
+        flipCandidates = applyPerPostArcFallback(
+          routePosts,
+          flipCandidates,
+          pageNum,
+          symbols,
+          routeOps,
+          labelMax,
+          cableAnchorMax,
+          distMap,
+          scale,
+          flipDir,
+          arcWindowPt,
+          topK,
+          cablesByPage,
+          warnings
+        );
+        const flipAssignment = viterbiAssignAlongCable(
           routePosts,
           flipCandidates,
           distMap,
@@ -1130,7 +1348,7 @@ export function assignPolesGloballyByLabels(
       }
       if (!assignment) {
         warnings.push(
-          `[post-positioning] N3 page ${pageNum} path ${pathIndex}: beam search failed — greedy fallback.`
+          `[post-positioning] N3 page ${pageNum} path ${pathIndex}: Viterbi assignment failed — greedy fallback.`
         );
         continue;
       }
@@ -1146,7 +1364,7 @@ export function assignPolesGloballyByLabels(
       }
       if (symbolConflict) {
         warnings.push(
-          `[post-positioning] N3 page ${pageNum} path ${pathIndex}: duplicate symbol in beam — greedy fallback.`
+          `[post-positioning] N3 page ${pageNum} path ${pathIndex}: duplicate symbol in Viterbi — greedy fallback.`
         );
         continue;
       }
@@ -1176,7 +1394,7 @@ export function assignPolesGloballyByLabels(
 
       const rmse = labeledEdges > 0 ? Math.sqrt(residualSum / labeledEdges) : 0;
       warnings.push(
-        `[post-positioning] N3 page ${pageNum} path ${pathIndex}: beam assigned ${routePosts.length} posts ` +
+        `[post-positioning] N3 page ${pageNum} path ${pathIndex}: Viterbi assigned ${routePosts.length} posts ` +
           `(${labeledEdges} labeled edges, label RMSE ≈ ${rmse.toFixed(1)} m).`
       );
     }
@@ -1199,6 +1417,8 @@ export function assignPolesGloballyByLabels(
     postByNum,
     warnings
   );
+
+  warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
 
   return snappedPosts;
 }

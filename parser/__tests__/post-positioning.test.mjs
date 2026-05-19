@@ -10,6 +10,8 @@ import {
   assignPostsByRouteOrder,
   alignPostPositionsToRouteMarkers,
   routeSortKeyForPage,
+  VITERBI_SIGMA_PT,
+  VITERBI_BETA_M,
 } from '../post-positioning.js';
 
 let pass = 0;
@@ -23,6 +25,8 @@ function assert(cond, name) {
     fail++;
   }
 }
+
+assert(VITERBI_SIGMA_PT === 20 && VITERBI_BETA_M === 5, 'Viterbi tuning constants exported (D-V-03)');
 
 console.log('\n[post-positioning] refine mode caps move from label anchor');
 const posts = [
