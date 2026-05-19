@@ -85,18 +85,97 @@ export function utmToLatLon(easting, northing, zone) {
   return { lat: lat * 180 / Math.PI, lon: lon * 180 / Math.PI };
 }
 
+// ── Per-page PDF rotation (N4) ───────────────────────────────────────────────────────────────
+
+/**
+ * Rotate flipY PDF coords before UTM scale/offset (north = −y).
+ *
+ * @param {number} px
+ * @param {number} py
+ * @param {number} [theta]  radians
+ * @returns {{ rx: number, ry: number }}
+ */
+export function rotatePdfPoint(px, py, theta = 0) {
+  if (!theta) return { rx: px, ry: py };
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    rx: cos * px + sin * py,
+    ry: -sin * px + cos * py,
+  };
+}
+
+/**
+ * Dominant orientation of UTM grid linework (weighted circular mean, mod π).
+ *
+ * @param {Array<import('../construct-path-parser.js').PathOp>} pathOps
+ * @param {number} [minSegments]
+ * @returns {number} radians; 0 when grid is near axis-aligned or too few segments
+ */
+export function dominantLineOrientation(pathOps, minSegments = 10) {
+  if (!pathOps?.length) return 0;
+  let sumC = 0;
+  let sumS = 0;
+  let count = 0;
+  let cur = null;
+
+  for (const op of pathOps) {
+    if (op.type === 'M') {
+      cur = { x: op.x, y: op.y };
+    } else if (op.type === 'L' && cur) {
+      const dx = op.x - cur.x;
+      const dy = op.y - cur.y;
+      const len = Math.hypot(dx, dy);
+      if (len >= 2 && Math.abs(dx) >= Math.abs(dy) * 0.35) {
+        const ang = Math.atan2(dy, dx);
+        sumC += len * Math.cos(ang);
+        sumS += len * Math.sin(ang);
+        count++;
+      }
+      cur = { x: op.x, y: op.y };
+    }
+  }
+
+  if (count < minSegments) return 0;
+  const theta = Math.atan2(sumS, sumC);
+  const deg = Math.abs(theta) * (180 / Math.PI);
+  return deg >= 1 ? theta : 0;
+}
+
+/**
+ * @param {number} px
+ * @param {number} py
+ * @param {{ origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta?: number }} t
+ * @returns {{ easting: number, northing: number }}
+ */
+export function utmFromPdfPoint(px, py, t) {
+  if (t.affine) {
+    const { m00, m01, m10, m11 } = t.affine;
+    const pyNeg = -py;
+    return {
+      easting: t.origin_e + m00 * px + m01 * pyNeg,
+      northing: t.origin_n + m10 * px + m11 * pyNeg,
+    };
+  }
+  const { rx, ry } = rotatePdfPoint(px, py, t.theta ?? 0);
+  return {
+    easting: t.origin_e + rx * t.x_scale_sf,
+    northing: t.origin_n - ry * t.y_scale_sf,
+  };
+}
+
 // ── Grid line classification (internal helper) ────────────────────────────────────────────────
 
 /**
  * Classify UTM grid line PathOps into horizontal and vertical lines.
  * PathOps must already have flipY applied — do NOT flip again.
- * Horizontal: |y_end - y_start| < 2 AND length >= 10
- * Vertical:   |x_end - x_start| < 2 AND length >= 10
+ * When gridTheta is set, endpoints are aligned to grid axes first (inverse rotation).
  *
  * @param {Array<import('../construct-path-parser.js').PathOp>} pathOps  flipY applied
+ * @param {number} [gridTheta]  page rotation (radians); 0 = page axes
  * @returns {{ hLines: Array<{ y: number }>, vLines: Array<{ x: number }> }}
  */
-function classifyGridLinesFromOps(pathOps) {
+export function classifyGridLinesFromOps(pathOps, gridTheta = 0) {
   const TOLERANCE = 2;  // PDF points — axis-aligned from AutoCAD export
   const MIN_LENGTH = 2; // PDF points — low threshold; dashed UTM grids have short segments
   const hLines = [];
@@ -109,8 +188,10 @@ function classifyGridLinesFromOps(pathOps) {
     } else if (op.type === 'L' && cur) {
       const ex = op.x;
       const ey = op.y; // flipY already applied
-      const dx = Math.abs(ex - cur.x);
-      const dy = Math.abs(ey - cur.y);
+      const c0 = gridTheta ? rotatePdfPoint(cur.x, cur.y, -gridTheta) : cur;
+      const c1 = gridTheta ? rotatePdfPoint(ex, ey, -gridTheta) : { x: ex, y: ey };
+      const dx = Math.abs(c1.x - c0.x);
+      const dy = Math.abs(c1.y - c0.y);
       const len = Math.hypot(dx, dy);
       if (len >= MIN_LENGTH) {
         if (dy <= TOLERANCE && dx > dy) {
@@ -138,7 +219,7 @@ function classifyGridLinesFromOps(pathOps) {
  * @param {string} posKey  Property name ('x' for vertical, 'y' for horizontal)
  * @returns {number|null}  Median spacing in PDF points, or null if < 2 lines
  */
-function medianGridSpacing(lines, posKey) {
+export function medianGridSpacing(lines, posKey) {
   if (lines.length < 2) return null;
   const sorted = [...lines].sort((a, b) => a[posKey] - b[posKey]);
   const spacings = [];
@@ -165,15 +246,16 @@ function medianGridSpacing(lines, posKey) {
  * @param {Array<Array<import('../construct-path-parser.js').PathOp>>} utmPathArrays
  *   All UTM layer path arrays for one page. PathOps must have flipY already applied.
  * @param {string[]} warnings  Mutable warnings accumulator
+ * @param {number} [gridTheta]  optional page rotation for H/V classification (N4)
  * @returns {number|null}  Scale factor in meters/pt, or null if no valid grid found
  */
-export function computeScaleFactor(utmPathArrays, warnings) {
+export function computeScaleFactor(utmPathArrays, warnings, gridTheta = 0) {
   if (!utmPathArrays || utmPathArrays.length === 0) return null;
 
   // Flatten all PathOps from all arrays
   const allOps = utmPathArrays.flat();
 
-  const { hLines, vLines } = classifyGridLinesFromOps(allOps);
+  const { hLines, vLines } = classifyGridLinesFromOps(allOps, gridTheta);
 
   const spacings = [];
   const hSpacing = medianGridSpacing(hLines, 'y');
@@ -218,10 +300,18 @@ export function computeScaleFactor(utmPathArrays, warnings) {
  * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>|null} utmGridPathsPerPage
  * @param {string[]} warnings
  */
-function detailPageScale(pageNum, box_K, pageDim_K, overviewScaleFactor, utmGridPathsPerPage, warnings) {
+function detailPageScale(
+  pageNum,
+  box_K,
+  pageDim_K,
+  overviewScaleFactor,
+  utmGridPathsPerPage,
+  warnings,
+  gridTheta = 0
+) {
   const paths = utmGridPathsPerPage?.get(pageNum);
   if (paths?.length) {
-    const sf = computeScaleFactor(paths, warnings);
+    const sf = computeScaleFactor(paths, warnings, gridTheta);
     if (sf != null) return sf;
   }
   // Viewport-width ratio fallback when the page has no UTM grid (D-ACC-06)
@@ -242,7 +332,7 @@ function detailPageScale(pageNum, box_K, pageDim_K, overviewScaleFactor, utmGrid
  * @param {number} zone
  * @param {string[]} [warnings]
  * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>} [utmGridPathsPerPage]
- * @returns {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, zone: number }>}
+ * @returns {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta: number, zone: number }>}
  */
 export function buildPageTransforms(
   post1,
@@ -254,6 +344,21 @@ export function buildPageTransforms(
   utmGridPathsPerPage = null
 ) {
   const transforms = new Map();
+
+  /** @type {Map<number, number>} */
+  const pageTheta = new Map();
+  for (const v of viewportBoxes) {
+    const paths = utmGridPathsPerPage?.get(v.pageNum);
+    const theta =
+      paths?.length ? dominantLineOrientation(paths.flat()) : 0;
+    pageTheta.set(v.pageNum, theta);
+    if (theta !== 0) {
+      warnings.push(
+        `[utm-rotation] Page ${v.pageNum}: grid orientation θ=${((theta * 180) / Math.PI).toFixed(2)}° from UTM linework.`
+      );
+    }
+  }
+  const anchorTheta = pageTheta.get(post1.pageNum) ?? 0;
 
   console.debug('[utm-calibrator] buildPageTransforms called:',
     `post1.pageNum=${post1.pageNum} post1.x=${post1.x?.toFixed(2)} post1.y=${post1.y?.toFixed(2)}`,
@@ -281,12 +386,18 @@ export function buildPageTransforms(
 
   const rect_pk = box_pk.rect;
   const scale_pk = detailPageScale(
-    post1.pageNum, rect_pk, pageDim_pk, scaleFactor, utmGridPathsPerPage, warnings
+    post1.pageNum,
+    rect_pk,
+    pageDim_pk,
+    scaleFactor,
+    utmGridPathsPerPage,
+    warnings,
+    anchorTheta
   );
 
-  // Anchor origins so post #1 projects exactly to its known GPS (isotropic scale).
-  const origin_e_pk = e1 - post1.x * scale_pk;
-  const origin_n_pk = n1 + post1.y * scale_pk;
+  const { rx: rx1, ry: ry1 } = rotatePdfPoint(post1.x, post1.y, anchorTheta);
+  const origin_e_pk = e1 - rx1 * scale_pk;
+  const origin_n_pk = n1 + ry1 * scale_pk;
 
   for (const v of viewportBoxes) {
     const pageDim_K = pageDimensions.get(v.pageNum);
@@ -295,26 +406,158 @@ export function buildPageTransforms(
       continue;
     }
 
+    let theta = pageTheta.get(v.pageNum) ?? 0;
+    if (theta === 0 && v.pageNum !== post1.pageNum) {
+      theta = anchorTheta;
+    }
+
     const box_K = v.rect;
     const scale_K = detailPageScale(
-      v.pageNum, box_K, pageDim_K, scaleFactor, utmGridPathsPerPage, warnings
+      v.pageNum,
+      box_K,
+      pageDim_K,
+      scaleFactor,
+      utmGridPathsPerPage,
+      warnings,
+      theta
     );
-    // Both scale fields equal scale_K — backward compat: projectPost reads both keys (D-ACC-06)
     const x_scale_sf = scale_K;
     const y_scale_sf = scale_K;
 
-    // Shift origin by viewport thumbnail offset on page 2 (meters), not by normalized x1_p2.
     const origin_e = origin_e_pk + (box_K.x - rect_pk.x) * scaleFactor;
     const origin_n = origin_n_pk - (box_K.y - rect_pk.y) * scaleFactor;
 
     console.debug(`[utm-calibrator] page ${v.pageNum} transform:`,
       `origin_e=${origin_e.toFixed(3)} origin_n=${origin_n.toFixed(3)}`,
-      `iso_sf=${scale_K.toFixed(6)}`
+      `iso_sf=${scale_K.toFixed(6)} theta=${theta.toFixed(4)}`
     );
-    transforms.set(v.pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone });
+    transforms.set(v.pageNum, {
+      origin_e,
+      origin_n,
+      x_scale_sf,
+      y_scale_sf,
+      theta,
+      zone,
+    });
   }
 
   return transforms;
+}
+
+// ── Boundary-locked page origins (approach 1) ───────────────────────────────────────────────
+
+/**
+ * Re-anchor a detail page so `(px, py)` projects to the given GPS.
+ *
+ * @param {Map<number, object>} transforms
+ * @param {number} pageNum
+ * @param {number} px
+ * @param {number} py
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {boolean}
+ */
+export function lockPageOriginAtGps(transforms, pageNum, px, py, lat, lon) {
+  const t = transforms.get(pageNum);
+  if (!t) return false;
+  const { easting, northing, zone } = latLonToUtm(lat, lon);
+  if (t.affine) {
+    const { m00, m01, m10, m11 } = t.affine;
+    const pyNeg = -py;
+    transforms.set(pageNum, {
+      ...t,
+      origin_e: easting - (m00 * px + m01 * pyNeg),
+      origin_n: northing - (m10 * px + m11 * pyNeg),
+      zone,
+    });
+  } else {
+    const { rx, ry } = rotatePdfPoint(px, py, t.theta ?? 0);
+    transforms.set(pageNum, {
+      ...t,
+      origin_e: easting - rx * t.x_scale_sf,
+      origin_n: northing + ry * t.y_scale_sf,
+      zone,
+    });
+  }
+  return true;
+}
+
+/** @param {{ anchorX?: number, anchorY?: number, x: number, y: number }} post */
+function postPdfPos(post) {
+  return { x: post.x, y: post.y };
+}
+
+/**
+ * At each cross-page labeled segment, walk GPS from the previous sheet using in-page
+ * exit bearing, then lock the incoming page origin so the first post on that sheet matches.
+ *
+ * @param {Map<number, object>} transforms
+ * @param {Array} sortedPosts
+ * @param {Map<string, number>} distMap
+ * @param {{ lat: number, lon: number }} post1Gps
+ * @param {string[]} warnings
+ * @returns {number} pages adjusted
+ */
+export function adjustPageOriginsAtBoundaries(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings
+) {
+  if (transforms.size < 2 || !sortedPosts?.length || !distMap?.size) return 0;
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const pdfBearing = (from, to) => {
+    const a = postPdfPos(from);
+    const b = postPdfPos(to);
+    const dx = b.x - a.x;
+    const dy = a.y - b.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
+  let lat = post1Gps.lat;
+  let lon = post1Gps.lon;
+  let adjusted = 0;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) continue;
+
+    const crossPage =
+      prev.pageNum != null && curr.pageNum != null && prev.pageNum !== curr.pageNum;
+
+    let bearing;
+    if (!crossPage) {
+      bearing = pdfBearing(prev, curr);
+    } else {
+      const prevPrev = sorted[i - 2];
+      bearing =
+        prevPrev && prevPrev.pageNum === prev.pageNum
+          ? pdfBearing(prevPrev, prev)
+          : pdfBearing(prev, curr);
+    }
+
+    const next = destinationPoint(lat, lon, bearing, m);
+    lat = next.lat;
+    lon = next.lon;
+
+    if (!crossPage) continue;
+
+    const pos = postPdfPos(curr);
+    if (lockPageOriginAtGps(transforms, curr.pageNum, pos.x, pos.y, lat, lon)) {
+      adjusted++;
+    }
+  }
+
+  if (adjusted > 0) {
+    warnings.push(
+      `[boundary-locked] ${adjusted} page origin(s) aligned at sheet breaks using labeled distances.`
+    );
+  }
+  return adjusted;
 }
 
 // ── Post GPS projection ───────────────────────────────────────────────────────────────────────
@@ -324,14 +567,12 @@ export function buildPageTransforms(
  *
  * @param {number} px  Post x in page-local flipY coords
  * @param {number} py  Post y in page-local flipY coords
- * @param {{ origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, zone: number }} pageTransform
+ * @param {{ origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta?: number, zone: number }} pageTransform
  * @returns {{ lat: number, lon: number }}
  */
 export function projectPost(px, py, pageTransform) {
-  const { origin_e, origin_n, x_scale_sf, y_scale_sf, zone } = pageTransform;
-  const e = origin_e + px * x_scale_sf;
-  const n = origin_n - py * y_scale_sf; // negative: down page = south = less northing
-  return utmToLatLon(e, n, zone);
+  const { easting, northing } = utmFromPdfPoint(px, py, pageTransform);
+  return utmToLatLon(easting, northing, pageTransform.zone);
 }
 
 // ── Haversine distance ────────────────────────────────────────────────────────────────────────

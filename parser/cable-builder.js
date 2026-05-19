@@ -178,6 +178,169 @@ export function nearestCableHitOnPage(px, py, pageNum, cablesByPage) {
   return best;
 }
 
+/** Pole farther than this from Cabo Projetado → label chain uses cable direction via neighbors. */
+export const OFF_CABLE_FOR_LABEL_CHAIN_PT = 30;
+
+const ROUTE_CABLE_ARC_PAD_PT = 20;
+
+/** Tap pole vs immediate numbered neighbors (near cable, projection outside neighbor arc). */
+function isTapPoleRaw(post, postByNum, cablesByPage) {
+  const prev = postByNum.get(post.number - 1);
+  const next = postByNum.get(post.number + 1);
+  if (!prev || !next) return false;
+
+  const pg = post.pageNum ?? 1;
+  if ((prev.pageNum ?? 1) !== pg || (next.pageNum ?? 1) !== pg) return false;
+
+  const hitP = nearestCableHitOnPage(post.x, post.y, pg, cablesByPage);
+  if (hitP.d > OFF_CABLE_FOR_LABEL_CHAIN_PT) return false;
+
+  const hitA = nearestCableHitOnPage(prev.x, prev.y, pg, cablesByPage);
+  const hitB = nearestCableHitOnPage(next.x, next.y, pg, cablesByPage);
+  if (hitP.pathIndex < 0 || hitA.pathIndex !== hitP.pathIndex || hitB.pathIndex !== hitP.pathIndex) {
+    return false;
+  }
+
+  const tLo = Math.min(hitA.t, hitB.t) - ROUTE_CABLE_ARC_PAD_PT;
+  const tHi = Math.max(hitA.t, hitB.t) + ROUTE_CABLE_ARC_PAD_PT;
+  return hitP.t < tLo || hitP.t > tHi;
+}
+
+/** True when the pole is a tap / "N tem cabo" (off main cable between consecutive neighbors). */
+export function isOffRouteCablePost(post, postByNum, cablesByPage) {
+  return isTapPoleRaw(post, postByNum, cablesByPage);
+}
+
+/**
+ * Main-route neighbors for span checks, skipping one adjacent tap pole on each side.
+ *
+ * @returns {{ left: { number: number, x: number, y: number, pageNum?: number }|null, right: { number: number, x: number, y: number, pageNum?: number }|null }}
+ */
+export function routeCableSpanPosts(post, postByNum, cablesByPage) {
+  let leftNum = post.number - 1;
+  const leftP = postByNum.get(leftNum);
+  if (leftP && isTapPoleRaw(leftP, postByNum, cablesByPage)) leftNum--;
+
+  let rightNum = post.number + 1;
+  const rightP = postByNum.get(rightNum);
+  if (rightP && isTapPoleRaw(rightP, postByNum, cablesByPage)) rightNum++;
+
+  return {
+    left: postByNum.get(leftNum) ?? null,
+    right: postByNum.get(rightNum) ?? null,
+  };
+}
+
+/**
+ * Cable arc length in PDF points between two posts on the same Cabo Projetado path.
+ *
+ * @returns {number|null}
+ */
+export function cableArcLengthPt(from, to, cablesByPage) {
+  const pg = from.pageNum ?? 1;
+  if ((to.pageNum ?? 1) !== pg) return null;
+
+  const hitA = nearestCableHitOnPage(from.x, from.y, pg, cablesByPage);
+  const hitB = nearestCableHitOnPage(to.x, to.y, pg, cablesByPage);
+  if (hitA.pathIndex < 0 || hitB.pathIndex !== hitA.pathIndex) return null;
+
+  return Math.abs(hitB.t - hitA.t);
+}
+
+/**
+ * @param {Array<{ pageNum?: number, ops: Array }>} cablePaths
+ * @returns {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>}
+ */
+export function buildCablesByPage(cablePaths) {
+  const cablesByPage = new Map();
+  for (const path of cablePaths || []) {
+    const pageNum = path.pageNum;
+    if (pageNum == null || !path.ops) continue;
+    if (!cablesByPage.has(pageNum)) cablesByPage.set(pageNum, []);
+    cablesByPage.get(pageNum).push(path.ops);
+  }
+  return cablesByPage;
+}
+
+/**
+ * Bearing for Distância_Poste GPS chaining when a pole is off the cable (tap / no-cable post).
+ * Uses Cabo Projetado direction between on-route neighbors (e.g. 3→5 past off-route post 4).
+ *
+ * @param {{ number: number, x: number, y: number, pageNum?: number }} from
+ * @param {{ number: number, x: number, y: number, pageNum?: number }} to
+ * @param {Map<number, { number: number, x: number, y: number, pageNum?: number }>} postByNum
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @returns {number|null}  Degrees clockwise from north, or null to use pole/label geometry.
+ */
+/**
+ * Bearing along Cabo Projetado between two on-route posts on the same page.
+ *
+ * @returns {number|null}  Degrees clockwise from north
+ */
+/**
+ * Cable exit bearing at a post (for cross-page label chains).
+ *
+ * @returns {number|null}
+ */
+export function cableExitBearingAtPost(post, cablesByPage) {
+  const pg = post.pageNum ?? 1;
+  const paths = cablesByPage.get(pg);
+  if (!paths?.length) return null;
+
+  const hit = nearestCableHitOnPage(post.x, post.y, pg, cablesByPage);
+  if (hit.pathIndex < 0 || hit.d > 80) return null;
+
+  const ops = paths[hit.pathIndex];
+  const total = pathTotalArcLength(ops);
+  const towardEnd = hit.t >= total * 0.5 ? 1 : -1;
+  return cableTangentBearingDeg(ops, hit.t, towardEnd);
+}
+
+export function cableSegmentBearingDeg(from, to, cablesByPage) {
+  const pg = from.pageNum ?? 1;
+  if ((to.pageNum ?? 1) !== pg) return null;
+
+  const paths = cablesByPage.get(pg);
+  if (!paths?.length) return null;
+
+  const hitA = nearestCableHitOnPage(from.x, from.y, pg, cablesByPage);
+  const hitB = nearestCableHitOnPage(to.x, to.y, pg, cablesByPage);
+  if (hitA.pathIndex < 0 || hitA.pathIndex !== hitB.pathIndex) return null;
+  if (hitA.d > 80 || hitB.d > 80) return null;
+
+  const ops = paths[hitA.pathIndex];
+  const dir = hitB.t >= hitA.t ? 1 : -1;
+  return cableTangentBearingDeg(ops, hitA.t, dir);
+}
+
+export function bearingForDistanceLabelChain(from, to, postByNum, cablesByPage) {
+  const pg = from.pageNum ?? 1;
+  if ((to.pageNum ?? 1) !== pg) return null;
+
+  const paths = cablesByPage.get(pg);
+  if (!paths?.length) return null;
+
+  const fromHit = nearestCableHitOnPage(from.x, from.y, pg, cablesByPage);
+  const toHit = nearestCableHitOnPage(to.x, to.y, pg, cablesByPage);
+  const fromOff =
+    fromHit.d > OFF_CABLE_FOR_LABEL_CHAIN_PT ||
+    isOffRouteCablePost(from, postByNum, cablesByPage);
+  const toOff =
+    toHit.d > OFF_CABLE_FOR_LABEL_CHAIN_PT ||
+    isOffRouteCablePost(to, postByNum, cablesByPage);
+  if (!fromOff && !toOff) return null;
+
+  const anchorFrom = fromOff ? postByNum.get(from.number - 1) ?? from : from;
+  const anchorTo = toOff ? postByNum.get(to.number + 1) ?? to : to;
+  const hitA = nearestCableHitOnPage(anchorFrom.x, anchorFrom.y, pg, cablesByPage);
+  const hitB = nearestCableHitOnPage(anchorTo.x, anchorTo.y, pg, cablesByPage);
+  if (hitA.pathIndex < 0 || hitB.pathIndex !== hitA.pathIndex) return null;
+
+  const dx = hitB.x - hitA.x;
+  const dy = hitA.y - hitB.y;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+}
+
 /**
  * Extract the first or last endpoint {x, y} from a PathOp array.
  * Only M (moveTo) and L (lineTo) ops carry absolute x,y endpoint positions.
@@ -191,6 +354,135 @@ function endpointFromPath(ops, which) {
   if (!pts.length) return null;
   const op = which === 'start' ? pts[0] : pts[pts.length - 1];
   return { x: op.x, y: op.y };
+}
+
+/**
+ * Total polyline arc length in PDF points (M/L/C/C2/Z), same metric as nearestPointOnPathOps `t`.
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {number}
+ */
+export function pathTotalArcLength(ops) {
+  if (!ops?.length) return 0;
+  const far = pointAtArcLength(ops, 1e15);
+  if (!far) return 0;
+  return nearestPointOnPathOps(far.x, far.y, ops).t;
+}
+
+/**
+ * Point at arc length `t` (PDF pt) from path start.
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {number} targetT
+ * @returns {{ x: number, y: number }|null}
+ */
+export function pointAtArcLength(ops, targetT) {
+  if (!ops?.length || targetT < 0) return null;
+
+  let arcLen = 0;
+  /** @type {{ x: number, y: number } | null} */
+  let cur = null;
+  /** @type {{ x: number, y: number } | null} */
+  let subpathStart = null;
+
+  const lerp = (ax, ay, bx, by, t0, t1, target) => {
+    const len = t1 - t0;
+    if (len < 1e-12) return { x: ax, y: ay };
+    const f = Math.max(0, Math.min(1, (target - t0) / len));
+    return { x: ax + (bx - ax) * f, y: ay + (by - ay) * f };
+  };
+
+  for (const op of ops) {
+    if (op.type === 'M') {
+      cur = { x: op.x, y: op.y };
+      subpathStart = cur;
+      if (targetT <= 0) return { ...cur };
+    } else if (op.type === 'L' && cur) {
+      const segStart = arcLen;
+      const segLen = Math.hypot(op.x - cur.x, op.y - cur.y);
+      if (targetT <= segStart + segLen) {
+        return lerp(cur.x, cur.y, op.x, op.y, segStart, segStart + segLen, targetT);
+      }
+      arcLen += segLen;
+      cur = { x: op.x, y: op.y };
+    } else if (op.type === 'C' && cur) {
+      const x0 = cur.x;
+      const y0 = cur.y;
+      const { x1, y1, x2, y2, x3, y3 } = op;
+      let px0 = x0;
+      let py0 = y0;
+      const steps = 10;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const om = 1 - t;
+        const bx =
+          om * om * om * x0 + 3 * om * om * t * x1 + 3 * om * t * t * x2 + t * t * t * x3;
+        const by =
+          om * om * om * y0 + 3 * om * om * t * y1 + 3 * om * t * t * y2 + t * t * t * y3;
+        const segStart = arcLen;
+        const segLen = Math.hypot(bx - px0, by - py0);
+        if (targetT <= segStart + segLen) {
+          return lerp(px0, py0, bx, by, segStart, segStart + segLen, targetT);
+        }
+        arcLen += segLen;
+        px0 = bx;
+        py0 = by;
+      }
+      cur = { x: op.x3, y: op.y3 };
+    } else if (op.type === 'C2' && cur) {
+      const x0 = cur.x;
+      const y0 = cur.y;
+      const { x1, y1, x2, y2 } = op;
+      let px0 = x0;
+      let py0 = y0;
+      const steps = 8;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const om = 1 - t;
+        const bx = om * om * x0 + 2 * om * t * x1 + t * t * x2;
+        const by = om * om * y0 + 2 * om * t * y1 + t * t * y2;
+        const segStart = arcLen;
+        const segLen = Math.hypot(bx - px0, by - py0);
+        if (targetT <= segStart + segLen) {
+          return lerp(px0, py0, bx, by, segStart, segStart + segLen, targetT);
+        }
+        arcLen += segLen;
+        px0 = bx;
+        py0 = by;
+      }
+      cur = { x: op.x2, y: op.y2 };
+    } else if (op.type === 'Z' && cur && subpathStart) {
+      const segStart = arcLen;
+      const segLen = Math.hypot(subpathStart.x - cur.x, subpathStart.y - cur.y);
+      if (targetT <= segStart + segLen) {
+        return lerp(cur.x, cur.y, subpathStart.x, subpathStart.y, segStart, segStart + segLen, targetT);
+      }
+      arcLen += segLen;
+      cur = { ...subpathStart };
+    }
+  }
+  return cur ? { ...cur } : null;
+}
+
+/**
+ * Bearing (deg clockwise from north) along cable at arc length `t`.
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {number} t
+ * @param {1|-1} direction  +1 = increasing arc, -1 = decreasing
+ * @returns {number}
+ */
+export function cableTangentBearingDeg(ops, t, direction = 1) {
+  const dt = 3;
+  const total = pathTotalArcLength(ops);
+  const t0 = Math.max(0, Math.min(total, t));
+  const t1 = Math.max(0, Math.min(total, t0 + direction * dt));
+  const p0 = pointAtArcLength(ops, t0);
+  const p1 = pointAtArcLength(ops, t1);
+  if (!p0 || !p1) return 0;
+  const dx = p1.x - p0.x;
+  const dy = p0.y - p1.y;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
 }
 
 /**

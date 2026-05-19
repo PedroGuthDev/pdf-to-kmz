@@ -1,17 +1,55 @@
 /**
- * End-to-end coordinate check vs coordenadas postes.txt
- * Run: node debug-run-calc.mjs
+ * End-to-end coordinate check vs reference coordinate files.
+ * Run:
+ *   node debug-run-calc.mjs              # Valmor (default)
+ *   node debug-run-calc.mjs joao-born    # João Born multi-sheet
+ *   node debug-run-calc.mjs joao-born --two-anchor
+ *   node debug-run-calc.mjs joao-born --parser-posts   # use parsePdf Poste positions (N3)
  *
  * Parser x,y: reads PARSE DEBUG DUMP from debug_results.txt (browser UAT export).
- * Node OCR cannot render red rings — falls back to that file when parsePdf returns < 11 posts.
+ * Node OCR cannot render red rings — falls back to that file when parsePdf returns too few posts.
  */
 import { readFileSync, existsSync } from 'fs';
 import { parsePdf } from './parser/pdf-parser.js';
 import { calculateCoordinates } from './parser/coordinate-calculator.js';
 import { associateDistances } from './parser/distance-associator.js';
-import { haversineMeters } from './parser/geo/utm-calibrator.js';
+import { assignPolesGloballyByLabels } from './parser/post-positioning.js';
+import { computeScaleFactor, haversineMeters } from './parser/geo/utm-calibrator.js';
 
-const REFERENCE = [
+const SAMPLES = {
+  valmor: {
+    pdf: './INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf',
+    minPosts: 11,
+    refFile: null,
+  },
+  'joao-born': {
+    pdf: './INFOVIAS_PJC INTERNET_Palhoça_RUA JOAO BORN_v04.pdf',
+    minPosts: 30,
+    refFile: './coordenadas postes rua joao born.txt',
+  },
+};
+
+const sampleKey = process.argv[2] === 'joao-born' ? 'joao-born' : 'valmor';
+const twoAnchor = process.argv.includes('--two-anchor');
+const forceParserPosts = process.argv.includes('--parser-posts');
+const sample = SAMPLES[sampleKey];
+
+/** @returns {Array<{ num: number, lat: number, lon: number }>} */
+function loadReferenceFromTxt(path) {
+  const text = readFileSync(path, 'utf8');
+  const refs = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/Poste\s+(\d+).*?(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
+    if (!m) continue;
+    refs.push({ num: parseInt(m[1], 10), lat: parseFloat(m[2]), lon: parseFloat(m[3]) });
+  }
+  refs.sort((a, b) => a.num - b.num);
+  return refs;
+}
+
+const REFERENCE = sample.refFile
+  ? loadReferenceFromTxt(sample.refFile)
+  : [
   { num: 1, lat: -27.6594603999238, lon: -48.699240275151034 },
   { num: 2, lat: -27.65942120761788, lon: -48.699602010469185 },
   { num: 3, lat: -27.659382015296377, lon: -48.700021269466035 },
@@ -41,10 +79,12 @@ function loadPostsFromDebugResults(path = './debug_results.txt') {
     });
   }
   posts.sort((a, b) => a.number - b.number);
-  return posts.length >= 11 ? posts : null;
+  return posts.length >= sample.minPosts ? posts : null;
 }
 
-const buf = readFileSync('./INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf');
+console.log(`\n══ Sample: ${sampleKey} ══\nPDF: ${sample.pdf}\n`);
+
+const buf = readFileSync(sample.pdf);
 const parsed = await parsePdf(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 
 if (parsed.error) {
@@ -62,16 +102,21 @@ for (const p of parsed.posts) {
 const browserPosts = loadPostsFromDebugResults();
 let parserPosts = parsed.posts;
 
-if (parserPosts.length < 11) {
-  if (browserPosts) {
-    console.warn(
-      `\nParser: ${parserPosts.length}/11 posts — using debug_results.txt (browser parse dump).\n`
-    );
-    parserPosts = browserPosts.map(p => ({ ...p }));
-  } else {
-    console.error('No posts from parser and no debug_results.txt parse dump.');
-    process.exit(1);
-  }
+const useBrowserPositions =
+  !forceParserPosts &&
+  browserPosts &&
+  (parserPosts.length < sample.minPosts ||
+    (sampleKey === 'joao-born' && browserPosts.length >= sample.minPosts));
+
+if (useBrowserPositions) {
+  console.warn(
+    `\nUsing debug_results.txt positions (${browserPosts.length} posts) — ` +
+      `${sampleKey === 'joao-born' ? 'João Born needs browser/Poste parse' : 'parser short count'}.\n`
+  );
+  parserPosts = browserPosts.map(p => ({ ...p }));
+} else if (parserPosts.length < sample.minPosts) {
+  console.error('No posts from parser and no debug_results.txt parse dump.');
+  process.exit(1);
 } else if (browserPosts) {
   console.log('\nBrowser debug_results.txt positions (comparison only — using parser positions):');
   for (const p of browserPosts) {
@@ -100,20 +145,65 @@ if (browserPosts && parsed.distanceLabelItems?.length) {
   }
 }
 
+const multiSheetRoute = (parsed.viewportBoxes?.length ?? 0) >= 3;
+// N3 pole assignment only when using parser positions (browser debug_results already has Poste snaps).
+if (
+  !useBrowserPositions &&
+  multiSheetRoute &&
+  parsed.posteRawCentroids?.length &&
+  parsed.cablePaths?.length &&
+  distances.some(d => d.meters != null && d.meters > 0)
+) {
+  let overviewScale = computeScaleFactor(parsed.utmGridPathsPerPage?.get(2) ?? [], []);
+  if (overviewScale == null) {
+    for (const [pn, paths] of parsed.utmGridPathsPerPage ?? []) {
+      if (pn === 2) continue;
+      overviewScale = computeScaleFactor(paths, []);
+      if (overviewScale != null) break;
+    }
+  }
+  const perPageScale = pageNum => {
+    const paths = parsed.utmGridPathsPerPage?.get(pageNum);
+    if (paths?.length) {
+      const sf = computeScaleFactor(paths, []);
+      if (sf != null) return sf;
+    }
+    return overviewScale ?? null;
+  };
+  const n3Warnings = [];
+  assignPolesGloballyByLabels(
+    parserPosts,
+    parsed.posteRawCentroids,
+    parsed.cablePaths,
+    distances,
+    n3Warnings,
+    {
+      postByNum: new Map(parserPosts.map(p => [p.number, p])),
+      perPageScale,
+    }
+  );
+  const n3Line = n3Warnings.find(w => /\[post-positioning\] N3 page/.test(w));
+  if (n3Line) console.log(`\n${n3Line}`);
+}
+
+const lastRef = REFERENCE[REFERENCE.length - 1];
+const calcOpts = {
+  utmGridPathsPerPage: parsed.utmGridPathsPerPage,
+  viewportBoxes: parsed.viewportBoxes,
+  pageDimensions: parsed.pageDimensions,
+};
+if (twoAnchor && lastRef) {
+  calcOpts.lastPostGps = { lat: lastRef.lat, lon: lastRef.lon };
+  console.log(`Two-anchor mode: post 1 + post ${lastRef.num} GPS from reference.\n`);
+}
+
 const { posts, warnings = [] } = calculateCoordinates(
   parserPosts,
   distances,
   start.lat,
   start.lon,
   parsed.cableSegments ?? [],
-  {
-    utmGridPathsPerPage: parsed.utmGridPathsPerPage,
-    viewportBoxes: parsed.viewportBoxes,
-    pageDimensions: parsed.pageDimensions,
-    // Uncomment the line below to enable 2nd-anchor similarity refinement (D-ACC-07).
-    // Uses post 11 ground-truth GPS to pin both ends and refine middle posts.
-    // lastPostGps: { lat: REFERENCE[10].lat, lon: REFERENCE[10].lon },
-  }
+  calcOpts
 );
 
 console.log('\nComparison vs reference:');
@@ -131,7 +221,13 @@ for (const ref of REFERENCE) {
   const mark = err < 5 ? '✓' : err < 50 ? '~' : '✗';
   console.log(`  ${mark} Post ${String(ref.num).padStart(2)}: err=${err.toFixed(2)}m  page=${p.pageNum}`);
 }
-console.log(`\nMax error: ${maxErr.toFixed(2)}m  null GPS: ${nulls}/11`);
+const under5 = REFERENCE.filter(ref => {
+  const p = posts.find(x => x.number === ref.num);
+  return p?.lat != null && haversineMeters(ref.lat, ref.lon, p.lat, p.lon) < 5;
+}).length;
+console.log(
+  `\nMax error: ${maxErr.toFixed(2)}m  null GPS: ${nulls}/${REFERENCE.length}  <5m: ${under5}/${REFERENCE.length}`
+);
 const allWarnings = [...(parsed.warnings ?? []), ...warnings];
 if (allWarnings.length) {
   console.log('\nWarnings (first 8):');

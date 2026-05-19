@@ -44,12 +44,14 @@ import {
 } from './post-assembler.js';
 import {
   assignPostPositionsFromPosteSymbols,
+  assignPolesGloballyByLabels,
   attachMarkerAnchors,
   alignPostPositionsToRouteMarkers,
   assignPostsByRouteOrder,
 } from './post-positioning.js';
 import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js';
 import { associateDistances }                          from './distance-associator.js';
+import { computeScaleFactor }                          from './geo/utm-calibrator.js';
 import { buildCableSegments, minDistancePointToCablesOnPage } from './cable-builder.js';
 import { calculateCoordinates, parseCoordinateInput, validateBrazilBounds, detectRouteTopology, detectGaps } from './coordinate-calculator.js';
 
@@ -175,18 +177,33 @@ function extractRectFromSubpath(ops, pageHeight) {
  * @param {number} pageHeight
  * @returns {Array<{ pageNum: number, rect: { x: number, y: number, w: number, h: number } }>}
  */
-function pairLabelsToRects(labels, rects, pageHeight) {
-  const paired = [];
+function pairLabelsToRects(labels, rects, pageHeight, maxPageNum) {
+  /** @type {Array<{ pageNum: number, rect: object, dist: number }>} */
+  const candidates = [];
   for (const lbl of labels) {
+    const pageNum = parseInt(lbl.label, 10);
+    if (!Number.isFinite(pageNum) || pageNum < 3 || pageNum > maxPageNum) continue;
+
     const lblY_flipY = pageHeight - lbl.y; // convert label raw y to flipY
-    let best = null, bestDist = Infinity;
     for (const r of rects) {
       const cx = r.rect.x + r.rect.w / 2;
       const cy = r.rect.y + r.rect.h / 2; // rect already in flipY
       const d = Math.hypot(lbl.x - cx, lblY_flipY - cy);
-      if (d < bestDist) { bestDist = d; best = r; }
+      candidates.push({ pageNum, rect: r.rect, dist: d });
     }
-    if (best) paired.push({ pageNum: parseInt(lbl.label, 10), rect: best.rect });
+  }
+
+  // One-to-one: closest label–rect pairs first (avoids duplicate pageNum from shared rects).
+  candidates.sort((a, b) => a.dist - b.dist);
+  const usedRects = new Set();
+  const usedPages = new Set();
+  const paired = [];
+  for (const c of candidates) {
+    const rectKey = `${c.rect.x},${c.rect.y},${c.rect.w},${c.rect.h}`;
+    if (usedRects.has(rectKey) || usedPages.has(c.pageNum)) continue;
+    usedRects.add(rectKey);
+    usedPages.add(c.pageNum);
+    paired.push({ pageNum: c.pageNum, rect: c.rect });
   }
   return paired;
 }
@@ -423,10 +440,13 @@ export async function parsePdf(arrayBuffer) {
             }
           }
         }
-        // Collect viewport labels "03", "04", "05" via getTextContent (no OCR needed)
+        // Collect viewport labels "03", "04", "05" via getTextContent (no OCR needed).
+        // Reject values > numPages — long routes put Distância_Poste labels (e.g. "34") on page 2.
         for (const item of textContent.items) {
           const s = (item.str ?? '').trim();
-          if (/^\d{2}$/.test(s) && parseInt(s, 10) >= 3) {
+          if (!/^\d{2}$/.test(s)) continue;
+          const n = parseInt(s, 10);
+          if (n >= 3 && n <= pdfDoc.numPages) {
             viewportLabels.push({ label: s, x: item.transform[4], y: item.transform[5] });
           }
         }
@@ -452,7 +472,12 @@ export async function parsePdf(arrayBuffer) {
 
     // ── Pair page-2 viewport labels to rectangles ────────────────────────────
     const page2Height = pageDimensions.get(2)?.h ?? 0;
-    const pairedViewportBoxes = pairLabelsToRects(viewportLabels, viewportBoxes, page2Height);
+    const pairedViewportBoxes = pairLabelsToRects(
+      viewportLabels,
+      viewportBoxes,
+      page2Height,
+      pdfDoc.numPages
+    );
     const calibratedPageNums = pairedViewportBoxes.map(v => v.pageNum);
     const calibratedPageSet = new Set(calibratedPageNums);
 
@@ -532,11 +557,41 @@ export async function parsePdf(arrayBuffer) {
 
     attachMarkerAnchors(posts);
 
-    // ── Canonical PDF position: Poste pole symbol + Cabo Projetado (OCR only picks the number) ─
+    // ── Associate inter-post distances before pole assignment (N3 needs labels) ─
+    let overviewScale = computeScaleFactor(utmGridPathsPerPage.get(2) ?? [], []);
+    if (overviewScale == null) {
+      for (const [pn, paths] of utmGridPathsPerPage) {
+        if (pn === 2) continue;
+        overviewScale = computeScaleFactor(paths, []);
+        if (overviewScale != null) break;
+      }
+    }
+    const perPageScale = pageNum => {
+      const paths = utmGridPathsPerPage.get(pageNum);
+      if (paths?.length) {
+        const sf = computeScaleFactor(paths, []);
+        if (sf != null) return sf;
+      }
+      return overviewScale ?? null;
+    };
+    const { distances, warnings: dw } = associateDistances(posts, allDistItems, [], {
+      scaleFactor: overviewScale ?? undefined,
+    });
+    warnings.push(...dw);
+
+    // ── Canonical PDF position: Poste pole symbol (N3 on 3+ sheets, else greedy) ─
+    const multiSheetRoute = pairedViewportBoxes.length >= 3;
     if (allPosteRaw.length > 0) {
-      assignPostPositionsFromPosteSymbols(posts, allPosteRaw, allCablePaths, warnings, {
-        postByNum: new Map(posts.map(p => [p.number, p])),
-      });
+      if (multiSheetRoute) {
+        assignPolesGloballyByLabels(posts, allPosteRaw, allCablePaths, distances, warnings, {
+          postByNum: new Map(posts.map(p => [p.number, p])),
+          perPageScale,
+        });
+      } else {
+        assignPostPositionsFromPosteSymbols(posts, allPosteRaw, allCablePaths, warnings, {
+          postByNum: new Map(posts.map(p => [p.number, p])),
+        });
+      }
     } else {
       warnings.push(
         'No Poste-layer pole symbols extracted — using Numero_Poste circle positions for (x,y).'
@@ -554,11 +609,6 @@ export async function parsePdf(arrayBuffer) {
         `Merged ${rawPosts.length - posts.length} duplicate post marker(s) across pages (kept viewport-calibrated detail page per post).`
       );
     }
-
-    // ── Associate inter-post distances (D-10) ────────────────────────────────
-    const { distances, warnings: dw } =
-      associateDistances(posts, allDistItems, []);
-    warnings.push(...dw);
 
     // ── Build cable segments (D-04, D-12, D-16) ──────────────────────────────
     const { cableSegments, warnings: cw } =
@@ -580,6 +630,8 @@ export async function parsePdf(arrayBuffer) {
       viewportBoxes: pairedViewportBoxes,
       pageDimensions,
       distanceLabelItems: allDistItems,
+      posteRawCentroids: allPosteRaw,
+      cablePaths: allCablePaths,
     };
 
   } catch (err) {

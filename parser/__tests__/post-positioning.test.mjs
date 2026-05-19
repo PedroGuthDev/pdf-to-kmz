@@ -6,6 +6,7 @@ import {
   attachMarkerAnchors,
   snapPostsToPosteLayerSymbols,
   assignPostPositionsFromPosteSymbols,
+  assignPolesGloballyByLabels,
   assignPostsByRouteOrder,
   alignPostPositionsToRouteMarkers,
   routeSortKeyForPage,
@@ -93,6 +94,71 @@ assert(Math.hypot(ocrPosts2[0].x - 246, ocrPosts2[0].y - 442) < 2, 'OCR post 5 a
 console.log('\n[post-positioning] route sort key defined');
 const key = routeSortKeyForPage(posts);
 assert(typeof key(posts[0]) === 'number', 'route sort key returns number');
+
+console.log('\n[post-positioning] off-route post placed between neighbors (spatial, not on cable)');
+const routePosts = [
+  { number: 3, x: 440, y: 470, pageNum: 3, anchorX: 440, anchorY: 470 },
+  { number: 4, x: 480, y: 400, pageNum: 3, anchorX: 600, anchorY: 200 },
+  { number: 5, x: 528, y: 322, pageNum: 3, anchorX: 528, anchorY: 322 },
+];
+const poleBetween = [
+  { x: 440, y: 470, pageNum: 3 },
+  { x: 505, y: 380, pageNum: 3 },
+  { x: 528, y: 322, pageNum: 3 },
+];
+const cableLine = [{
+  pageNum: 3,
+  ops: [
+    { type: 'M', x: 430, y: 480 },
+    { type: 'L', x: 470, y: 490 },
+    { type: 'L', x: 510, y: 310 },
+  ],
+}];
+assignPostPositionsFromPosteSymbols(routePosts, poleBetween, cableLine, []);
+const p4 = routePosts.find(p => p.number === 4);
+const onPole = Math.hypot(p4.x - 505, p4.y - 380) < 3;
+assert(onPole, 'post 4 moved to pole symbol between posts 3 and 5 along the street');
+
+console.log('\n[post-positioning] keeps circle when raw pole already matches Numero_Poste ring');
+const routeWithRaw = [
+  { number: 3, x: 440, y: 470, pageNum: 3, anchorX: 437, anchorY: 397 },
+  { number: 4, x: 500, y: 357, pageNum: 3, anchorX: 600, anchorY: 200 },
+  { number: 5, x: 528, y: 322, pageNum: 3, anchorX: 509, anchorY: 302 },
+];
+const poleAtRing = [
+  { x: 500, y: 357, pageNum: 3 },
+  { x: 520, y: 340, pageNum: 3 },
+];
+assignPostPositionsFromPosteSymbols(routeWithRaw, poleAtRing, cableLine, []);
+const kept = routeWithRaw.find(p => p.number === 4);
+assert(Math.hypot(kept.x - 500, kept.y - 357) < 2, 'post 4 kept when raw symbol matches circle');
+
+console.log('\n[post-positioning] N3 beam picks symbols matching distance labels');
+const scale = 0.35;
+const arcStep = 40 / scale;
+const n3Cable = [{ pageNum: 3, ops: [{ type: 'M', x: 0, y: 0 }, { type: 'L', x: 2000, y: 0 }] }];
+const n3Posts = [
+  { number: 1, x: 0, y: 0, pageNum: 3, anchorX: 2, anchorY: 2 },
+  { number: 2, x: arcStep, y: 0, pageNum: 3, anchorX: arcStep + 2, anchorY: 2 },
+  { number: 3, x: arcStep * 2, y: 0, pageNum: 3, anchorX: arcStep * 2 + 2, anchorY: 2 },
+];
+const n3Poles = [
+  { x: 0, y: 0, pageNum: 3 },
+  { x: arcStep, y: 0, pageNum: 3 },
+  { x: arcStep * 2, y: 0, pageNum: 3 },
+];
+const n3Dist = [
+  { from: 1, to: 2, meters: 40 },
+  { from: 2, to: 3, meters: 40 },
+];
+const n3Warn = [];
+assignPolesGloballyByLabels(n3Posts, n3Poles, n3Cable, n3Dist, n3Warn, {
+  perPageScale: () => scale,
+  postByNum: new Map(n3Posts.map(p => [p.number, p])),
+});
+assert(Math.hypot(n3Posts[1].x - arcStep, n3Posts[1].y) < 2, 'N3 post 2 at labeled arc position');
+assert(Math.hypot(n3Posts[2].x - arcStep * 2, n3Posts[2].y) < 2, 'N3 post 3 at labeled arc position');
+assert(n3Warn.some(w => /N3 page 3/.test(w)), 'N3 summary warning emitted');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -1,0 +1,698 @@
+[
+  {
+    "key": "valmor",
+    "path": "INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf",
+    "bytes": 0,
+    "numPages": 8,
+    "layers": [
+      "0",
+      "Articulação",
+      "Block",
+      "Cabo Projetado",
+      "ChaveFusivel",
+      "Cordoalha Dielétrica",
+      "Distância_Poste",
+      "Espinar",
+      "Lateral",
+      "Layer1",
+      "Numeração_Cabo",
+      "Numero_Poste",
+      "PROJ_TXT_tpa",
+      "Padrão",
+      "Passivo_Existente",
+      "Passivo_Projetado",
+      "Poste",
+      "Reserva_Projetada",
+      "SeccionamentoSecundarioAereo",
+      "SegmentoLogradouro",
+      "TEXTO",
+      "TEXTO_80",
+      "Texto_3",
+      "TrafoDistAereo",
+      "Travessia",
+      "TrechoPrimarioAereo",
+      "TrechoSecundarioAereo",
+      "TrechoSecundarioSubterraneo",
+      "UTM",
+      "arruamento",
+      "aterramento",
+      "caixaSubterranea",
+      "chaveSeccionadora",
+      "flyTapSecundario",
+      "norte",
+      "txt_moldura_intelig"
+    ],
+    "validation": {
+      "valid": true,
+      "missing": [],
+      "allNames": [
+        "0",
+        "Articulação",
+        "Block",
+        "Cabo Projetado",
+        "ChaveFusivel",
+        "Cordoalha Dielétrica",
+        "Distância_Poste",
+        "Espinar",
+        "Lateral",
+        "Layer1",
+        "Numeração_Cabo",
+        "Numero_Poste",
+        "PROJ_TXT_tpa",
+        "Padrão",
+        "Passivo_Existente",
+        "Passivo_Projetado",
+        "Poste",
+        "Reserva_Projetada",
+        "SeccionamentoSecundarioAereo",
+        "SegmentoLogradouro",
+        "TEXTO",
+        "TEXTO_80",
+        "Texto_3",
+        "TrafoDistAereo",
+        "Travessia",
+        "TrechoPrimarioAereo",
+        "TrechoSecundarioAereo",
+        "TrechoSecundarioSubterraneo",
+        "UTM",
+        "arruamento",
+        "aterramento",
+        "caixaSubterranea",
+        "chaveSeccionadora",
+        "flyTapSecundario",
+        "norte",
+        "txt_moldura_intelig"
+      ]
+    },
+    "pages": [
+      {
+        "n": 1,
+        "named": 0,
+        "l0": 0,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 2,
+        "named": 11,
+        "l0": 6,
+        "poste": 394,
+        "cable": 1
+      },
+      {
+        "n": 3,
+        "named": 6,
+        "l0": 6,
+        "poste": 268,
+        "cable": 2
+      },
+      {
+        "n": 4,
+        "named": 5,
+        "l0": 6,
+        "poste": 146,
+        "cable": 1
+      },
+      {
+        "n": 5,
+        "named": 0,
+        "l0": 54,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 6,
+        "named": 0,
+        "l0": 12,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 7,
+        "named": 0,
+        "l0": 19,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 8,
+        "named": 16,
+        "l0": 56,
+        "poste": 0,
+        "cable": 0
+      }
+    ],
+    "parse": {
+      "posts": 11,
+      "distances": 10,
+      "cables": 4,
+      "postsByPage": {
+        "3": 6,
+        "4": 5
+      },
+      "warnings": [
+        "Page 2: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 5: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 6: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 7: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 8: skipped post OCR — not a viewport-calibrated route detail page",
+        "Post at (169.6, 429.3) page 3: OCR failed — attempting sequence inference"
+      ]
+    },
+    "onlyInThis": [
+      "arruamento"
+    ]
+  },
+  {
+    "key": "joao_born",
+    "path": "INFOVIAS_PJC INTERNET_Palhoça_RUA JOAO BORN_v04.pdf",
+    "bytes": 0,
+    "numPages": 9,
+    "layers": [
+      "0",
+      "Articulação",
+      "BancoCapacitor",
+      "Block",
+      "Cabo Projetado",
+      "ChaveFusivel",
+      "Cordoalha Dielétrica",
+      "Distância_Poste",
+      "Espinar",
+      "LanceDutos",
+      "Lateral",
+      "Layer1",
+      "Numeração_Cabo",
+      "Numero_Poste",
+      "PROJ_TXT_tpa",
+      "Padrão",
+      "Passivo_Existente",
+      "Passivo_Projetado",
+      "Poste",
+      "Reserva_Projetada",
+      "SeccionamentoSecundarioAereo",
+      "SegmentoLogradouro",
+      "TEXTO",
+      "TEXTO_80",
+      "Texto_3",
+      "TrafoDistAereo",
+      "Travessia",
+      "TrechoPrimarioAereo",
+      "TrechoSecundarioAereo",
+      "TrechoSecundarioSubterraneo",
+      "UTM",
+      "aterramento",
+      "caixaSubterranea",
+      "chaveSeccionadora",
+      "flyTapSecundario",
+      "norte",
+      "religador",
+      "txt_moldura_intelig"
+    ],
+    "validation": {
+      "valid": true,
+      "missing": [],
+      "allNames": [
+        "0",
+        "Articulação",
+        "BancoCapacitor",
+        "Block",
+        "Cabo Projetado",
+        "ChaveFusivel",
+        "Cordoalha Dielétrica",
+        "Distância_Poste",
+        "Espinar",
+        "LanceDutos",
+        "Lateral",
+        "Layer1",
+        "Numeração_Cabo",
+        "Numero_Poste",
+        "PROJ_TXT_tpa",
+        "Padrão",
+        "Passivo_Existente",
+        "Passivo_Projetado",
+        "Poste",
+        "Reserva_Projetada",
+        "SeccionamentoSecundarioAereo",
+        "SegmentoLogradouro",
+        "TEXTO",
+        "TEXTO_80",
+        "Texto_3",
+        "TrafoDistAereo",
+        "Travessia",
+        "TrechoPrimarioAereo",
+        "TrechoSecundarioAereo",
+        "TrechoSecundarioSubterraneo",
+        "UTM",
+        "aterramento",
+        "caixaSubterranea",
+        "chaveSeccionadora",
+        "flyTapSecundario",
+        "norte",
+        "religador",
+        "txt_moldura_intelig"
+      ]
+    },
+    "pages": [
+      {
+        "n": 1,
+        "named": 0,
+        "l0": 0,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 2,
+        "named": 34,
+        "l0": 6,
+        "poste": 144,
+        "cable": 1
+      },
+      {
+        "n": 3,
+        "named": 14,
+        "l0": 6,
+        "poste": 123,
+        "cable": 1
+      },
+      {
+        "n": 4,
+        "named": 11,
+        "l0": 6,
+        "poste": 69,
+        "cable": 1
+      },
+      {
+        "n": 5,
+        "named": 9,
+        "l0": 6,
+        "poste": 81,
+        "cable": 1
+      },
+      {
+        "n": 6,
+        "named": 0,
+        "l0": 54,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 7,
+        "named": 0,
+        "l0": 12,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 8,
+        "named": 0,
+        "l0": 19,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 9,
+        "named": 16,
+        "l0": 56,
+        "poste": 0,
+        "cable": 0
+      }
+    ],
+    "parse": {
+      "posts": 34,
+      "distances": 33,
+      "cables": 4,
+      "postsByPage": {
+        "3": 14,
+        "4": 11,
+        "5": 9
+      },
+      "warnings": [
+        "Page 2: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 6: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 7: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 8: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 9: skipped post OCR — not a viewport-calibrated route detail page",
+        "Post at (272.7, 444.3) page 3: OCR failed — attempting sequence inference"
+      ]
+    },
+    "onlyInThis": [
+      "BancoCapacitor",
+      "LanceDutos",
+      "religador"
+    ]
+  },
+  {
+    "key": "luiz_carolino",
+    "path": "INFOVIAS_AAF INTERNET_São José_RUA LUIZ CAROLINO PEREIRA_v1.pdf",
+    "bytes": 0,
+    "numPages": 9,
+    "layers": [
+      "0",
+      "Ancoragem_suporte",
+      "Articulação",
+      "Block",
+      "Cabo Projetado",
+      "ChaveFusivel",
+      "Cordoalha Dielétrica",
+      "Distância_Poste",
+      "Espinar",
+      "Lateral",
+      "Layer1",
+      "Numeração_Cabo",
+      "Numero_Poste",
+      "PROJ_TXT_tpa",
+      "Padrão",
+      "Passivo_Existente",
+      "Passivo_Projetado",
+      "Poste",
+      "Reserva_Projetada",
+      "SeccionamentoSecundarioAereo",
+      "SegmentoLogradouro",
+      "TEXTO",
+      "TEXTO_80",
+      "Texto_3",
+      "TrafoDistAereo",
+      "Travessia",
+      "TrechoPrimarioAereo",
+      "TrechoSecundarioAereo",
+      "UTM",
+      "aterramento",
+      "flyTapSecundario",
+      "norte",
+      "txt_moldura_intelig"
+    ],
+    "validation": {
+      "valid": true,
+      "missing": [],
+      "allNames": [
+        "0",
+        "Ancoragem_suporte",
+        "Articulação",
+        "Block",
+        "Cabo Projetado",
+        "ChaveFusivel",
+        "Cordoalha Dielétrica",
+        "Distância_Poste",
+        "Espinar",
+        "Lateral",
+        "Layer1",
+        "Numeração_Cabo",
+        "Numero_Poste",
+        "PROJ_TXT_tpa",
+        "Padrão",
+        "Passivo_Existente",
+        "Passivo_Projetado",
+        "Poste",
+        "Reserva_Projetada",
+        "SeccionamentoSecundarioAereo",
+        "SegmentoLogradouro",
+        "TEXTO",
+        "TEXTO_80",
+        "Texto_3",
+        "TrafoDistAereo",
+        "Travessia",
+        "TrechoPrimarioAereo",
+        "TrechoSecundarioAereo",
+        "UTM",
+        "aterramento",
+        "flyTapSecundario",
+        "norte",
+        "txt_moldura_intelig"
+      ]
+    },
+    "pages": [
+      {
+        "n": 1,
+        "named": 0,
+        "l0": 0,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 2,
+        "named": 31,
+        "l0": 6,
+        "poste": 265,
+        "cable": 3
+      },
+      {
+        "n": 3,
+        "named": 3,
+        "l0": 6,
+        "poste": 45,
+        "cable": 1
+      },
+      {
+        "n": 4,
+        "named": 19,
+        "l0": 6,
+        "poste": 126,
+        "cable": 3
+      },
+      {
+        "n": 5,
+        "named": 9,
+        "l0": 6,
+        "poste": 101,
+        "cable": 1
+      },
+      {
+        "n": 6,
+        "named": 0,
+        "l0": 54,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 7,
+        "named": 0,
+        "l0": 12,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 8,
+        "named": 0,
+        "l0": 19,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 9,
+        "named": 16,
+        "l0": 56,
+        "poste": 0,
+        "cable": 0
+      }
+    ],
+    "parse": {
+      "posts": 31,
+      "distances": 30,
+      "cables": 8,
+      "postsByPage": {
+        "3": 3,
+        "4": 19,
+        "5": 9
+      },
+      "warnings": [
+        "Page 2: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 6: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 7: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 8: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 9: skipped post OCR — not a viewport-calibrated route detail page",
+        "Post at (361.8, 654.7) page 3: OCR failed — attempting sequence inference"
+      ]
+    },
+    "onlyInThis": []
+  },
+  {
+    "key": "siriu",
+    "path": "INFOVIAS_PJC INTERNET_Garopaba_Praia do Siriu_v01.pdf",
+    "bytes": 0,
+    "numPages": 12,
+    "layers": [
+      "0",
+      "Ancoragem_suporte",
+      "Articulação",
+      "Block",
+      "Cabo Projetado",
+      "ChaveFusivel",
+      "Cordoalha Dielétrica",
+      "Distância_Poste",
+      "Espinar",
+      "Lateral",
+      "Layer1",
+      "Numeração_Cabo",
+      "Numero_Poste",
+      "PROJ_TXT_tpa",
+      "Padrão",
+      "Passivo_Existente",
+      "Passivo_Projetado",
+      "Poste",
+      "Reserva_Projetada",
+      "SeccionamentoSecundarioAereo",
+      "SegmentoLogradouro",
+      "TEXTO",
+      "TEXTO_80",
+      "Texto_3",
+      "TrafoDistAereo",
+      "Travessia",
+      "TrechoPrimarioAereo",
+      "TrechoSecundarioAereo",
+      "UTM",
+      "aterramento",
+      "chaveSeccionadora",
+      "flyTapSecundario",
+      "norte",
+      "txt_moldura_intelig"
+    ],
+    "validation": {
+      "valid": true,
+      "missing": [],
+      "allNames": [
+        "0",
+        "Ancoragem_suporte",
+        "Articulação",
+        "Block",
+        "Cabo Projetado",
+        "ChaveFusivel",
+        "Cordoalha Dielétrica",
+        "Distância_Poste",
+        "Espinar",
+        "Lateral",
+        "Layer1",
+        "Numeração_Cabo",
+        "Numero_Poste",
+        "PROJ_TXT_tpa",
+        "Padrão",
+        "Passivo_Existente",
+        "Passivo_Projetado",
+        "Poste",
+        "Reserva_Projetada",
+        "SeccionamentoSecundarioAereo",
+        "SegmentoLogradouro",
+        "TEXTO",
+        "TEXTO_80",
+        "Texto_3",
+        "TrafoDistAereo",
+        "Travessia",
+        "TrechoPrimarioAereo",
+        "TrechoSecundarioAereo",
+        "UTM",
+        "aterramento",
+        "chaveSeccionadora",
+        "flyTapSecundario",
+        "norte",
+        "txt_moldura_intelig"
+      ]
+    },
+    "pages": [
+      {
+        "n": 1,
+        "named": 0,
+        "l0": 0,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 2,
+        "named": 83,
+        "l0": 6,
+        "poste": 0,
+        "cable": 9
+      },
+      {
+        "n": 3,
+        "named": 12,
+        "l0": 6,
+        "poste": 68,
+        "cable": 2
+      },
+      {
+        "n": 4,
+        "named": 12,
+        "l0": 6,
+        "poste": 93,
+        "cable": 2
+      },
+      {
+        "n": 5,
+        "named": 12,
+        "l0": 6,
+        "poste": 61,
+        "cable": 2
+      },
+      {
+        "n": 6,
+        "named": 22,
+        "l0": 6,
+        "poste": 80,
+        "cable": 3
+      },
+      {
+        "n": 7,
+        "named": 20,
+        "l0": 6,
+        "poste": 67,
+        "cable": 6
+      },
+      {
+        "n": 8,
+        "named": 7,
+        "l0": 6,
+        "poste": 74,
+        "cable": 2
+      },
+      {
+        "n": 9,
+        "named": 0,
+        "l0": 54,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 10,
+        "named": 0,
+        "l0": 12,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 11,
+        "named": 0,
+        "l0": 19,
+        "poste": 0,
+        "cable": 0
+      },
+      {
+        "n": 12,
+        "named": 16,
+        "l0": 56,
+        "poste": 0,
+        "cable": 0
+      }
+    ],
+    "parse": {
+      "posts": 85,
+      "distances": 84,
+      "cables": 26,
+      "postsByPage": {
+        "3": 12,
+        "4": 12,
+        "5": 12,
+        "6": 22,
+        "7": 20,
+        "8": 7
+      },
+      "warnings": [
+        "Page 2: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 9: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 10: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 11: skipped post OCR — not a viewport-calibrated route detail page",
+        "Page 12: skipped post OCR — not a viewport-calibrated route detail page",
+        "Post at (152.5, 221.0) page 3: OCR failed — attempting sequence inference"
+      ]
+    },
+    "onlyInThis": []
+  }
+]

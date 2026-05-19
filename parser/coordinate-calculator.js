@@ -8,6 +8,7 @@
 import {
   computeScaleFactor,
   buildPageTransforms,
+  adjustPageOriginsAtBoundaries,
   projectPost,
   haversineMeters,
   gpsBearing,
@@ -15,8 +16,21 @@ import {
   utmToLatLon,
   destinationPoint,
 } from './geo/utm-calibrator.js';
-import { nearestPointOnCablesOnPage } from './cable-builder.js';
+import {
+  nearestPointOnCablesOnPage,
+  buildCablesByPage,
+  cableSegmentBearingDeg,
+  cableExitBearingAtPost,
+  bearingForDistanceLabelChain,
+} from './cable-builder.js';
+import { placePostsOnCableByArcLength } from './geo/cable-arc-placer.js';
 import { attachMarkerAnchors } from './post-positioning.js';
+import {
+  augmentCrossPageDistances,
+  refinePageOriginsByLabelCalibration,
+} from './geo/label-lsq-calibrator.js';
+import { adjustPageOriginsByCableSimilarity } from './geo/cable-boundary-calibrator.js';
+import { applyGridAffineToTransforms } from './geo/grid-affine-calibrator.js';
 
 const SEGMENT_SNAP_MAX_PT = 100;
 
@@ -208,7 +222,15 @@ function repairPostsOnUncalibratedPages(posts, calibratedPages, warnings) {
  * @param {Set<number>} branchStarts
  * @returns {boolean}  true when chaining was applied
  */
-function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchStarts) {
+function applyDistanceLabelGpsChain(
+  sorted,
+  distMap,
+  startLat,
+  startLon,
+  branchStarts,
+  opts = {}
+) {
+  const { cablesByPage, postByNum, multiSheetRoute } = opts;
   const utm = sorted.map(p => ({ lat: p.lat, lon: p.lon }));
   let labeled = 0;
   let applied = 0;
@@ -231,9 +253,6 @@ function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchS
   for (const { startIdx, endIdx } of runs) {
     if (endIdx <= startIdx) continue;
 
-    // Skip the run that starts at the page-1 anchor when all posts are on the same page
-    // (page-3 UTM projection is more reliable than label chaining for that run; label
-    // accuracy for intra-page segments can't be guaranteed without snap fixes on all posts).
     const runPage = sorted[startIdx].pageNum;
     if (startIdx === 0 && runPage === sorted[endIdx].pageNum) {
       continue;
@@ -267,7 +286,18 @@ function applyDistanceLabelGpsChain(sorted, distMap, startLat, startLon, branchS
         continue;
       }
       labeled++;
-      const bearing = gpsBearing(utm[i - 1].lat, utm[i - 1].lon, utm[i].lat, utm[i].lon);
+      let bearing = null;
+      if (cablesByPage && postByNum) {
+        bearing =
+          cableSegmentBearingDeg(prev, curr, cablesByPage) ??
+          bearingForDistanceLabelChain(prev, curr, postByNum, cablesByPage);
+        if (bearing == null && prev.pageNum !== curr.pageNum) {
+          bearing = cableExitBearingAtPost(prev, cablesByPage);
+        }
+      }
+      if (bearing == null) {
+        bearing = gpsBearing(utm[i - 1].lat, utm[i - 1].lon, utm[i].lat, utm[i].lon);
+      }
       const next = destinationPoint(lat, lon, bearing, m);
       lat = next.lat;
       lon = next.lon;
@@ -473,7 +503,7 @@ export function detectGaps(posts, distances, cableSegments) {
  * @param {number} startLat  Latitude of post #1 (user-provided, D-14)
  * @param {number} startLon  Longitude of post #1
  * @param {Array<{ ops, pageNum? }>} cableSegments
- * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number } }|null} opts
+ * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, enableCableArcPlacer?: boolean }|null} opts
  * @returns {{ posts: Array, connections: Array, warnings: string[] }}
  */
 export function calculateCoordinates(posts, distances, startLat, startLon, cableSegments = [], opts = null) {
@@ -505,7 +535,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   let utmZone = null;
 
   const opts_ = opts || {};
-  const { utmGridPathsPerPage, viewportBoxes, pageDimensions, lastPostGps } = opts_;
+  const { utmGridPathsPerPage, viewportBoxes, pageDimensions, lastPostGps, enableCableArcPlacer } = opts_;
 
   if (opts_ &&
       utmGridPathsPerPage instanceof Map &&
@@ -548,6 +578,33 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     const calibratedPages = new Set(viewportBoxes.map(v => v.pageNum));
     repairPostsOnUncalibratedPages(sorted, calibratedPages, warnings);
 
+    const multiSheetRoute = viewportBoxes.length >= 3;
+    if (multiSheetRoute && cableSegments?.length && scaleFactor != null) {
+      const arcCablesByPage = buildCablesByPage(cableSegments);
+      const { map: arcAugDistMap } = augmentCrossPageDistances(sorted, distMap);
+      const placer = placePostsOnCableByArcLength({
+        sortedPosts: sorted,
+        distMap: arcAugDistMap,
+        cablesByPage: arcCablesByPage,
+        perPageScale: pn => {
+          const paths = utmGridPathsPerPage?.get(pn);
+          if (paths?.length) {
+            const sf = computeScaleFactor(paths, warnings);
+            if (sf != null) return sf;
+          }
+          return scaleFactor;
+        },
+        postByNum: postMap,
+        warnings,
+      });
+      if (placer.placed.size > 0) {
+        warnings.push(
+          `[cable-arc-placer] Repositioned ${placer.placed.size} post(s) on ${placer.pagesPlaced.size} page(s) ` +
+            `where PDF coords disagreed with Distância_Poste (single anchor via post #1 per page).`
+        );
+      }
+    }
+
     // Build page transforms (D-REV-11, D-REV-12)
     if (scaleFactor !== null && viewportBoxes.length > 0) {
       const post1 = sorted.find(p => p.number === sorted[0].number);
@@ -563,6 +620,53 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         warnings,
         utmGridPathsPerPage
       );
+
+      if (utmGridPathsPerPage?.size) {
+        applyGridAffineToTransforms(
+          pageTransforms,
+          post1WithGps,
+          utmGridPathsPerPage,
+          warnings
+        );
+      }
+
+      let augDistMap = distMap;
+      // Global label LSQ + boundary lock only on 3+ detail sheets (João Born, Siriu).
+      // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
+      if (viewportBoxes.length >= 3) {
+        augDistMap = augmentCrossPageDistances(sorted, distMap).map;
+        const lsq = refinePageOriginsByLabelCalibration(
+          pageTransforms,
+          sorted,
+          distMap,
+          { lat: startLat, lon: startLon },
+          warnings
+        );
+        const labelLsqImproved = Boolean(lsq.improved);
+        if (lsq.crossPageFilled > 0) {
+          warnings.push(
+            `[label-lsq] Inferred ${lsq.crossPageFilled} cross-page distance label(s) from neighbors for global fit.`
+          );
+        }
+        const cablesByPage = buildCablesByPage(cableSegments);
+        const n6 = adjustPageOriginsByCableSimilarity(
+          pageTransforms,
+          sorted,
+          augDistMap,
+          { lat: startLat, lon: startLon },
+          cablesByPage,
+          warnings
+        );
+        if (!labelLsqImproved && n6 === 0) {
+          adjustPageOriginsAtBoundaries(
+            pageTransforms,
+            sorted,
+            augDistMap,
+            { lat: startLat, lon: startLon },
+            warnings
+          );
+        }
+      }
     } else if (scaleFactor === null) {
       warnings.push('[coordinate-calculator] Cannot calibrate: no scale factor available. Posts will have lat: null, lon: null.');
     } else {
@@ -570,6 +674,24 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   } else {
     warnings.push('[coordinate-calculator] opts not provided or incomplete. Posts will have lat: null, lon: null.');
+  }
+
+  // ── N1-v3: Direction-detected straight-line walk (opt-in; regresses João Born by default) ──
+  if (enableCableArcPlacer && pageTransforms.size > 0) {
+    const arcCablesByPage = buildCablesByPage(cableSegments);
+    const { map: arcAugDistMap } = augmentCrossPageDistances(sorted, distMap);
+    const placer = placePostsOnCableByArcLength({
+      sortedPosts: sorted,
+      distMap: arcAugDistMap,
+      cablesByPage: arcCablesByPage,
+      perPageScale: pn => pageTransforms.get(pn)?.x_scale_sf ?? scaleFactor ?? null,
+      postByNum: postMap,
+      warnings,
+    });
+    warnings.push(
+      `[cable-arc-placer] placed ${placer.placed.size}/${sorted.length} posts; ` +
+      `skipped: ${placer.skipped.map(s => `${s.number}:${s.reason}`).join(', ')}.`
+    );
   }
 
   for (const w of warnings) console.warn(w);
@@ -652,17 +774,26 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   // ── Distance-label route chain (when Distância_Poste labels cover the route) ─
   // Runs after 2nd anchor so the page-4 chain starts from a similarity-corrected anchor.
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
+    const chainCables =
+      (viewportBoxes?.length ?? 0) >= 3 && cableSegments?.length
+        ? buildCablesByPage(cableSegments)
+        : null;
     const chained = applyDistanceLabelGpsChain(
       sorted,
       distMap,
       startLat,
       startLon,
-      branchStarts
+      branchStarts,
+      {
+        cablesByPage: chainCables,
+        postByNum: postMap,
+        multiSheetRoute: (viewportBoxes?.length ?? 0) >= 3,
+      }
     );
     if (chained) {
       warnings.push(
         '[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths ' +
-          '(bearings from UTM projection; post #1 anchor unchanged).'
+          '(bearings from Cabo Projetado where available; post #1 anchor unchanged).'
       );
     }
   }
