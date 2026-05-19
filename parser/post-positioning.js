@@ -33,6 +33,15 @@ export const GLOBAL_POLE_BEAM_WIDTH = 8;
 /** Top-K Poste candidates per post in global assignment (N3). */
 export const GLOBAL_POLE_TOP_K = 4;
 
+/** Max top-K when a page has many Poste symbols vs few route posts. */
+export const GLOBAL_POLE_TOP_K_MAX = 12;
+
+/** Minimum arc-length advance between consecutive picks along the route cable (PDF pt). */
+export const GLOBAL_POLE_MIN_ARC_SEP_PT = 4;
+
+/** Label-arc window margin multiplier around expected arc from distance labels. */
+const GLOBAL_POLE_ARC_WINDOW_MARGIN = 1.35;
+
 const GLOBAL_ROUTE_CABLE_NEAR_PT = 80;
 
 /** Legacy merge radius — avoid for primary assignment (over-merges poles). */
@@ -572,6 +581,122 @@ function selectRouteCableOps(pageNum, cablesByPage, ref) {
  */
 
 /**
+ * Cable traversal direction: +1 = arc length increases with post number (label anchors).
+ *
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ */
+function detectCableDirFromAnchors(routePosts, routeOps) {
+  const samples = routePosts.map(p => {
+    const a = anchorOf(p);
+    return { n: p.number, t: nearestPointOnPathOps(a.x, a.y, routeOps).t };
+  });
+  if (samples.length < 2) return 1;
+  const nMean = samples.reduce((s, v) => s + v.n, 0) / samples.length;
+  const tMean = samples.reduce((s, v) => s + v.t, 0) / samples.length;
+  let num = 0;
+  let den = 0;
+  for (const v of samples) {
+    const dn = v.n - nMean;
+    num += dn * (v.t - tMean);
+    den += dn * dn;
+  }
+  const slope = den > 1e-12 ? num / den : 0;
+  return slope < 0 ? -1 : 1;
+}
+
+/**
+ * Expected cable arc (t) for each route post from post 1 anchor + cumulative distance labels.
+ *
+ * @param {Array<{ number: number }>} routePosts
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} anchorT  arc at route post 1 label
+ * @param {number} cableDir
+ * @returns {number[]}
+ */
+function labelArcExpectations(routePosts, distMap, scale, anchorT, cableDir) {
+  /** @type {number[]} */
+  const expected = [];
+  let cumM = 0;
+  for (let i = 0; i < routePosts.length; i++) {
+    if (i > 0) {
+      const prev = routePosts[i - 1].number;
+      const curr = routePosts[i].number;
+      const m =
+        distMap.get(`${prev}->${curr}`) ??
+        distMap.get(`${curr}->${prev}`) ??
+        null;
+      if (m != null && m > 0) cumM += m;
+    }
+    expected.push(anchorT + cableDir * (cumM / scale));
+  }
+  return expected;
+}
+
+/**
+ * @param {Array<{ number: number }>} routePosts
+ * @param {Map<string, number>} distMap
+ */
+function medianLabeledEdgeMeters(routePosts, distMap) {
+  const edges = [];
+  for (let i = 0; i < routePosts.length - 1; i++) {
+    const m =
+      distMap.get(`${routePosts[i].number}->${routePosts[i + 1].number}`) ??
+      distMap.get(`${routePosts[i + 1].number}->${routePosts[i].number}`);
+    if (m != null && m > 0) edges.push(m);
+  }
+  if (!edges.length) return 40;
+  edges.sort((a, b) => a - b);
+  return edges[Math.floor(edges.length / 2)];
+}
+
+/**
+ * Total labeled chain length (m) along consecutive route post numbers.
+ *
+ * @param {Array<{ number: number }>} routePosts
+ * @param {Map<string, number>} distMap
+ */
+function totalLabeledChainMeters(routePosts, distMap) {
+  let total = 0;
+  for (let i = 0; i < routePosts.length - 1; i++) {
+    const m =
+      distMap.get(`${routePosts[i].number}->${routePosts[i + 1].number}`) ??
+      distMap.get(`${routePosts[i + 1].number}->${routePosts[i].number}`);
+    if (m != null && m > 0) total += m;
+  }
+  return total;
+}
+
+/**
+ * Pick cable direction so post 1 → post N label chain matches anchor arc on the route polyline.
+ *
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} initialDir
+ */
+function refineCableDir(routePosts, routeOps, distMap, scale, initialDir) {
+  if (routePosts.length < 2 || scale <= 0) return initialDir;
+
+  const anchor0Hit = nearestPointOnPathOps(anchorOf(routePosts[0]).x, anchorOf(routePosts[0]).y, routeOps);
+  const anchorNHit = nearestPointOnPathOps(
+    anchorOf(routePosts[routePosts.length - 1]).x,
+    anchorOf(routePosts[routePosts.length - 1]).y,
+    routeOps
+  );
+  const chainPt = totalLabeledChainMeters(routePosts, distMap) / scale;
+
+  const errPlus = Math.abs(anchor0Hit.t + chainPt - anchorNHit.t);
+  const errMinus = Math.abs(anchor0Hit.t - chainPt - anchorNHit.t);
+
+  if (errMinus + 8 < errPlus) return -1;
+  if (errPlus + 8 < errMinus) return 1;
+  return initialDir >= 0 ? 1 : -1;
+}
+
+/**
  * Top-K Poste symbols on the route cable for one post (ordered by arc distance to anchor).
  *
  * @param {{ anchorX?: number, anchorY?: number, x: number, y: number, pageNum?: number }} post
@@ -581,6 +706,7 @@ function selectRouteCableOps(pageNum, cablesByPage, ref) {
  * @param {number} labelMax
  * @param {number} cableAnchorMax
  * @param {number} arcMax
+ * @param {{ expectedT?: number, arcWindowPt?: number, topK?: number }} [filter]
  * @returns {PoleCandidate[]}
  */
 function topKRoutePoleCandidates(
@@ -590,11 +716,18 @@ function topKRoutePoleCandidates(
   routeOps,
   labelMax,
   cableAnchorMax,
-  arcMax
+  arcMax,
+  filter = {}
 ) {
   const anchor = anchorOf(post);
   const anchorHit = nearestPointOnPathOps(anchor.x, anchor.y, routeOps);
   if (anchorHit.d > cableAnchorMax) return [];
+
+  const expectedT = filter.expectedT;
+  const arcWindow =
+    filter.arcWindowPt ??
+    (expectedT != null ? arcMax * GLOBAL_POLE_ARC_WINDOW_MARGIN : arcMax);
+  const topK = filter.topK ?? GLOBAL_POLE_TOP_K;
 
   /** @type {PoleCandidate[]} */
   const raw = [];
@@ -606,10 +739,68 @@ function topKRoutePoleCandidates(
     const symHit = nearestPointOnPathOps(sym.x, sym.y, routeOps);
     const arcDelta = Math.abs(symHit.t - anchorHit.t);
     if (arcDelta > arcMax) continue;
-    raw.push({ si, t: symHit.t, x: sym.x, y: sym.y, _sort: arcDelta + dLabel * 0.01 });
+    if (expectedT != null && Math.abs(symHit.t - expectedT) > arcWindow) continue;
+    const labelArcScore =
+      expectedT != null ? Math.abs(symHit.t - expectedT) : arcDelta;
+    raw.push({
+      si,
+      t: symHit.t,
+      x: sym.x,
+      y: sym.y,
+      _sort: labelArcScore + dLabel * 0.01,
+    });
   }
   raw.sort((a, b) => a._sort - b._sort);
-  return raw.slice(0, GLOBAL_POLE_TOP_K).map(({ si, t, x, y }) => ({ si, t, x, y }));
+  let picked = raw.slice(0, topK);
+  if (!picked.length && expectedT != null) {
+    return topKRoutePoleCandidates(post, pageNum, symbols, routeOps, labelMax, cableAnchorMax, arcMax, {
+      topK,
+    });
+  }
+  return picked.map(({ si, t, x, y }) => ({ si, t, x, y }));
+}
+
+/**
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
+ * @param {number} pageNum
+ * @param {Array<{ x: number, y: number, pageNum?: number }>} symbols
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ * @param {number} labelMax
+ * @param {number} cableAnchorMax
+ * @param {number} arcMax
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} cableDir
+ * @param {number} arcWindowPt
+ * @param {number} topK
+ */
+function buildRouteCandidatesPerPost(
+  routePosts,
+  pageNum,
+  symbols,
+  routeOps,
+  labelMax,
+  cableAnchorMax,
+  arcMax,
+  distMap,
+  scale,
+  cableDir,
+  arcWindowPt,
+  topK
+) {
+  const anchor0Hit = nearestPointOnPathOps(
+    anchorOf(routePosts[0]).x,
+    anchorOf(routePosts[0]).y,
+    routeOps
+  );
+  const expectedTs = labelArcExpectations(routePosts, distMap, scale, anchor0Hit.t, cableDir);
+  return routePosts.map((p, i) =>
+    topKRoutePoleCandidates(p, pageNum, symbols, routeOps, labelMax, cableAnchorMax, arcMax, {
+      expectedT: expectedTs[i],
+      arcWindowPt,
+      topK,
+    })
+  );
 }
 
 /**
@@ -619,11 +810,15 @@ function topKRoutePoleCandidates(
  * @param {PoleCandidate[][]} candidatesPerPost
  * @param {Map<string, number>} distMap
  * @param {number} scale
+ * @param {number} [cableDir]  +1 or -1 along route cable
  * @returns {PoleCandidate[]|null}
  */
-function beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale) {
+function beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
   if (!routePosts.length) return null;
   if (candidatesPerPost.some(c => c.length === 0)) return null;
+
+  const dir = cableDir >= 0 ? 1 : -1;
+  const minSep = GLOBAL_POLE_MIN_ARC_SEP_PT;
 
   /** @type {Array<{ picks: number[], cost: number }>} */
   let beam = candidatesPerPost[0].map((_, ci) => ({ picks: [ci], cost: 0 }));
@@ -642,6 +837,8 @@ function beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale)
       const prevCand = candidatesPerPost[i - 1][state.picks[i - 1]];
       for (let ci = 0; ci < candidatesPerPost[i].length; ci++) {
         const currCand = candidatesPerPost[i][ci];
+        if (dir > 0 && currCand.t < prevCand.t + minSep) continue;
+        if (dir < 0 && currCand.t > prevCand.t - minSep) continue;
         let edgeCost = 0;
         if (labelM != null && labelM > 0 && scale > 0) {
           const arcPt = Math.abs(currCand.t - prevCand.t);
@@ -656,12 +853,109 @@ function beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale)
     }
 
     next.sort((a, b) => a.cost - b.cost);
-    beam = next.slice(0, GLOBAL_POLE_BEAM_WIDTH);
+    const beamWidth = Math.min(
+      16,
+      GLOBAL_POLE_BEAM_WIDTH + Math.floor(candidatesPerPost[i].length / 2)
+    );
+    beam = next.slice(0, beamWidth);
     if (beam.length === 0) return null;
   }
 
   const best = beam[0];
   return best.picks.map((ci, i) => candidatesPerPost[i][ci]);
+}
+
+/**
+ * Mean |arc×scale − label_m| for consecutive numbered posts on one page (anchor positions).
+ *
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} postsOnPage
+ * @param {Map<string, number>} distMap
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ * @param {number} scale
+ * @param {boolean} [flipNumbers] score as if each post number were mirrored on this page
+ */
+function meanLabelArcResidualOnPage(postsOnPage, distMap, routeOps, scale, flipNumbers = false) {
+  if (!routeOps?.length || scale <= 0 || postsOnPage.length < 2) return Infinity;
+
+  const nums = postsOnPage.map(p => p.number);
+  const minN = Math.min(...nums);
+  const maxN = Math.max(...nums);
+  const sorted = [...postsOnPage].sort((a, b) => {
+    const na = flipNumbers ? minN + maxN - a.number : a.number;
+    const nb = flipNumbers ? minN + maxN - b.number : b.number;
+    return na - nb;
+  });
+
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    const numA = flipNumbers ? minN + maxN - a.number : a.number;
+    const numB = flipNumbers ? minN + maxN - b.number : b.number;
+    const m =
+      distMap.get(`${numA}->${numB}`) ??
+      distMap.get(`${numB}->${numA}`) ??
+      null;
+    if (m == null || m <= 0) continue;
+    const ta = nearestPointOnPathOps(anchorOf(a).x, anchorOf(a).y, routeOps).t;
+    const tb = nearestPointOnPathOps(anchorOf(b).x, anchorOf(b).y, routeOps).t;
+    sum += Math.abs(Math.abs(tb - ta) * scale - m);
+    n++;
+  }
+  return n > 0 ? sum / n : Infinity;
+}
+
+/**
+ * When OCR/route order runs opposite to Distância_Poste chain on a page, mirror post numbers
+ * within that page's span (e.g. João Born detail sheets: post 01 at low-X, not high-X).
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, anchorX?: number, anchorY?: number }>} posts
+ * @param {Map<string, number>} distMap
+ * @param {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} cablesByPage
+ * @param {(pageNum: number) => number|null} perPageScale
+ * @param {string[]} warnings
+ */
+export function correctRouteNumberingByDistanceLabels(
+  posts,
+  distMap,
+  cablesByPage,
+  perPageScale,
+  warnings = []
+) {
+  const byPage = new Map();
+  for (const p of posts) {
+    const pg = p.pageNum ?? 1;
+    if (!byPage.has(pg)) byPage.set(pg, []);
+    byPage.get(pg).push(p);
+  }
+
+  for (const [pageNum, postsOnPage] of byPage) {
+    if (postsOnPage.length < 3) continue;
+    const scale = perPageScale(pageNum);
+    if (scale == null || scale <= 0) continue;
+
+    const routeOps =
+      selectRouteCableOps(pageNum, cablesByPage, anchorOf(postsOnPage[0])) ??
+      (cablesByPage.get(pageNum) ?? [])[0];
+    if (!routeOps) continue;
+
+    const direct = meanLabelArcResidualOnPage(postsOnPage, distMap, routeOps, scale, false);
+    const flipped = meanLabelArcResidualOnPage(postsOnPage, distMap, routeOps, scale, true);
+    if (!Number.isFinite(direct) || !Number.isFinite(flipped)) continue;
+    if (flipped + 6 >= direct) continue;
+
+    const nums = postsOnPage.map(p => p.number);
+    const minN = Math.min(...nums);
+    const maxN = Math.max(...nums);
+    for (const p of postsOnPage) {
+      p.number = minN + maxN - p.number;
+    }
+    warnings.push(
+      `[post-positioning] page ${pageNum}: mirrored post numbers ${minN}–${maxN} ` +
+        `(label arc residual ${direct.toFixed(1)} m → ${flipped.toFixed(1)} m mean).`
+    );
+  }
 }
 
 /**
@@ -700,7 +994,7 @@ export function assignPolesGloballyByLabels(
     return assignPostPositionsFromPosteSymbols(posts, posteRaw, cablePaths, warnings, opts);
   }
 
-  const postByNum = opts.postByNum ?? new Map(posts.map(p => [p.number, p]));
+  let postByNum = opts.postByNum ?? new Map(posts.map(p => [p.number, p]));
   const labelMax = opts.labelMaxPt ?? POSTE_LABEL_MATCH_MAX_PT;
   const cableAnchorMax = opts.cableAnchorMaxPt ?? POSTE_CABLE_ANCHOR_MAX_PT;
   const arcMax = opts.arcMaxPt ?? POSTE_CABLE_ARC_MATCH_MAX_PT;
@@ -709,6 +1003,9 @@ export function assignPolesGloballyByLabels(
   const cablesByPage = buildCablesByPage(cablePaths);
 
   attachMarkerAnchors(posts);
+
+  correctRouteNumberingByDistanceLabels(posts, distMap, cablesByPage, perPageScale, warnings);
+  postByNum = new Map(posts.map(p => [p.number, p]));
 
   const globallySnapped = new Set();
   const usedSymbol = new Set();
@@ -762,11 +1059,75 @@ export function assignPolesGloballyByLabels(
         continue;
       }
 
-      const candidatesPerPost = routePosts.map(p =>
-        topKRoutePoleCandidates(p, pageNum, symbols, routeOps, labelMax, cableAnchorMax, arcMax)
+      let cableDir = refineCableDir(
+        routePosts,
+        routeOps,
+        distMap,
+        scale,
+        detectCableDirFromAnchors(routePosts, routeOps)
+      );
+      const medianEdgeM = medianLabeledEdgeMeters(routePosts, distMap);
+      const arcWindowPt = Math.max(
+        arcMax * GLOBAL_POLE_ARC_WINDOW_MARGIN,
+        (medianEdgeM / scale) * 0.85
+      );
+      const symbolRatio = symbolsOnPage.length / Math.max(routePosts.length, 1);
+      const topK = Math.min(
+        GLOBAL_POLE_TOP_K_MAX,
+        Math.max(GLOBAL_POLE_TOP_K, Math.ceil(symbolRatio * 0.6))
       );
 
-      const assignment = beamSearchPoleAssignment(routePosts, candidatesPerPost, distMap, scale);
+      let candidatesPerPost = buildRouteCandidatesPerPost(
+        routePosts,
+        pageNum,
+        symbols,
+        routeOps,
+        labelMax,
+        cableAnchorMax,
+        arcMax,
+        distMap,
+        scale,
+        cableDir,
+        arcWindowPt,
+        topK
+      );
+
+      let assignment = beamSearchPoleAssignment(
+        routePosts,
+        candidatesPerPost,
+        distMap,
+        scale,
+        cableDir
+      );
+      if (!assignment) {
+        const flipDir = cableDir >= 0 ? -1 : 1;
+        const flipCandidates = buildRouteCandidatesPerPost(
+          routePosts,
+          pageNum,
+          symbols,
+          routeOps,
+          labelMax,
+          cableAnchorMax,
+          arcMax,
+          distMap,
+          scale,
+          flipDir,
+          arcWindowPt,
+          topK
+        );
+        const flipAssignment = beamSearchPoleAssignment(
+          routePosts,
+          flipCandidates,
+          distMap,
+          scale,
+          flipDir
+        );
+        if (flipAssignment) {
+          cableDir = flipDir;
+          candidatesPerPost = flipCandidates;
+          assignment = flipAssignment;
+        }
+      }
       if (!assignment) {
         warnings.push(
           `[post-positioning] N3 page ${pageNum} path ${pathIndex}: beam search failed — greedy fallback.`

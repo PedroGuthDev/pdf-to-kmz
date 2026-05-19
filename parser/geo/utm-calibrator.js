@@ -164,6 +164,30 @@ export function utmFromPdfPoint(px, py, t) {
   };
 }
 
+/**
+ * Inverse of {@link utmFromPdfPoint} for isotropic/rotated transforms (no affine matrix).
+ *
+ * @param {number} easting
+ * @param {number} northing
+ * @param {{ origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta?: number, affine?: object }} t
+ * @returns {{ x: number, y: number }|null}
+ */
+export function pdfPointFromUtm(easting, northing, t) {
+  if (t.affine) return null;
+  const sx = t.x_scale_sf;
+  const sy = t.y_scale_sf;
+  if (!sx || !sy) return null;
+  const rx = (easting - t.origin_e) / sx;
+  const ry = -(northing - t.origin_n) / sy;
+  const theta = -(t.theta ?? 0);
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    x: cos * rx - sin * ry,
+    y: sin * rx + cos * ry,
+  };
+}
+
 // ── Grid line classification (internal helper) ────────────────────────────────────────────────
 
 /**

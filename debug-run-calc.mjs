@@ -5,6 +5,7 @@
  *   node debug-run-calc.mjs joao-born    # João Born multi-sheet
  *   node debug-run-calc.mjs joao-born --two-anchor
  *   node debug-run-calc.mjs joao-born --parser-posts   # use parsePdf Poste positions (N3)
+ *   node debug-run-calc.mjs joao-born --overview-composite  # remap detail sheets → page 2 space
  *
  * Parser x,y: reads PARSE DEBUG DUMP from debug_results.txt (browser UAT export).
  * Node OCR cannot render red rings — falls back to that file when parsePdf returns too few posts.
@@ -14,6 +15,7 @@ import { parsePdf } from './parser/pdf-parser.js';
 import { calculateCoordinates } from './parser/coordinate-calculator.js';
 import { associateDistances } from './parser/distance-associator.js';
 import { assignPolesGloballyByLabels } from './parser/post-positioning.js';
+import { applyOverviewComposite } from './parser/geo/overview-composite.js';
 import { computeScaleFactor, haversineMeters } from './parser/geo/utm-calibrator.js';
 
 const SAMPLES = {
@@ -32,6 +34,7 @@ const SAMPLES = {
 const sampleKey = process.argv[2] === 'joao-born' ? 'joao-born' : 'valmor';
 const twoAnchor = process.argv.includes('--two-anchor');
 const forceParserPosts = process.argv.includes('--parser-posts');
+const overviewComposite = process.argv.includes('--overview-composite');
 const sample = SAMPLES[sampleKey];
 
 /** @returns {Array<{ num: number, lat: number, lon: number }>} */
@@ -145,7 +148,39 @@ if (browserPosts && parsed.distanceLabelItems?.length) {
   }
 }
 
-const multiSheetRoute = (parsed.viewportBoxes?.length ?? 0) >= 3;
+if (overviewComposite && !useBrowserPositions && parsed.viewportBoxes?.length >= 2) {
+  let overviewScale = null;
+  for (const pn of [2, 3, 4, 5]) {
+    const paths = parsed.utmGridPathsPerPage?.get(pn);
+    if (paths?.length) {
+      overviewScale = computeScaleFactor(paths, []);
+      if (overviewScale != null) break;
+    }
+  }
+  const perPageScale = pageNum => {
+    const paths = parsed.utmGridPathsPerPage?.get(pageNum);
+    if (paths?.length) {
+      const sf = computeScaleFactor(paths, []);
+      if (sf != null) return sf;
+    }
+    return overviewScale;
+  };
+  applyOverviewComposite({
+    posts: parserPosts,
+    posteRawCentroids: parsed.posteRawCentroids ?? [],
+    cablePaths: parsed.cablePaths ?? [],
+    distanceLabelItems: parsed.distanceLabelItems ?? [],
+    utmGridPathsPerPage: parsed.utmGridPathsPerPage,
+    viewportBoxes: parsed.viewportBoxes,
+    pageDimensions: parsed.pageDimensions,
+    warnings: parsed.warnings ?? [],
+    perPageScale,
+  });
+  console.log('\nOverview composite: detail geometry remapped to page 2 (before N3).\n');
+}
+
+const multiSheetRoute =
+  overviewComposite || (parsed.viewportBoxes?.length ?? 0) >= 3;
 // N3 pole assignment only when using parser positions (browser debug_results already has Poste snaps).
 if (
   !useBrowserPositions &&
@@ -191,6 +226,7 @@ const calcOpts = {
   utmGridPathsPerPage: parsed.utmGridPathsPerPage,
   viewportBoxes: parsed.viewportBoxes,
   pageDimensions: parsed.pageDimensions,
+  overviewComposite,
 };
 if (twoAnchor && lastRef) {
   calcOpts.lastPostGps = { lat: lastRef.lat, lon: lastRef.lon };

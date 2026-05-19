@@ -31,6 +31,10 @@ import {
 } from './geo/label-lsq-calibrator.js';
 import { adjustPageOriginsByCableSimilarity } from './geo/cable-boundary-calibrator.js';
 import { applyGridAffineToTransforms } from './geo/grid-affine-calibrator.js';
+import {
+  buildOverviewCompositeTransform,
+  remapPostsToOverviewViaUtm,
+} from './geo/overview-composite.js';
 
 const SEGMENT_SNAP_MAX_PT = 100;
 
@@ -503,7 +507,7 @@ export function detectGaps(posts, distances, cableSegments) {
  * @param {number} startLat  Latitude of post #1 (user-provided, D-14)
  * @param {number} startLon  Longitude of post #1
  * @param {Array<{ ops, pageNum? }>} cableSegments
- * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, enableCableArcPlacer?: boolean }|null} opts
+ * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, enableCableArcPlacer?: boolean, overviewComposite?: boolean }|null} opts
  * @returns {{ posts: Array, connections: Array, warnings: string[] }}
  */
 export function calculateCoordinates(posts, distances, startLat, startLon, cableSegments = [], opts = null) {
@@ -535,7 +539,14 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   let utmZone = null;
 
   const opts_ = opts || {};
-  const { utmGridPathsPerPage, viewportBoxes, pageDimensions, lastPostGps, enableCableArcPlacer } = opts_;
+  const {
+    utmGridPathsPerPage,
+    viewportBoxes,
+    pageDimensions,
+    lastPostGps,
+    enableCableArcPlacer,
+    overviewComposite,
+  } = opts_;
 
   if (opts_ &&
       utmGridPathsPerPage instanceof Map &&
@@ -575,18 +586,24 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       scaleFactor = sumPdf > 0 ? sumM / sumPdf : null;
     }
 
-    const calibratedPages = new Set(viewportBoxes.map(v => v.pageNum));
+    const calibratedPages = overviewComposite
+      ? new Set([2])
+      : new Set(viewportBoxes.map(v => v.pageNum));
     repairPostsOnUncalibratedPages(sorted, calibratedPages, warnings);
 
-    const multiSheetRoute = viewportBoxes.length >= 3;
-    if (multiSheetRoute && cableSegments?.length && scaleFactor != null) {
+    const routeCablePlacer =
+      (overviewComposite || viewportBoxes.length >= 3) && cableSegments?.length && scaleFactor != null;
+    if (routeCablePlacer) {
       const arcCablesByPage = buildCablesByPage(cableSegments);
-      const { map: arcAugDistMap } = augmentCrossPageDistances(sorted, distMap);
+      const { map: arcAugDistMap } = overviewComposite
+        ? { map: distMap }
+        : augmentCrossPageDistances(sorted, distMap);
       const placer = placePostsOnCableByArcLength({
         sortedPosts: sorted,
         distMap: arcAugDistMap,
         cablesByPage: arcCablesByPage,
         perPageScale: pn => {
+          if (overviewComposite) return scaleFactor;
           const paths = utmGridPathsPerPage?.get(pn);
           if (paths?.length) {
             const sf = computeScaleFactor(paths, warnings);
@@ -606,34 +623,64 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
 
     // Build page transforms (D-REV-11, D-REV-12)
-    if (scaleFactor !== null && viewportBoxes.length > 0) {
+    if (scaleFactor !== null && (overviewComposite || viewportBoxes.length > 0)) {
       const post1 = sorted.find(p => p.number === sorted[0].number);
       const { zone } = latLonToUtm(startLat, startLon);
       utmZone = zone;
       const post1WithGps = { ...post1, lat: startLat, lon: startLon };
-      pageTransforms = buildPageTransforms(
-        post1WithGps,
-        pageDimensions,
-        viewportBoxes,
-        scaleFactor,
-        zone,
-        warnings,
-        utmGridPathsPerPage
-      );
 
-      if (utmGridPathsPerPage?.size) {
-        applyGridAffineToTransforms(
-          pageTransforms,
+      if (overviewComposite) {
+        const multiTransforms = buildPageTransforms(
           post1WithGps,
-          utmGridPathsPerPage,
-          warnings
+          pageDimensions,
+          viewportBoxes,
+          scaleFactor,
+          zone,
+          warnings,
+          utmGridPathsPerPage
         );
+        const draftOverview = buildOverviewCompositeTransform(
+          post1WithGps,
+          pageDimensions,
+          scaleFactor,
+          zone,
+          warnings,
+          utmGridPathsPerPage
+        );
+        remapPostsToOverviewViaUtm(sorted, multiTransforms, draftOverview, warnings);
+        const post1Remapped = sorted.find(p => p.number === sorted[0].number);
+        pageTransforms = buildOverviewCompositeTransform(
+          { ...post1Remapped, lat: startLat, lon: startLon },
+          pageDimensions,
+          scaleFactor,
+          zone,
+          warnings,
+          utmGridPathsPerPage
+        );
+      } else {
+        pageTransforms = buildPageTransforms(
+          post1WithGps,
+          pageDimensions,
+          viewportBoxes,
+          scaleFactor,
+          zone,
+          warnings,
+          utmGridPathsPerPage
+        );
+        if (utmGridPathsPerPage?.size) {
+          applyGridAffineToTransforms(
+            pageTransforms,
+            post1WithGps,
+            utmGridPathsPerPage,
+            warnings
+          );
+        }
       }
 
       let augDistMap = distMap;
       // Global label LSQ + boundary lock only on 3+ detail sheets (João Born, Siriu).
       // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
-      if (viewportBoxes.length >= 3) {
+      if (!overviewComposite && viewportBoxes.length >= 3) {
         augDistMap = augmentCrossPageDistances(sorted, distMap).map;
         const lsq = refinePageOriginsByLabelCalibration(
           pageTransforms,
@@ -775,7 +822,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   // Runs after 2nd anchor so the page-4 chain starts from a similarity-corrected anchor.
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
     const chainCables =
-      (viewportBoxes?.length ?? 0) >= 3 && cableSegments?.length
+      (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length
         ? buildCablesByPage(cableSegments)
         : null;
     const chained = applyDistanceLabelGpsChain(
@@ -787,7 +834,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       {
         cablesByPage: chainCables,
         postByNum: postMap,
-        multiSheetRoute: (viewportBoxes?.length ?? 0) >= 3,
+        multiSheetRoute: overviewComposite || (viewportBoxes?.length ?? 0) >= 3,
       }
     );
     if (chained) {

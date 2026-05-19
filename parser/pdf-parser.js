@@ -574,12 +574,13 @@ export async function parsePdf(arrayBuffer) {
       }
       return overviewScale ?? null;
     };
+
     const { distances, warnings: dw } = associateDistances(posts, allDistItems, [], {
       scaleFactor: overviewScale ?? undefined,
     });
     warnings.push(...dw);
 
-    // ── Canonical PDF position: Poste pole symbol (N3 on 3+ sheets, else greedy) ─
+    // ── Canonical PDF position: Poste pole symbol (N3 on multi-sheet, else greedy) ─
     const multiSheetRoute = pairedViewportBoxes.length >= 3;
     if (allPosteRaw.length > 0) {
       if (multiSheetRoute) {

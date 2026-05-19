@@ -160,5 +160,35 @@ assert(Math.hypot(n3Posts[1].x - arcStep, n3Posts[1].y) < 2, 'N3 post 2 at label
 assert(Math.hypot(n3Posts[2].x - arcStep * 2, n3Posts[2].y) < 2, 'N3 post 3 at labeled arc position');
 assert(n3Warn.some(w => /N3 page 3/.test(w)), 'N3 summary warning emitted');
 
+console.log('\n[post-positioning] N3 monotonic beam ignores decoy symbols between route poles');
+const decoyScale = 0.35;
+const decoyStep = 40 / decoyScale;
+const decoyCable = [{ pageNum: 3, ops: [{ type: 'M', x: 0, y: 0 }, { type: 'L', x: 3000, y: 0 }] }];
+const decoyPosts = [
+  { number: 1, x: 0, y: 0, pageNum: 3, anchorX: 2, anchorY: 2 },
+  { number: 2, x: decoyStep, y: 0, pageNum: 3, anchorX: decoyStep + 2, anchorY: 2 },
+  { number: 3, x: decoyStep * 2, y: 0, pageNum: 3, anchorX: decoyStep * 2 + 2, anchorY: 2 },
+];
+const decoyPoles = [
+  { x: 0, y: 0, pageNum: 3 },
+  { x: decoyStep * 0.5, y: 0, pageNum: 3 },
+  { x: decoyStep, y: 0, pageNum: 3 },
+  { x: decoyStep * 1.5, y: 0, pageNum: 3 },
+  { x: decoyStep * 2, y: 0, pageNum: 3 },
+];
+assignPolesGloballyByLabels(
+  decoyPosts,
+  decoyPoles,
+  decoyCable,
+  [
+    { from: 1, to: 2, meters: 40 },
+    { from: 2, to: 3, meters: 40 },
+  ],
+  [],
+  { perPageScale: () => decoyScale, postByNum: new Map(decoyPosts.map(p => [p.number, p])) }
+);
+assert(Math.hypot(decoyPosts[1].x - decoyStep, decoyPosts[1].y) < 2, 'N3 skips mid-span decoy for post 2');
+assert(Math.hypot(decoyPosts[2].x - decoyStep * 2, decoyPosts[2].y) < 2, 'N3 skips mid-span decoy for post 3');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
