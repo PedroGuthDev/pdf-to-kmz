@@ -190,5 +190,145 @@ assignPolesGloballyByLabels(
 assert(Math.hypot(decoyPosts[1].x - decoyStep, decoyPosts[1].y) < 2, 'N3 skips mid-span decoy for post 2');
 assert(Math.hypot(decoyPosts[2].x - decoyStep * 2, decoyPosts[2].y) < 2, 'N3 skips mid-span decoy for post 3');
 
+console.log('\n[post-positioning] Valmor page 4 assignment fixture (D-N2-01)');
+
+/** Valmor page 4 scale (m/pt) from UTM grid on page 4 — parser dump 2026-05-19. */
+const VALMOR_P4_SCALE = 0.3546099290780142;
+
+/** Poste-layer centroids on Valmor page 4 (deduped 1 pt; from parsePdf / debug_results). */
+const valmorPage4PosteRaw = [
+  { x: 1154.9, y: 302.52, pageNum: 4 },
+  { x: 1155.68, y: 300.96, pageNum: 4 },
+  { x: 1013.24, y: 565.32, pageNum: 4 },
+  { x: 1029.86, y: 425.28, pageNum: 4 },
+  { x: 1122.86, y: 580.08, pageNum: 4 },
+  { x: 1138.16, y: 440.88, pageNum: 4 },
+  { x: 770.6, y: 359.16, pageNum: 4 },
+  { x: 780.98, y: 287.34, pageNum: 4 },
+  { x: 1051.1, y: 286.98, pageNum: 4 },
+  { x: 934.76, y: 272.52, pageNum: 4 },
+  { x: 830.18, y: 257.34, pageNum: 4 },
+  { x: 736.28, y: 244.74, pageNum: 4 },
+  { x: 794.6, y: 189.18, pageNum: 4 },
+  { x: 1068.62, y: 146.58, pageNum: 4 },
+  { x: 951.44, y: 130.32, pageNum: 4 },
+  { x: 848.54, y: 116.64, pageNum: 4 },
+  { x: 756.02, y: 104.52, pageNum: 4 },
+  { x: 626.66, y: 86.22, pageNum: 4 },
+  { x: 809.66, y: 83.52, pageNum: 4 },
+  { x: 154.94, y: 221.28, pageNum: 4 },
+  { x: 171.74, y: 99.18, pageNum: 4 },
+  { x: 266.42, y: 234.6, pageNum: 4 },
+  { x: 282.62, y: 115.98, pageNum: 4 },
+  { x: 321.5, y: 242.82, pageNum: 4 },
+  { x: 338.9, y: 123.06, pageNum: 4 },
+  { x: 385.46, y: 304.26, pageNum: 4 },
+  { x: 401.24, y: 193.08, pageNum: 4 },
+  { x: 414.86, y: 253.14, pageNum: 4 },
+  { x: 417.08, y: 81.18, pageNum: 4 },
+  { x: 433.7, y: 138.9, pageNum: 4 },
+  { x: 445.58, y: 112.74, pageNum: 4 },
+  { x: 463.94, y: 355.98, pageNum: 4 },
+  { x: 481.58, y: 219.06, pageNum: 4 },
+  { x: 505.82, y: 69.66, pageNum: 4 },
+  { x: 596.66, y: 367.02, pageNum: 4 },
+  { x: 613.76, y: 227.94, pageNum: 4 },
+  { x: 897.2, y: 549.42, pageNum: 4 },
+  { x: 914.6, y: 409.92, pageNum: 4 },
+  { x: 741.32, y: 583.92, pageNum: 4 },
+  { x: 792.02, y: 534.96, pageNum: 4 },
+  { x: 694.7, y: 521.4, pageNum: 4 },
+  { x: 583.76, y: 505.98, pageNum: 4 },
+  { x: 444.98, y: 496.38, pageNum: 4 },
+  { x: 757.94, y: 465.78, pageNum: 4 },
+  { x: 808.88, y: 396.18, pageNum: 4 },
+  { x: 713, y: 382.56, pageNum: 4 },
+];
+
+/** Pre-positioning posts 7–11: OCR label centroids as x/y and anchor (Numero_Poste). */
+const valmorPage4Posts = [
+  { number: 7, x: 1139.3, y: 414.06, pageNum: 4, anchorX: 1139.3, anchorY: 414.06 },
+  { number: 8, x: 1036.7, y: 397.02, pageNum: 4, anchorX: 1036.7, anchorY: 397.02 },
+  { number: 9, x: 944.54, y: 383.22, pageNum: 4, anchorX: 944.54, anchorY: 383.22 },
+  { number: 10, x: 811.58, y: 368.58, pageNum: 4, anchorX: 811.58, anchorY: 368.58 },
+  { number: 11, x: 720.74, y: 356.94, pageNum: 4, anchorX: 720.74, anchorY: 356.94 },
+];
+
+/** Cabo Projetado route on page 4 (simplified polyline along posts 11→7). */
+const valmorPage4Cable = {
+  pageNum: 4,
+  ops: [
+    { type: 'M', x: 711.8, y: 390.84 },
+    { type: 'L', x: 807.68, y: 404.52 },
+    { type: 'L', x: 916.04, y: 401.04 },
+    { type: 'L', x: 1028.84, y: 433.56 },
+    { type: 'L', x: 1136.96, y: 449.16 },
+  ],
+};
+
+const valmorPage4Dist = [
+  { from: 7, to: 8, meters: 38.8 },
+  { from: 8, to: 9, meters: 41.2 },
+  { from: 9, to: 10, meters: 37.8 },
+  { from: 10, to: 11, meters: 34.3 },
+];
+
+/** Nearest Poste symbol to each post label anchor (human ground truth). */
+const valmorPage4Expected = {
+  7: { x: 1138.16, y: 440.88 },
+  8: { x: 1029.86, y: 425.28 },
+  9: { x: 914.6, y: 409.92 },
+  10: { x: 808.88, y: 396.18 },
+  11: { x: 713, y: 382.56 },
+};
+
+function maxValmorP4SymbolDistance(postsArr) {
+  let maxD = 0;
+  for (const p of postsArr) {
+    const e = valmorPage4Expected[p.number];
+    if (!e) continue;
+    maxD = Math.max(maxD, Math.hypot(p.x - e.x, p.y - e.y));
+  }
+  return maxD;
+}
+
+const greedyValmorP4 = structuredClone(valmorPage4Posts);
+assignPostPositionsFromPosteSymbols(greedyValmorP4, valmorPage4PosteRaw, [valmorPage4Cable], []);
+const maxGreedyError = maxValmorP4SymbolDistance(greedyValmorP4);
+assert(
+  maxGreedyError < 30,
+  '[D-N2-01 baseline] greedy assignment Valmor p4 max symbol-distance < 30 pt'
+);
+
+const viterbiValmorP4 = structuredClone(valmorPage4Posts);
+assignPolesGloballyByLabels(
+  viterbiValmorP4,
+  valmorPage4PosteRaw,
+  [valmorPage4Cable],
+  valmorPage4Dist,
+  [],
+  {
+    perPageScale: () => VALMOR_P4_SCALE,
+    postByNum: new Map(viterbiValmorP4.map(p => [p.number, p])),
+  }
+);
+const maxViterbiError = maxValmorP4SymbolDistance(viterbiValmorP4);
+assert(
+  maxViterbiError < 5,
+  '[D-N2-01 fix] Viterbi assignment Valmor p4 max symbol-distance < 5 pt'
+);
+
+let valmorP4OneToOne = true;
+for (let i = 0; i < viterbiValmorP4.length; i++) {
+  for (let j = i + 1; j < viterbiValmorP4.length; j++) {
+    const d = Math.hypot(
+      viterbiValmorP4[i].x - viterbiValmorP4[j].x,
+      viterbiValmorP4[i].y - viterbiValmorP4[j].y
+    );
+    if (d < 2) valmorP4OneToOne = false;
+  }
+}
+assert(valmorP4OneToOne, '[D-N2-01] Viterbi Valmor p4 one-to-one symbol assignment');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
