@@ -6,9 +6,10 @@
  *   node debug-run-calc.mjs joao-born --two-anchor
  *   node debug-run-calc.mjs joao-born --parser-posts   # use parsePdf Poste positions (N3)
  *   node debug-run-calc.mjs joao-born --overview-composite  # remap detail sheets → page 2 space
+ *   node debug-run-calc.mjs joao-born --browser-posts      # true Poste snaps (fixtures/)
  *
- * Parser x,y: reads PARSE DEBUG DUMP from debug_results.txt (browser UAT export).
- * Node OCR cannot render red rings — falls back to that file when parsePdf returns too few posts.
+ * João Born UAT positions: PARSE DEBUG block in debug_results.txt (parser export order).
+ * fixtures/joao-born-browser-posts.json is route-numbered Poste snaps — different numbering.
  */
 import { readFileSync, existsSync } from 'fs';
 import { parsePdf } from './parser/pdf-parser.js';
@@ -34,7 +35,9 @@ const SAMPLES = {
 const sampleKey = process.argv[2] === 'joao-born' ? 'joao-born' : 'valmor';
 const twoAnchor = process.argv.includes('--two-anchor');
 const forceParserPosts = process.argv.includes('--parser-posts');
+const useBrowserFixture = process.argv.includes('--browser-posts');
 const overviewComposite = process.argv.includes('--overview-composite');
+const JOAO_BORN_FIXTURE = './fixtures/joao-born-browser-posts.json';
 const sample = SAMPLES[sampleKey];
 
 /** @returns {Array<{ num: number, lat: number, lon: number }>} */
@@ -66,22 +69,41 @@ const REFERENCE = sample.refFile
   { num: 11, lat: -27.659066208413993, lon: -48.702999429619396 },
 ];
 
+/** @returns {{ posts: Array, distances?: Array } | null} */
+function loadJoaoBornFixture() {
+  if (!existsSync(JOAO_BORN_FIXTURE)) return null;
+  const data = JSON.parse(readFileSync(JOAO_BORN_FIXTURE, 'utf8'));
+  const posts = Array.isArray(data) ? data : data.posts;
+  const distances = Array.isArray(data) ? null : data.distances;
+  if (!posts?.length || posts.length < 30) return null;
+  return { posts, distances };
+}
+
 /** @returns {Array<{ number: number, pageNum: number, x: number, y: number }> | null} */
 function loadPostsFromDebugResults(path = './debug_results.txt') {
   if (!existsSync(path)) return null;
   const text = readFileSync(path, 'utf8');
-  const posts = [];
-  for (const line of text.split('\n')) {
+  const dumpIdx = text.indexOf('PARSE DEBUG DUMP');
+  const block =
+    dumpIdx >= 0
+      ? text.slice(dumpIdx, text.indexOf('\nPage dimensions', dumpIdx))
+      : text;
+  /** @type {Map<number, { number: number, pageNum: number, x: number, y: number }>} */
+  const byNum = new Map();
+  for (const line of block.split('\n')) {
+    if (line.includes('lat=') || line.includes('lon=')) continue;
     const m = line.match(/Post\s+(\d+):\s+page=(\d+)\s+x=([\d.]+)\s+y=([\d.]+)/);
     if (!m) continue;
-    posts.push({
-      number: parseInt(m[1], 10),
+    const number = parseInt(m[1], 10);
+    if (byNum.has(number)) continue;
+    byNum.set(number, {
+      number,
       pageNum: parseInt(m[2], 10),
       x: parseFloat(m[3]),
       y: parseFloat(m[4]),
     });
   }
-  posts.sort((a, b) => a.number - b.number);
+  const posts = [...byNum.values()].sort((a, b) => a.number - b.number);
   return posts.length >= sample.minPosts ? posts : null;
 }
 
@@ -102,7 +124,10 @@ for (const p of parsed.posts) {
   );
 }
 
-const browserPosts = loadPostsFromDebugResults();
+const joaoFixture = sampleKey === 'joao-born' ? loadJoaoBornFixture() : null;
+const debugDumpPosts = loadPostsFromDebugResults();
+const browserPosts = useBrowserFixture ? joaoFixture?.posts ?? null : debugDumpPosts;
+const fixtureDistances = useBrowserFixture ? joaoFixture?.distances ?? null : null;
 let parserPosts = parsed.posts;
 
 const useBrowserPositions =
@@ -112,10 +137,10 @@ const useBrowserPositions =
     (sampleKey === 'joao-born' && browserPosts.length >= sample.minPosts));
 
 if (useBrowserPositions) {
-  console.warn(
-    `\nUsing debug_results.txt positions (${browserPosts.length} posts) — ` +
-      `${sampleKey === 'joao-born' ? 'João Born needs browser/Poste parse' : 'parser short count'}.\n`
-  );
+  const source = useBrowserFixture
+    ? 'fixtures/joao-born-browser-posts.json (route Poste snaps)'
+    : 'debug_results.txt PARSE DEBUG (parser export order)';
+  console.warn(`\nUsing ${source} (${browserPosts.length} posts).\n`);
   parserPosts = browserPosts.map(p => ({ ...p }));
 } else if (parserPosts.length < sample.minPosts) {
   console.error('No posts from parser and no debug_results.txt parse dump.');
@@ -132,7 +157,10 @@ if (useBrowserPositions) {
 
 const start = REFERENCE[0];
 let distances = parsed.distances ?? [];
-if (browserPosts && parsed.distanceLabelItems?.length) {
+if (fixtureDistances?.length) {
+  distances = fixtureDistances;
+  console.log(`\nDistância_Poste labels (${distances.length} segments from fixture).`);
+} else if (browserPosts && parsed.distanceLabelItems?.length) {
   const { distances: assoc } = associateDistances(
     parserPosts,
     parsed.distanceLabelItems,

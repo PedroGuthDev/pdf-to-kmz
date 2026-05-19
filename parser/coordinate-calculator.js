@@ -29,6 +29,7 @@ import { placePostsOnCableByArcLength } from './geo/cable-arc-placer.js';
 import { attachMarkerAnchors } from './post-positioning.js';
 import {
   augmentCrossPageDistances,
+  fillAdjacentMissingDistances,
   refinePageOriginsByLabelCalibration,
 } from './geo/label-lsq-calibrator.js';
 import { adjustPageOriginsByCableSimilarity } from './geo/cable-boundary-calibrator.js';
@@ -699,12 +700,21 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       // Global label LSQ + boundary lock on 3+ detail sheets (João Born, Siriu).
       // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
       if (!overviewComposite && viewportBoxes.length >= 3) {
-        augDistMap = augmentCrossPageDistances(sorted, distMap).map;
+        const { map: distWithGaps, filled: gapFilled } = fillAdjacentMissingDistances(
+          sorted,
+          distMap
+        );
+        if (gapFilled > 0) {
+          warnings.push(
+            `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`
+          );
+        }
+        augDistMap = augmentCrossPageDistances(sorted, distWithGaps).map;
         augDistMapForSeams = augDistMap;
         const lsq = refinePageOriginsByLabelCalibration(
           pageTransforms,
           sorted,
-          distMap,
+          distWithGaps,
           { lat: startLat, lon: startLon },
           warnings
         );
