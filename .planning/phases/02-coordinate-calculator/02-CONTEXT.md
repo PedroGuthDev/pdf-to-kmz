@@ -1,94 +1,97 @@
 # Phase 2: Coordinate Calculator - Context
 
-**Gathered:** 2026-05-15 (original) / 2026-05-18 (accuracy revision)
-**Status:** Accuracy verified 2026-05-18 — 11/11 posts < 5 m on Palhoça sample (see `02-VERIFICATION.md`)
+**Gathered:** 2026-05-15 (original) / 2026-05-18 (accuracy revision) / 2026-05-19 (N1+Viterbi revision)
+**Status:** Ready for planning — N1+Viterbi iteration
 
 <domain>
 ## Phase Boundary
 
 Implement GPS coordinate calculation for all extracted posts using a UTM-grid-based per-page calibration approach. Starting from a user-provided GPS for post #1, calibrate each detail page's coordinate system from the UTM grid and viewport layout visible on page 2 (overview), then project every post's GPS directly from its page-local PDF position — no sequential GPS chaining within a page. Handle branching routes and route gaps. Output enriched posts with lat/lon and a connections array for Phase 3.
 
-**Why this replaces the original approach:** The original sequential chaining approach (GPS(N+1) = GPS(N) + bearing + meters) had two critical flaws: (1) not all post pairs have cable distance labels, causing error accumulation via scale-factor fallback; (2) detail page coordinates are page-local (not unified across pages), making cross-page PDF bearing calculations meaningless. The UTM-grid approach solves both.
+**Current accuracy state (2026-05-19):**
+- Valmor G-1 baseline: 4.19m max, 11/11 < 5m ✓ (preserved through all N3–N6 iterations)
+- João Born: ~53m max 1-anchor — G-2 requires max <10m / 25+/33 < 5m (not yet met)
+- N3 (beam search), N4 (rotation LSQ), N5 (grid affine), N6 (cable similarity) all implemented but insufficient
+- N1 (cable arc-length walk) exists in `cable-arc-placer.js` but is **opt-in only** — this is the next primary fix
 
-**2026-05-18 accuracy target:** Most posts within 5 m of ground-truth GPS. Current baseline (hybrid scales + OCR circle centroids) sits at 12–68 m per post on the Palhoça sample, max 68 m at post 06. Diagnosis (see `<specifics>` below) shows the dominant residual is parser-reported post `(x, y)` — not the transform math. Per-segment bearings on page 3 drift up to 30°, far beyond what any scale tweak can explain. This revision targets the position source first, then simplifies the scale model.
+**2026-05-19 iteration goal:** Enable N1 as default + replace N3 beam search with Viterbi-HMM → João Born stretch goal: max <5m, 1-anchor.
 
 </domain>
 
 <decisions>
 ## Implementation Decisions
 
-### Accuracy fix (2026-05-18) — Poste pole symbols as PDF position (verified)
+### N1 — Cable arc-length walk (primary accuracy fix)
 
-- **D-ACC-10: Canonical post (x, y) from Poste-layer pole symbol centroids (2026-05-18, verified).** Numero_Poste / OCR identifies post *number* only. `assignPostPositionsFromPosteSymbols()` in `post-positioning.js` matches raw Poste centroids using: label proximity (≤100 pt), label near Cabo Projetado (≤95 pt), same-polyline arc (≤150 pt), one-to-one greedy assignment; relaxed arc + label-only fallbacks for branches. `calculateCoordinates()` does **not** re-snap posts to cable vertices. Palhoça UAT: max error 4.19 m, 11/11 < 5 m. **Supersedes D-ACC-01 for positioning.**
+- **D-N1-01: Remove `enableCableArcPlacer` opt-in gate. N1 is default ON** whenever `Cabo Projetado` is detected on the page. The opt-in flag becomes dead code and should be deleted.
+- **D-N1-02: Arc anchor input = pole symbol position (post.x/post.y), NOT anchorX/anchorY.** The pole symbol is the semantic target; the label centroid is incidental. N1 snaps the pole position to the nearest cable point — a few-meter snap error only shifts the arc-length anchor, which subsequent arc-walk and label-LSQ corrects.
+  - Note: D-N1-02 depends on Viterbi (D-V-01) having correctly assigned the symbol first. With Viterbi, post.x/post.y is the correctly assigned symbol position. Without Viterbi, anchorX/anchorY may be more accurate (as seen in N2 revert).
+- **D-N1-03: Missing-label fallback = `augmentCrossPageDistances()`.** When a Distância_Poste label is absent for a post pair (cross-page seam or unlabeled segment), use the Euclidean-derived estimate already computed by `augmentCrossPageDistances()`. Zero new code needed.
+- **D-N1-04: N1 does NOT chain across pages.** Each page uses its own cable and its own scale. Cross-page consistency comes from per-page projection (`projectPost`), not from arc-length chaining.
+- **D-N1-05: Tap poles are excluded from N1.** `isOffRouteCablePost(post, postByNum, cablesByPage)` is the canonical detector. Tap poles retain their `post-positioning.js` snap and are not overwritten.
 
-### Accuracy fix (2026-05-18) — polyline-vertex post positions, isotropic per-page scale (partially superseded)
+### Viterbi-HMM (N3 replacement)
 
-- **D-ACC-01: Replace OCR circle centroids with cable-polyline vertices as the canonical post (x, y).** *(Superseded by D-ACC-10 for PDF x,y; cable still used for gaps/topology.)* OCR + `Numero_Poste` circle centroids place posts at the *label circle* (drafted for readability), not at the pole. The `Cabo_Projetado` polyline physically passes through every pole — its vertices are the true positions.
-- **D-ACC-02: Snap each post to its nearest polyline vertex by proximity to the OCR-derived position.** OCR is still authoritative for *which* post is which (number + initial rough position). Snap each post independently to the nearest `Cabo_Projetado` vertex on the same page within a threshold (e.g. 30 PDF pt). If no vertex is within threshold, keep the OCR centroid as fallback and emit a warning.
-- **D-ACC-03: One-to-one assignment guard at branch points.** At branch junctions (already detected by `cable-builder.js:detectBranches`), multiple polyline vertices converge. Use globally-shortest-edge greedy assignment (same pattern as `assemblePostData`'s OCR matching) so two posts cannot snap to the same vertex. Each post gets a unique vertex.
-- **D-ACC-04: Branch / page-jump safety.** Per-post proximity matching is inherently branch-safe — each post is identified independently by OCR; the snap step does not walk the chain. The user's scenario (e.g., pages 4–5 form one branch, page 6 restarts off the end of page 3) works automatically: post 06's OCR position lives on its own branch, so it snaps to the vertex on its own branch.
-- **D-ACC-05: Vertex-snap step lives in Phase 02, not Phase 01.** Implement as a `snapPostsToPolyline()` pre-step at the top of `coordinate-calculator.js:calculateCoordinates()`. Phase 1's `parsePdf()` output contract is unchanged — posts still come in with their OCR `(x, y)`; Phase 02 snaps before projecting.
-- **D-ACC-06: Drop the hybrid scale — use per-page UTM grid isotropic scale (X = Y).** Once polyline-vertex positions remove the OCR position noise, the empirical justification for the hybrid model (D-REV-06 / D-REV-08 / pages 3-4 fix) goes away. Use each detail page's own UTM grid spacing for *both* X and Y scales. Falls back to overview-scaled viewport ratio only if the detail page has no UTM grid paths.
-- **D-ACC-07: Optional 2nd GPS anchor — post 01 + last post.** UI accepts GPS for post 01 (required) and optionally the final post. When both are given, solve a global 2D affine (translation + rotation + scale) constrained by both anchors instead of relying solely on UTM-grid orientation. When only post 01 is given, fall back to today's anchor-and-grid behavior. Per-page anchors remain deferred (see `<deferred>`).
-- **D-ACC-08: Distance labels = sanity-check only.** After GPS is computed, compare each labeled segment's `haversine(GPS_curr, GPS_next)` against the parsed label meters. Warn if `|delta|` > 5 m OR > 10% of the label. Do NOT feed labels into the scale math (avoid overfitting to rounded labels like "40m"). Labels still pass through to the `connections` array for Phase 3.
-- **D-ACC-09: Connections contract unchanged.** Shape stays `{ from, to, meters, bearing, gap, cross_page? }`. The `meters` value now comes from haversine on computed GPS (post-snap), so it's already consistent with the new positions.
+- **D-V-01: Replace beam search with full Viterbi-HMM** in `assignPolesGloballyByLabels()` in `parser/post-positioning.js`. Full O(n×k²) Viterbi — ~30 lines of plain JS, no external library. Never prunes the correct branch (unlike beam search width=8).
+  - Emission: Gaussian on distance from label anchor to symbol candidate
+  - Transition: exponential on |arcLen(sym_k, sym_j) × scale − label_m(i, i+1)| — the arc-length term beam search was missing
+  - The old `assignPolesGloballyByLabels` beam-search body is replaced; the function signature stays the same. Keep `assignPostPositionsFromPosteSymbols` as a no-distMap fallback.
+- **D-V-02: Use Viterbi for BOTH full assignment AND anchor selection (post 1 per page).** For anchor selection, use a short lattice: k=5 candidates, first 3 posts on the page. This replaces the greedy nearest-cable-snap for the anchor post.
+- **D-V-03: Parameters — Claude's discretion based on João Born geometry.** João Born page 3 posts are ~35m apart; distance labels accurate to 0.1m. Recommended starting values:
+  - `sigma = 20 PDF pt` (~7m) — emission noise; wider than web research's 15pt to account for OCR label drift on dense pages
+  - `beta = 5m` — transition tolerance; tighter than web research's 15m to enforce cable order on a straight route
+  - Expose as named module-level constants (`VITERBI_SIGMA_PT`, `VITERBI_BETA_M`) — one-line tuning, no refactor
+  - Tune empirically via `debug-run-calc.mjs` after implementation
+
+### Phase 01 symbol filtering (144-symbol noise reduction)
+
+- **D-SYM-01: Tighten cable-proximity threshold for Poste symbol candidates in Phase 01 from 150 pt to 60 pt (~22m).** This reduces João Born page 3 from 144 candidates to approximately 14 (one per route post) before Viterbi even runs. The tight threshold eliminates off-route building symbols and tap poles from the candidate set.
+  - Applies to `assignPostPositionsFromPosteSymbols` / `assignPolesGloballyByLabels` candidate filtering in `post-positioning.js`.
+  - If a valid post's nearest cable distance exceeds 60 pt, emit a warning and fall back to the 150 pt threshold for that post.
+- **D-SYM-02: Add a warning** when a post's nearest cable distance > 50 pt after final assignment. This flags cases where the threshold may be too tight for a particular PDF without breaking the pipeline.
+
+### N2 root cause diagnostic (prerequisite to N1 implementation)
+
+- **D-N2-01: Before implementing N1, add a unit test for `assignPostPositionsFromPosteSymbols` on Valmor page-4 cases.** Write a test fixture with the Valmor page-4 Poste symbols (from `debug_results.txt`) and the known correct assignment (from `coordenadas postes.txt`). The test should confirm which page-4 posts are being snapped to wrong symbols vs correct symbols.
+  - Location: `parser/__tests__/post-positioning.test.mjs` (existing test file)
+  - This diagnoses WHY N2 regressed Valmor page 4 and validates that Viterbi (D-V-01) fixes the assignment before N1 relies on it.
+
+### Phase 02 done criteria
+
+- **D-DONE-01: Primary close-out = João Born 1-anchor stretch goal:** max <5m, 30+/33 < 5m.
+- **D-DONE-02: Acceptable fallback** if N1+Viterbi+N4 stack is exhausted and stretch is not reached: accept max <8m as Phase 02 close. Document the remaining gap in VERIFICATION.md.
+- **D-DONE-03: Valmor G-1 is non-negotiable throughout** — 11/11 < 5m, max < 5m after every change. Any regression triggers immediate revert (no exceptions).
+- **D-DONE-04: Luiz Carolino and Siriu are NOT blockers for Phase 02 close.** They are validation targets for a follow-up plan, not Phase 02 success criteria.
+
+### Accuracy fix (2026-05-18) — Poste pole symbols as PDF position (verified, still active)
+
+- **D-ACC-10: Canonical post (x, y) from Poste-layer pole symbol centroids (2026-05-18, verified).** `assignPostPositionsFromPosteSymbols()` in `post-positioning.js` matches raw Poste centroids using: label proximity (≤100 pt), label near Cabo Projetado (≤95 pt), same-polyline arc (≤150 pt → NOW 60 pt per D-SYM-01), one-to-one greedy assignment; relaxed arc + label-only fallbacks for branches. `calculateCoordinates()` does **not** re-snap posts to cable vertices — N1 does the walk instead. Palhoça UAT: max error 4.19 m, 11/11 < 5 m.
+
+### Accuracy fix (2026-05-18) — partially superseded decisions
+
+- **D-ACC-01 through D-ACC-09:** See `02-CONTEXT.md` revision 2026-05-18. Key surviving decisions:
+  - D-ACC-08: Distance labels = sanity-check only after GPS computed (haversine vs label_meters). Still active.
+  - D-ACC-09: Connections contract `{ from, to, meters, bearing, gap, cross_page? }` — unchanged.
+  - D-ACC-07: Optional 2nd GPS anchor (post 01 + last post) — still deferred from Phase 04 UI.
+- **D-ACC-06 (per-page UTM isotropic scale):** Still active for pages where N1 is skipped (no cable). For N1-covered pages, scale is used by `cable-arc-placer.js:perPageScale` to convert label meters → PDF points.
 
 ### Algorithm pivot (2026-05-15) — per-page UTM calibration
 
-- **D-REV-01:** Replace sequential GPS chaining with per-page UTM-grid calibration. Every post's GPS is computed directly from its page-local PDF position via the page's PDF→UTM transform. No chaining within a page; errors do not accumulate.
-- **D-REV-02:** All posts including branch posts are projected from their page's UTM origin (not from post #1 globally). Every detail page is independently calibrated. This makes all posts on all pages equivalent — no "anchor hierarchy."
-- **D-REV-03:** Gap detection is preserved. The `gap: true` flag in the connections array is still needed by Phase 3 to know where NOT to draw cable lines. Gaps no longer affect GPS calculation but must still be detected.
-- **D-REV-04:** Preserve connections contract shape `{ from, to, meters, bearing, gap }` — Phase 3 contract is unchanged.
+- **D-REV-01 through D-REV-15:** All still active. See `02-CONTEXT.md` revision 2026-05-15. No changes.
 
-### UTM grid extraction — scale factor
+### Decisions SUPERSEDED
 
-- **D-REV-05:** Extract the "UTM" OCG layer from both page 2 (overview) and detail pages. This layer contains the 50m UTM grid lines.
-- **D-REV-06:** Scale factor derived from UTM grid line spacing: `scaleFactor = 50 / grid_line_spacing_pdf` (meters per PDF point). Grid lines are every 50m at 1:1000 scale — do NOT rely on cable distance labels for scale. This completely replaces the previous distance-label-based scale computation.
-- **D-REV-07:** Scale factor is global (one value per page, should be consistent across pages). Use the median of all detected same-direction grid line spacings on the page to reject outliers.
-
-### Page 2 overview — calibrating detail page coordinate systems
-
-- **D-REV-08:** Page 2 is used for coordinate calibration — NOT ignored entirely. Page 2 provides: (a) the UTM grid for scale/orientation, (b) the viewport rectangle positions of each detail page labeled "03", "04", "05"… The viewport labels are large PDF text elements readable via `getTextContent()` (no OCR). Post OCR is still skipped on page 2 (D-04 partially preserved).
-- **D-REV-09:** Viewport boxes on page 2 are matched to detail pages by extracting the large label text ("03", "04", "05") near each rectangle via `getTextContent()`. The rectangle geometry comes from the **"Padrão"** OCG layer (confirmed by user inspection of real INFOVIAS PDF, 2026-05-15).
-- **D-REV-10:** Post #1 is never looked for on page 2 via OCR. Post #1's page-3 coordinates are already known from detail page parsing (Phase 1). To establish the page-2 coordinate system, post #1's position is mathematically projected from page-3 space into page-2 space using the viewport box geometry.
-- **D-REV-11:** With post #1's GPS (user-provided) at its computed page-2 position, plus the UTM grid on page 2, the full page-2 PDF→UTM affine transform is established (origin + scale + North-up orientation from D-01).
-- **D-REV-12:** Each detail page's UTM origin is derived from its viewport box position on page 2, using the page-2 PDF→UTM transform. This gives every detail page an independent UTM calibration without any cross-page GPS chaining.
-
-### Cross-page connections (no GPS chaining needed)
-
-- **D-REV-13:** Cross-page GPS chaining is ELIMINATED. Because every page has its own UTM calibration from the overview, GPS for posts on page 4 is computed from page 4's calibration, not from any post on page 3. Cross-page post pairs in the connections array use GPS-vector bearing and `meters = haversine(GPS(curr), GPS(next))` since PDF coordinates are not comparable across pages.
-
-### Connections array values
-
-- **D-REV-14:** Same-page connections: `meters = pdfDist(curr→next) × scaleFactor`, `bearing = atan2(dx, dy)` from PDF coords (D-02 preserved).
-- **D-REV-15:** Cross-page connections: `meters` and `bearing` computed from final GPS positions after all posts are calibrated (haversine distance, GPS-vector bearing). Mark these with `cross_page: true` in the connections entry.
-
-### Decisions from original context that are preserved
-
-- **D-01:** PDF top = geographic North. The "norte" layer compass rose always points straight up — hardcoded, no rotation needed.
-- **D-02:** Within-page bearing = `atan2(dx, dy)` on page-local PDF coords (flipY applied). Valid within a single page's coordinate space.
-- **D-05:** Flat-Earth approximation with cos(lat) correction for GPS projection. Accurate at street scale.
-- **D-06 through D-09:** Branch topology detection unchanged. Branches are identified by number-gap + spatial-proximity heuristic.
-- **D-10:** Route gap = sequential posts with no cable polyline connecting them.
-- **D-12:** Output marks gaps with `gap: true` in connections array.
-- **D-13:** User input: decimal degrees, Google Maps paste format (`-27.645312, -48.671234`).
-- **D-14:** ~~Always provide GPS for post #1 only.~~ **Superseded by D-ACC-07** — optional 2nd anchor (last post) also accepted.
-- **D-15:** Brazil bounding box validation on user input. Warn, don't reject.
-- **D-16:** Post output: `{ number, x, y, lat, lon, postType?, pageNum? }`.
-- **D-17:** Connections output: `[{ from, to, meters, bearing, gap, cross_page? }]`.
-
-### Decisions SUPERSEDED by the 2026-05-18 accuracy revision
-
-- ~~Hybrid X/Y scale (X = page UTM grid, Y = page-2 viewport-height ratio × overview scale)~~ — `buildPageTransforms` in `utm-calibrator.js`. Replaced by **D-ACC-06** (per-page UTM-grid isotropic). The hybrid was a workaround for OCR-centroid position noise; once D-ACC-01 fixes the positions, the simpler isotropic model is mathematically correct.
-- ~~`repairPostsOnUncalibratedPages` interpolation~~ — added for post 08 on page 8. Still keep as fallback for posts on pages without a viewport box, but it should become rare once vertex-snap is in place (post 08 should snap on its viewport-calibrated page 4 instead).
-- ~~D-14 single-anchor exclusivity~~ — Superseded by **D-ACC-07** (optional 2nd anchor).
+- ~~N3 beam search (width 8)~~ — Replaced by Viterbi-HMM per D-V-01.
+- ~~`enableCableArcPlacer` opt-in gate~~ — Removed per D-N1-01.
+- ~~Hybrid X/Y scale~~ — Already superseded by D-ACC-06.
+- **N2 (pole position for GPS projection):** REVERTED — Valmor page 4 regressed (6/11 → 11/11 revert). Root cause: some page-4 Poste symbols were mis-assigned, making anchorX/anchorY more accurate than post.x/post.y for those posts. See D-N2-01 for diagnostic plan.
 
 ### Claude's Discretion
 
-- Snap threshold value (30 pt is a starting suggestion). Tune empirically against `debug-run-calc.mjs` on the Palhoça sample.
-- Exact greedy vs. Hungarian one-to-one assignment is an implementation detail — greedy by globally shortest edge is sufficient at expected vertex counts (≤ ~50 posts per page).
-- Affine solver when 2 anchors are given: simple closed-form (translation + uniform scale + rotation) is fine; full affine with per-axis scale only if isotropic doesn't hit <5 m.
-- UI wiring for the optional 2nd anchor (separate field, single textarea, etc.) — defer to Phase 04 conventions if any.
+- Viterbi parameters: start at sigma=20pt, beta=5m per D-V-03. Tune empirically.
+- Which cable to use as route cable when multiple Cabo Projetado paths exist on a page: pick the one whose `nearestPointOnPathOps` distance to the **first on-route post** is smallest and ≤ 80 pt (existing logic in `cable-arc-placer.js`).
+- When N1's arc-length overshot the cable (`arc-overflow`): keep the original pole position, emit a warning, and let label-LSQ carry the post.
+- Walk backward from the page anchor when the lowest-numbered on-route post is not sequence-first (rare but possible after future plan changes).
 
 </decisions>
 
@@ -97,101 +100,122 @@ Implement GPS coordinate calculation for all extracted posts using a UTM-grid-ba
 
 **Downstream agents MUST read these before planning or implementing.**
 
+### Research — current iteration
+
+- `.planning/quick/20260519-web-research-accuracy/20260519-RESEARCH.md` — Viterbi-HMM formulation, arc-length parameterization, PDF precision analysis, SIRGAS-2000 confirmation. **Primary source for D-V-01 and D-N1-01.**
+- `.planning/quick/20260519-web-research-accuracy/20260519-SUMMARY.md` — Priority order: N1 default → Viterbi → Hungarian (tap poles). Key finding: Viterbi with arc-length transition beats beam search by never pruning.
+- `.planning/quick/20260519-coord-misplacement-research/PLAN.md` — N1–N7 implementation plan, gate conditions (G-1/G-2), invariants, effort estimates. N2 status: REVERTED. N3/N4/N5/N6 status: implemented, João Born still ~53m.
+- `.planning/quick/20260519-coord-misplacement-research/SUMMARY.md` — Root cause analysis for N2 revert; N6 RMSE gate rejections; N7 dropped (no UTM labels).
+- `.planning/quick/20260518-fix-posts-3-4-9-accuracy/` — Prior accuracy iteration artifacts (if present).
+
 ### Phase 02 carry-overs (still authoritative)
+
 - `.planning/phases/02-coordinate-calculator/02-RESEARCH.md` — UTM math, SIRGAS constants, page-2 viewport calibration approach.
-- `.planning/phases/02-coordinate-calculator/.continue-here.md` — Blocking anti-patterns: Poste text vs route digits, pure isotropic UTM replace caveat (the isotropic ban applied to the *old* parser positions; with polyline-vertex positions per D-ACC-01, isotropic becomes valid — see D-ACC-06).
-- `.planning/HANDOFF.json` — Accuracy iteration tasks 5–8, baseline metrics.
+- `.planning/phases/02-coordinate-calculator/.continue-here.md` — Blocking anti-patterns: Poste text vs route digits (blocking), pure isotropic UTM replace (blocking — note: isotropic is now valid WITH D-ACC-01 positions; the ban applied to old OCR centroids). Also contains current_state metrics.
+- `.planning/phases/02-coordinate-calculator/02-VERIFICATION.md` — Palhoça/Valmor verification data; UTM constants; ground truth comparison.
+- `.planning/HANDOFF.json` — Accuracy iteration tasks, baseline metrics.
 
-### Phase 1 output contract (input to Phase 2)
-- `parser/pdf-parser.js` — `parsePdf()` orchestrator. Returns `{ posts, distances, cableSegments, warnings, layerMap, utmGridPathsPerPage, viewportBoxes, pageDimensions, distanceLabelItems }`. Phase 2 consumes `posts[]`, `cableSegments[]`, `utmGridPathsPerPage`, `viewportBoxes`, `pageDimensions`. **Contract unchanged by D-ACC-05.**
-- `parser/post-assembler.js` — `assemblePostsFromOcr`, `applyPosteHintPositions`. Posts come out with OCR-derived `(x, y)`. Phase 02 snap step replaces these positions with polyline vertices.
-- `parser/cable-builder.js` — `buildCableSegments`, `detectBranches`, `minDistancePointToCablesOnPage`. **Each `cableSegment.ops` contains M/L/C operations**: M and L ops carry the polyline vertices we'll snap to. C (bezier) ops should be flattened or ignored for vertex extraction in the snap step.
-- `parser/coordinate-calculator.js` — Current implementation. **Site of D-ACC-05 changes:** add `snapPostsToPolyline()`; simplify scale model per D-ACC-06; add 2nd-anchor branch per D-ACC-07; add label-vs-haversine sanity check per D-ACC-08.
-- `parser/geo/utm-calibrator.js` — `buildPageTransforms`, `detailPageXScale`, `detailPageYScale`. **Simplification target:** D-ACC-06 collapses X/Y scale into a single per-page UTM-grid value. Hybrid functions can be removed once isotropic is verified.
+### Phase 01 output contract (input to Phase 02)
 
-### Layer naming
+- `parser/pdf-parser.js` — `parsePdf()` orchestrator. Returns `{ posts, distances, cableSegments, warnings, layerMap, utmGridPathsPerPage, viewportBoxes, pageDimensions, distanceLabelItems }`. Phase 02 consumes `posts[]`, `cableSegments[]`, `utmGridPathsPerPage`, `viewportBoxes`, `pageDimensions`.
+- `parser/post-assembler.js` — `assemblePostsFromOcr`, `applyPosteHintPositions`. Posts come out with OCR-derived `(x, y)` then Poste-symbol-snapped positions.
+- `parser/post-positioning.js` — `assignPostPositionsFromPosteSymbols`, `assignPolesGloballyByLabels`. **Site of D-V-01 and D-SYM-01 changes:** Viterbi replaces beam search; 60pt cable-proximity threshold.
+- `parser/cable-builder.js` — `buildCableSegments`, `detectBranches`, `minDistancePointToCablesOnPage`, `isOffRouteCablePost`, `pointAtArcLength`. **Key exports for N1.** Each `cableSegment.ops` contains M/L/C operations — M and L carry polyline vertices.
+- `parser/coordinate-calculator.js` — Current implementation. **Site of D-N1-01/D-N1-04 wiring:** `placePostsOnCableByArcLength` called after `buildPageTransforms`, before projection loop. Remove `enableCableArcPlacer` gate.
+- `parser/geo/utm-calibrator.js` — `buildPageTransforms`, `projectPost`, `dominantLineOrientation`, `theta` per page (N4). Read before touching transforms.
+- `parser/geo/cable-arc-placer.js` — Existing N1 module (currently opt-in). **Site of D-N1-01 default-on change.**
+- `parser/geo/label-lsq-calibrator.js` — LSQ label refinement, `augmentCrossPageDistances`. Used by N1 for missing-label fallback (D-N1-03).
 - `parser/layer-sources.js` — `isUtmGridLayerName`, `isCableLayerName`. No changes needed.
 
-### Project reference
-- `.planning/PROJECT.md` — Scope (client-side only, KMZ output).
-- `.planning/REQUIREMENTS.md` — COORD-01 through COORD-05.
-- `.planning/phases/01-pdf-parser-engine/01-CONTEXT.md` — Phase 1 decisions.
+### Tests (must pass after every change)
+
+- `parser/__tests__/post-positioning.test.mjs` — **Add D-N2-01 Valmor page-4 fixture here.** Existing tests cover current `assignPostPositionsFromPosteSymbols`.
+- `parser/__tests__/coordinate-calculator.test.mjs` — 20/20 passing. Must remain green.
 
 ### Debug & validation harness (MUST run after each change)
-- `debug-run-calc.mjs` — End-to-end accuracy check vs ground truth. Run after every change.
-- `debug-compare.mjs` — Compares calibration models (hybrid vs isotropic etc.).
-- `debug_results.txt` — Latest parser dump (post positions, viewport boxes, UTM grid stats).
-- `coordenadas postes.txt` — Ground-truth GPS for posts 01–11 (Palhoça sample).
-- `INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf` — Sample PDF in repo root.
 
-### Key insight — page 2 overview geometry
-- Page 2 screenshot: `C:\Users\INFORMAC PAULO LOPES\Downloads\Screenshot_5.png` — overview layout with overlapping page viewport boxes and continuous UTM grid.
-- Text in INFOVIAS PDFs: "SIRGAS Quadriculas a cada 50m na escala 1:1000" — confirms SIRGAS datum, 50m UTM grid, 1:1000 scale.
+- `debug-run-calc.mjs` — End-to-end accuracy vs ground truth. Run after every change. G-1: Valmor max <5m, 11/11. G-2: João Born 1-anchor max <10m, 25+/33 <5m; stretch max <5m.
+- `debug_results.txt` — Latest parser dump (post positions, viewport boxes, UTM grid stats).
+- `coordenadas postes.txt` — Ground-truth GPS for posts 01–11 (Palhoça/Valmor sample).
+- `INFOVIAS_PJC INTERNET_Palhoça_RUA VALMOR FRANCISCO_v1.pdf` — Valmor sample PDF (G-1 reference).
+
+### Project reference
+
+- `.planning/PROJECT.md` — Scope (client-side only, KMZ output).
+- `.planning/REQUIREMENTS.md` — COORD-01 through COORD-05.
+- `.planning/phases/01-pdf-parser-engine/01-CONTEXT.md` — Phase 01 decisions.
 
 </canonical_refs>
 
 <code_context>
 ## Existing Code Insights
 
-### What changes in this phase (D-ACC scope)
-- `parser/coordinate-calculator.js` — Add `snapPostsToPolyline(posts, cableSegments)` pre-step. Replace hybrid-scale call sites with isotropic per-page UTM scale. Add optional 2nd-anchor parameter to `calculateCoordinates`. Add post-computation label-vs-haversine sanity warnings.
-- `parser/geo/utm-calibrator.js` — Simplify: collapse `detailPageXScale` + `detailPageYScale` into a single `detailPageScale` per D-ACC-06. Retain viewport-ratio fallback only for pages without a UTM grid. Drop hybrid X/Y split in `buildPageTransforms`.
-- `index.html` — Add optional 2nd-anchor input (last post GPS). Wire to `calculateCoordinates` second arg. Surface label-vs-haversine warnings in the warnings list.
+### What changes in this iteration (N1+Viterbi scope)
+
+- `parser/post-positioning.js` — Replace beam search in `assignPolesGloballyByLabels` with Viterbi-HMM (D-V-01). Add unit test fixture for Valmor page-4 (D-N2-01). Tighten cable-proximity from 150 pt to 60 pt (D-SYM-01).
+- `parser/geo/cable-arc-placer.js` — Remove `enableCableArcPlacer` check; N1 runs by default when cable is detected (D-N1-01). Arc anchor input: post.x/post.y → cable snap (D-N1-02).
+- `parser/coordinate-calculator.js` — Remove opt-in gate for `placePostsOnCableByArcLength`. Ensure the call site passes pole positions (D-N1-02).
+- `parser/__tests__/post-positioning.test.mjs` — Add Valmor page-4 fixture test (D-N2-01).
 
 ### What stays the same
-- Phase 1 parser pipeline (`parsePdf`, `assemblePostsFromOcr`, `applyPosteHintPositions`, `buildCableSegments`).
+
+- Phase 01 parser pipeline (`parsePdf`, `assemblePostsFromOcr`, `applyPosteHintPositions`, `buildCableSegments`).
 - `parseCoordinateInput()`, `validateBrazilBounds()` — user input parsing.
 - `detectRouteTopology()`, `detectGaps()` — branch & gap detection.
 - UTM ↔ GPS math (`latLonToUtm`, `utmToLatLon`, `haversineMeters`, `gpsBearing`, `destinationPoint`).
-- Connections contract shape (D-REV-04, D-ACC-09).
+- Connections contract shape (D-ACC-09). Output: `{ from, to, meters, bearing, gap, cross_page? }`.
+- N4 (per-page rotation) and N6 (cable similarity) remain wired as they are. N5 remains inactive (no pages pass RMSE gate).
 
-### Reusable assets for the snap step
-- `cable-builder.js:minDistancePointToPathOps` — Already iterates M/L/C ops; the same iteration produces the vertex list we need.
-- `post-assembler.js:applyPosteHintPositions` — Template for one-to-one greedy assignment with proximity threshold. Snap step has nearly identical structure.
-- `coordinate-calculator.js:repairPostsOnUncalibratedPages` — Pattern for "fix posts after primary projection." Snap is the same shape but earlier in the pipeline.
+### Reusable assets
+
+- `cable-builder.js:pointAtArcLength` — already implements the arc-length walk N1 uses.
+- `cable-builder.js:nearestPointOnPathOps` — used for cable-snap in anchor selection.
+- `cable-builder.js:isOffRouteCablePost` — tap pole detector (D-N1-05).
+- `label-lsq-calibrator.js:augmentCrossPageDistances` — missing-label fallback (D-N1-03).
+- `post-positioning.js:assignPostPositionsFromPosteSymbols` — kept as no-distMap fallback when Viterbi cannot run.
 
 ### Established patterns
+
 - ESM modules with named exports only.
 - Mutable `warnings[]` accumulator passed through pipeline.
-- `flipY` applied per page by `pdf-parser.js` before downstream modules see coordinates — all snap math operates in flipY space.
-- All processing is client-side (browser, no Node.js).
-- `pageNum` attached to all items for cross-page disambiguation.
+- `flipY` applied per page by `pdf-parser.js` — all N1/Viterbi math operates in flipY space.
+- Browser + Node parity required (no `fs`, no `Buffer`, no Node-only globals).
+- G-1 gate: run `node debug-run-calc.mjs` after every change; revert immediately if Valmor regresses.
 
 ### Integration points
-- `pdf-parser.js` → `calculateCoordinates(posts, distances, lat1, lon1, cableSegments, opts)` (already wired in `debug-run-calc.mjs`).
-- Phase 3 (KMZ generator) consumes `{ posts, connections }` — contract shape unchanged.
+
+- `pdf-parser.js` → `calculateCoordinates(posts, distances, lat1, lon1, cableSegments, opts)`.
+- Phase 03 (KMZ generator) consumes `{ posts, connections }` — contract shape unchanged.
 
 </code_context>
 
 <specifics>
-## Specific Ideas & Diagnostic Notes (2026-05-18)
+## Specific Notes (2026-05-19 discussion)
 
-- **Effective per-segment scales measured against ground truth:**
-  - Page 3, post-to-post: scale varies 0.12–0.50 m/pt; per-segment bearing offset varies −29° to −17° (real route bearing is ~277° everywhere).
-  - Page 4, post-to-post: scale varies 0.20–0.37 m/pt; bearing within ~2° of real. So page 4's geometry is fine — page 3 has wildly inconsistent post positions.
-  - Conclusion: source of error is the parser-reported `(x, y)` per post, not the transform. This drove D-ACC-01.
-- **Current `parser/post-assembler.js` post (x, y) source:** `Numero_Poste` circle centroid, optionally snapped to nearest `Poste` graphical symbol within 150 pt (`POSTE_POSITION_MAX_PT`). Label circles are drafted for readability — not at the actual pole location.
-- **Cable polyline vertex extraction:** iterate `cableSegments[i].ops` and collect `op.x, op.y` for every `M` and `L`. Flatten `C` (cubic) ops by sampling control endpoints — most INFOVIAS cables are M/L only.
-- **Snap threshold starting point:** 30 PDF pt (≈ 11 m on detail pages at 0.3546 m/pt). Tune via `debug-run-calc.mjs`. Threshold should be larger than the OCR centroid offset but smaller than the typical post-to-post spacing.
-- **Anchor input format for 2nd anchor:** same Google Maps paste format as post 01 (`-27.659066, -48.702999`). Optional — UI shows it as collapsed/secondary.
-- **Label sanity-check threshold:** warn when `|haversine(curr,next) − label_meters| > max(5m, 10% of label)`.
-- **Branch safety reaffirmed:** per-post proximity snap is independent — no chain-walking — so cross-branch scenarios (e.g., page 4–5 = branch A, page 6 = branch B starting near end of page 3) are correct by construction. The one-to-one greedy guard (D-ACC-03) prevents two posts from snapping to the same junction vertex.
+- **144-symbol root cause:** João Born page 3 has 144 Poste symbols vs 14 route posts (10:1 false candidate ratio). Tightening to 60 pt cable-proximity threshold in Phase 01 should reduce this to ~14 candidates before Viterbi runs, making the assignment problem tractable.
+- **N1 arc anchor is semantic:** The pole symbol IS on the cable. The label centroid is drafted for readability (offset for visual clarity). Using pole position for cable snap is correct semantically; the few-meter snap variance is corrected by the arc-length walk itself.
+- **Viterbi arc-length transition term is the key:** N3 beam search failed because it scored on bearing and proximity without penalizing arc-length deviations. Viterbi's transition term `exp(-|arcLen×scale − label_m| / beta)` enforces cable order and distance consistency simultaneously.
+- **N2 revert root cause:** For Valmor page 4 posts 7–11, `anchorX/anchorY` (OCR label centroid set by `attachMarkerAnchors`) was more accurate than `post.x/post.y` (Poste-symbol-snapped). This means D-ACC-10 ("pole symbols are canonical") does not hold empirically for those posts — the Poste-symbol snap picked wrong symbols. Viterbi should fix this; the D-N2-01 unit test will confirm.
+- **Anchor priority for N1:** D-N1-02 and D-N2-01 are sequenced: first add the unit test to understand the page-4 mismatch, then implement Viterbi (which fixes it), then wire N1 to use the now-correct post.x/post.y. If Viterbi still doesn't fix page-4, fall back to anchorX/anchorY for the cable snap.
+- **João Born harness:** `node debug-run-calc.mjs joao-born` and `node debug-run-calc.mjs joao-born --two-anchor` are the G-2 checks. Current baseline: ~53m / ~49m two-anchor (N3+N4+N6 active).
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Per-page GPS anchors** (one anchor per detail page) — Would guarantee <1 m. Costs significant UI complexity. Revisit only if D-ACC-01 + D-ACC-06 + D-ACC-07 don't hit <5 m on most posts.
+- **Per-page GPS anchors** — one anchor per detail page guarantees <1 m but costs significant UI complexity. Revisit only if N1+Viterbi+N4 can't hit <8m.
+- **Luiz Carolino + Siriu harness validation** — add to `debug-run-calc.mjs` as follow-up to Phase 02 close. Siriu (6-sheet, ~85 posts) may need Kalman smoothing (N1 walk drift over long routes).
+- **Kalman filter (1D)** — for Siriu arc-length drift. Deferred until Siriu is in the harness.
+- **N8 multi-anchor UI** — multiple GPS anchors per sheet. Deferred until the N1+Viterbi+N4 stack is exhausted.
+- **Hungarian for tap poles** — web research recommends `munkres-js` for unordered tap-pole assignment. Current greedy snap is sufficient for Valmor; evaluate after João Born is closed.
 - **DMS coordinate format input.**
-- **Automatic UTM label extraction** if a future INFOVIAS version adds text labels to the UTM grid.
 - **Visual preview of calculated coordinates on a map before KMZ generation (ENH-01).**
-- **Using overlapping posts** (posts appearing on both page N and page N+1) as additional cross-page calibration anchors.
-- **Full affine solver with per-axis scale** when 2 anchors are provided — only needed if isotropic + 2 anchors doesn't reach <5 m.
+- **Full affine solver with per-axis scale** when 2 anchors are provided — only if isotropic + 2 anchors doesn't reach <5 m.
 
 </deferred>
 
 ---
 
 *Phase: 2-Coordinate Calculator*
-*Context revised: 2026-05-18 (accuracy fix decisions D-ACC-01 through D-ACC-09 added)*
+*Context revised: 2026-05-19 (N1 default + Viterbi-HMM decisions; research from 20260519-web-research-accuracy and 20260519-coord-misplacement-research)*

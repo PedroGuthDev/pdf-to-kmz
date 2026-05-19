@@ -3,108 +3,168 @@
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
 
-**Date:** 2026-05-18
+**Date:** 2026-05-19
 **Phase:** 02-coordinate-calculator
-**Areas discussed:** Source of post (x,y), Per-page Y calibration, Multi-anchor input, Distance labels, Implementation location
-
-**Context for this revision:** Phase 02 plans are all complete but coordinate accuracy is 12–68 m per post (max 68 m at post 06). User requires most posts within 5 m. Per-segment bearing/scale diagnostics showed the dominant error source is parser-reported post `(x, y)`, not the transform math. This discussion captures the accuracy-fix decisions (D-ACC-01 through D-ACC-09 in CONTEXT.md).
+**Areas discussed:** N1 default enablement, Viterbi-HMM for anchor/assignment, N2 root cause, Phase 02 done criteria, 144-symbol boundary (Phase 01 filtering)
 
 ---
 
-## Source of post (x, y)
+## N1 Default Enablement
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Cable polyline vertices | Use Cabo_Projetado polyline vertices as canonical post positions; OCR only used to identify which post number is which. | ✓ |
-| Harder snap to Poste symbol | Keep OCR pipeline, tighten snap-to-Poste-symbol logic. | |
-| Hybrid: polyline + Poste snap | Polyline as primary, Poste as cross-check, warn on disagreement. | |
-| Keep current, fix other things first | Don't touch (x,y) source. | |
+| Yes, remove the gate (default ON) | Enable N1 whenever Cabo Projetado is detected. G-1 guard catches any regression. | ✓ |
+| Enable by default but keep a kill-switch | Default ON, keep `enableCableArcPlacer: false` as override for unreliable cable. | |
+| Keep as opt-in, validate João Born first | One manual test before removing gate. | |
 
-**User's choice:** Cable polyline vertices.
-**Notes:** Diagnostic data presented before the question: page 3 per-segment bearing offsets up to 30°, scale variance 0.12–0.50 m/pt within the same page — proving the post positions, not the transform, are the dominant error source. Label circles in `Numero_Poste` are drafted for readability, not at the pole; cable polyline physically passes through every pole, so its vertices are the true positions.
+**User's choice:** Remove the opt-in gate — N1 always ON when Cabo Projetado is present.
 
 ---
 
-## Vertex-to-post matching method
+### N1 arc anchor input
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Proximity to existing OCR position | OCR identifies number + rough position; snap each post to nearest cable vertex within threshold (e.g. 30 pt), independent per-post. | ✓ |
-| Walk the polyline in order | Walk from endpoint nearest post 01, assign 02, 03, … to consecutive vertices. | |
-| Constrained sequence match (Hungarian) | Optimal assignment minimising total squared distance. | |
+| Use anchorX/anchorY (label centroid) | Proved more accurate than pole.x/pole.y on Valmor page 4 (N2 revert evidence). | |
+| Viterbi-HMM for anchor post only | Replace greedy snap with short Viterbi lattice for anchor post. | |
+| [Free text] | "the label position is not our goal, we aim for the post symbol position" | ✓ |
 
-**User's choice:** Proximity to OCR position, with a safety follow-up question about branch scenarios.
-**Notes:** User asked specifically: "at a bifurcation lets say page 4-5 goes one direction and then page 6 starts back at the end of page 3, is that already guarded?" — Confirmed yes: per-post proximity snap is inherently branch-safe (each post identified independently by OCR; no chain-walking). Added explicit one-to-one greedy guard (D-ACC-03) so two posts cannot snap to the same vertex at a junction. Existing `cable-builder.js:detectBranches` and `coordinate-calculator.js:detectRouteTopology` cover the topology side.
+**User's choice:** Pole symbol position (post.x/post.y) → cable snap as the arc anchor input. The pole IS on the cable; the label is a readability offset.
+
+**Notes:** This depends on Viterbi (D-V-01) having correctly assigned the symbol first. With Viterbi, post.x/post.y should be the correctly assigned symbol position. The D-N2-01 unit test will confirm this before N1 is wired.
 
 ---
 
-## Per-page Y calibration
+### N1 missing-label fallback
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Drop hybrid → per-page UTM grid isotropic | Single per-page scale (X = Y) from each detail page's own UTM grid spacing. Mathematically right once positions are accurate. | ✓ |
-| Keep hybrid (X = UTM, Y = viewport ratio) | Today's setup; locks in a workaround for parser noise. | |
-| Full per-page affine from UTM grid orientation | Use rotation of UTM grid lines too. | |
-| Decide later — retest after vertex snap | Land polyline-vertex first, pick Y after empirical results. | |
+| Euclidean distance from `augmentCrossPageDistances` | Already implemented, zero new code. | ✓ |
+| Skip arc walk, fall back to Phase 01 position | Posts with missing labels lose N1's benefit. | |
+| You decide (hybrid) | Use augmentCrossPageDistances + repairPostsOnUncalibratedPages. | |
 
-**User's choice:** Drop hybrid — use per-page UTM grid isotropic (recommended once D-ACC-01 lands).
-**Notes:** The hybrid model (X from UTM, Y from viewport ratio) was empirically the best fit for OCR-circle position noise (~23 m avg vs ~33 m isotropic). Once vertex-snap removes the position noise, the simpler isotropic model should be correct. `.continue-here.md` flagged isotropic as a blocking anti-pattern when applied to OCR positions; D-ACC-06 explicitly notes the ban applied to the old parser positions and is lifted with D-ACC-01 in place.
+**User's choice:** `augmentCrossPageDistances()` — the existing implementation.
 
 ---
 
-## Multi-anchor input
+## Viterbi-HMM for Anchor Selection
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Keep single anchor + validation warning | Stay with post 01 only; warn on implausible outputs. | |
-| Optional 2nd anchor (post 01 + last post) | User can paste GPS for both ends; solve global 2D affine. Falls back to single-anchor if 2nd absent. | ✓ |
-| Per-page anchors (advanced) | One anchor per detail page — guaranteed <1m but heavy UX. | |
-| Defer entirely | Ship vertex-snap + isotropic first, evaluate after. | |
+| Yes — replace beam search with Viterbi | Full O(n×k²), ~30 lines JS, globally optimal. | ✓ |
+| Keep beam search, widen it | Width 8 → 20, add arc-length term. Still approximate. | |
+| Defer Viterbi — let N1 carry the weight first | Enable N1, measure João Born, add Viterbi only if needed. | |
 
-**User's choice:** Optional 2nd anchor (post 01 + last post).
-**Notes:** Defensive choice — gives a safety net if vertex-snap + isotropic don't hit <5 m on the worst posts. Per-page anchors remain deferred. UX: same Google Maps paste format as post 01; field is optional/secondary.
+**User's choice:** Replace beam search with Viterbi-HMM.
 
 ---
 
-## Distance labels (Distância_Poste)
+### Viterbi parameters
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Sanity-check / warning only | Compare haversine(curr,next) to label_meters; warn if delta > 5 m OR > 10%. Don't change the math. | ✓ |
-| Use as scale calibration input | Median (label / pdf_segment_length) per page = page scale. | |
-| Per-segment override | Use label meters directly for labeled segments. | |
-| Ignore them for now | Pass through to Phase 3 only. | |
+| Use research defaults (sigma=15pt, beta=15m) | Web research recommendations. | |
+| You decide based on João Born geometry | João Born: posts ~35m apart, labels accurate to 0.1m. | ✓ |
+| Make them constants only | Module-level constants for easy tuning. | |
 
-**User's choice:** Sanity-check / warning only.
-**Notes:** Avoids overfitting to rounded labels like "40m". Labels still pass through to the `connections` array for Phase 3 to use or display.
+**User's choice:** Claude's discretion — recommended sigma=20pt, beta=5m. Expose as named constants.
 
 ---
 
-## Where the vertex-snap step lives
+### Viterbi scope (assignment vs anchor)
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Inside `calculateCoordinates()` in Phase 02 | `snapPostsToPolyline()` pre-step at top of `coordinate-calculator.js`. Phase 1 contract unchanged. | ✓ |
-| In `parser/post-assembler.js` as a new Phase 1 step | Posts come out of `parsePdf()` already corrected; changes Phase 1 contract. | |
-| New module `parser/geo/polyline-snap.js` | Standalone, callable from either pipeline. | |
+| Viterbi for full assignment; greedy for anchor | Simpler; anchor error is corrected by arc-walk. | |
+| Viterbi for both assignment AND anchor selection | Best accuracy; short lattice (k=5, first 3 posts) for anchor. | ✓ |
+| You decide | Use greedy for anchor since N1 corrects it anyway. | |
 
-**User's choice:** Inside `calculateCoordinates()` in Phase 02.
-**Notes:** Keeps the accuracy fix scoped to Phase 02 (this phase). Phase 1 is closed and its output contract stays stable.
+**User's choice:** Viterbi for both full assignment AND anchor selection.
+
+---
+
+## N2 Root Cause Diagnostic
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Let N1 bypass the issue | N1 overwrites interior posts; anchor error is correctable. | |
+| Diagnose page-4 mismatch before N1 | Add unit test fixture; fix the assignment bug; then wire N1. | ✓ |
+| Accept anchorX/anchorY for arc anchor | Use label centroid for cable-snap, avoiding the regression entirely. | |
+
+**User's choice:** Diagnose first — add unit test for `assignPostPositionsFromPosteSymbols` on Valmor page-4 cases.
+
+---
+
+### Diagnostic form
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Debug flag in `debug-run-calc.mjs` | Print post.x/post.y vs anchorX/anchorY per post. Zero production code changes. | |
+| Unit test fixture for page-4 | Test fixture with Valmor page-4 symbols and known correct assignment. | ✓ |
+| You decide | Compare anchor=pole vs anchor=label during N1 implementation. | |
+
+**User's choice:** Unit test in `parser/__tests__/post-positioning.test.mjs`.
+
+---
+
+## Phase 02 Done Criteria
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| João Born passes G-2 (max <10m, 25+/33 <5m, 1-anchor) | Realistic close-out gate per the plan. | |
+| João Born G-2 AND stretch (<5m max, 1-anchor) | Higher bar — validates N1+Viterbi eliminates all major errors. | ✓ |
+| Valmor + João Born G-2 + one more PDF in harness | Broader validation; delays closure. | |
+
+**User's choice:** João Born G-2 AND stretch goal: max <5m, 1-anchor.
+
+---
+
+### If stretch goal is not reached
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Accept <8m max if plan stack exhausted | Close Phase 02 if N1+Viterbi+N4 combined can't reach 5m. | ✓ |
+| Keep iterating until <5m or hard blocker | Never close until 5m is reached. | |
+| Promote gap to Phase 02-B | Close at G-2 (10m), open Phase 02-B for stretch. | |
+
+**User's choice:** Accept <8m max as Phase 02 close if the N1+Viterbi+N4 stack is exhausted.
+
+---
+
+## 144-Symbol Boundary (Phase 01 Filtering)
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Yes — filter in Phase 01 (60 pt threshold) | Reduces candidates to ~14 before Viterbi runs. | ✓ |
+| No — filter in Phase 02 via N1 cable proximity check | Existing 80 pt check in arc-placer handles it. | |
+| Both — Phase 01 coarse + Viterbi fine | Defense in depth. | |
+
+**User's choice:** Tighten Phase 01 cable-proximity threshold from 150 pt to 60 pt (~22m).
+
+---
+
+### Threshold value
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| 60 pt (~22m) — tight | Eliminates off-route building symbols and most tap poles. | ✓ |
+| 80 pt (~29m) — moderate | Consistent with N1 arc-placer threshold. | |
+| You decide — tune empirically | Start at 80 pt, tune via harness. | |
+
+**User's choice:** 60 pt — tight threshold to aggressively reduce noise before Viterbi.
 
 ---
 
 ## Claude's Discretion
 
-- Snap threshold value (starting suggestion: 30 PDF pt). Tune empirically against `debug-run-calc.mjs`.
-- Exact assignment algorithm — greedy-by-globally-shortest-edge is sufficient at expected vertex counts (≤ ~50 posts per page); Hungarian only if greedy proves unstable.
-- Closed-form vs least-squares affine solver when 2 anchors are given — closed-form (translation + uniform scale + rotation) is fine first; full affine with per-axis scale only if isotropic doesn't hit <5 m.
-- UI placement / styling of the optional 2nd anchor input — defer to Phase 04 conventions if any exist by then.
+- **Viterbi parameters:** sigma=20 PDF pt, beta=5m — chosen based on João Born page 3 geometry (posts ~35m apart, labels accurate to 0.1m). Exposed as named module-level constants for easy tuning.
+- **Arc-length anchor fall-through:** If Viterbi still doesn't fix page-4 symbol mismatch, fall back to anchorX/anchorY for the cable snap (D-N2-01 unit test will reveal whether this is needed).
+- **N1 arc-overflow handling:** When `pointAtArcLength` returns null (cable overshot), keep original pole position and emit a warning.
 
 ## Deferred Ideas
 
-- Per-page GPS anchors (one per detail page) — guaranteed <1 m precision but heavy UX. Reconsider only if D-ACC-01 + D-ACC-06 + D-ACC-07 don't reach <5 m on most posts.
-- DMS coordinate format input.
-- Automatic UTM label extraction (future INFOVIAS variant).
-- Visual map preview before KMZ generation (ENH-01).
-- Using overlapping cross-page posts as extra calibration anchors.
-- Full affine solver with per-axis scale (only if isotropic + 2 anchors falls short).
+- Luiz Carolino + Siriu harness validation — follow-up after Phase 02 close
+- Kalman smoothing for long routes (Siriu, ~85 posts)
+- Hungarian for tap pole assignment (current greedy is sufficient for Valmor)
+- N8 multi-anchor UI — deferred until algorithm stack exhausted
+- Per-page GPS anchors — only if N1+Viterbi+N4 can't reach <8m
