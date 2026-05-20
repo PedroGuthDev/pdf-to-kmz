@@ -162,7 +162,7 @@
   </script>
 
   <script type="module">
-    import { parsePdf, parseCoordinateInput, validateBrazilBounds, calculateCoordinates } from './parser/pdf-parser.js';
+    import { parsePdf, parseCoordinateInput, validateBrazilBounds, calculateCoordinates, CALC_PIPELINE_ID } from './parser/pdf-parser.js';
     import { computeScaleFactor, buildPageTransforms } from './parser/geo/utm-calibrator.js';
 
     // ── Debug helpers ──────────────────────────────────────────────────────────
@@ -567,19 +567,22 @@
         pageDimensions: currentParseData.pageDimensions,
         ...(lastPostGps ? { lastPostGps } : {}),
       };
-      const { posts: calcPosts } = calculateCoordinates(
+      const calcResult = calculateCoordinates(
         postsCopy,
         currentParseData.distances,
         ref1.lat, ref1.lon,
         currentParseData.cableSegments,
         utmCalibrationData
       );
+      const calcPosts = calcResult.posts;
+      const calcWarnings = calcResult.warnings ?? [];
 
       const postMap = new Map(calcPosts.map(p => [p.number, p]));
 
       const lines = [];
       const pad = (s, n) => String(s).padEnd(n);
       lines.push(anchorNote);
+      lines.push(`Pipeline: ${CALC_PIPELINE_ID}`);
       lines.push('');
       lines.push(
         pad('Post', 6) + pad('Ref lat', 20) + pad('Calc lat', 20) +
@@ -609,6 +612,14 @@
       lines.push(`Max error: ${maxErr.toFixed(2)} m  |  Posts with null GPS: ${nullCount}/${refs.length}`);
       lines.push('');
       lines.push('Legend: ✓ < 5m  ~ 5–50m  ✗ > 50m or null');
+      const calKeys = calcWarnings.filter(w =>
+        /seam-lock|seam-locked|boundary-locked|Global label fit|label-lsq|Repositioned/i.test(w)
+      );
+      if (calKeys.length) {
+        lines.push('');
+        lines.push('Calibration (compare run):');
+        for (const w of calKeys) lines.push('  ' + w);
+      }
 
       compareOutput.textContent = lines.join('\n');
       compareOutput.style.display = 'block';

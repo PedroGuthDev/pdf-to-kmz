@@ -53,7 +53,14 @@ import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js
 import { associateDistances }                          from './distance-associator.js';
 import { computeScaleFactor }                          from './geo/utm-calibrator.js';
 import { buildCableSegments, minDistancePointToCablesOnPage } from './cable-builder.js';
-import { calculateCoordinates, parseCoordinateInput, validateBrazilBounds, detectRouteTopology, detectGaps } from './coordinate-calculator.js';
+import {
+  calculateCoordinates,
+  parseCoordinateInput,
+  validateBrazilBounds,
+  detectRouteTopology,
+  detectGaps,
+  CALC_PIPELINE_ID,
+} from './coordinate-calculator.js';
 
 // Re-export coordinate calculator functions for single-entry-point imports (Phase 2).
 export { calculateCoordinates, parseCoordinateInput, validateBrazilBounds, detectRouteTopology, detectGaps };

@@ -1,4 +1,6 @@
 // parser/coordinate-calculator.js
+/** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
+export const CALC_PIPELINE_ID = '2026-05-multisheet-no-seam';
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -731,21 +733,27 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           cablesByPage,
           warnings
         );
+        const multiSheetDetail = viewportBoxes.length >= 3;
+        // Boundary when global label-lsq did not run; LSQ already fit page 4–5 (do not stack boundary on top).
         const nBoundary =
-          !labelLsqImproved && n6 === 0
-            ? adjustPageOriginsAtBoundaries(
+          labelLsqImproved || n6 > 0
+            ? 0
+            : adjustPageOriginsAtBoundaries(
                 pageTransforms,
                 sorted,
                 augDistMap,
                 { lat: startLat, lon: startLon },
                 warnings
-              )
-            : 0;
-        // Seam-lock walks from post #1 and overwrites label-lsq page origins when LSQ already
-        // improved RMSE (João Born). Use boundary lock first; seam only as fallback.
-        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else if (labelLsqImproved) {
+              );
+        // Post-1→15 seam-lock drifts ~55 m on João Born; never use on 3+ detail sheets.
+        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else if (multiSheetDetail) {
           warnings.push(
-            '[seam-lock] Skipped — global label-lsq already adjusted detail page origins.'
+            '[seam-lock] Skipped — multi-sheet route' +
+              (labelLsqImproved
+                ? ' (global label-lsq fit page origins).'
+                : nBoundary > 0
+                  ? ' (boundary-locked at sheet breaks).'
+                  : ' (per-page UTM + label-lsq only).')
           );
         } else if (nBoundary > 0) {
           /* boundary-locked at sheet breaks */
