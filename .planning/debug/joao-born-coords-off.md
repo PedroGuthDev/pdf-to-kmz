@@ -1,9 +1,66 @@
 ---
-status: investigating
+status: partial
 trigger: Coordinates work on Valmor PDF but are way off on Joao Born PDF (34 posts, reference coords in folder)
 created: 2026-05-18
 updated: 2026-05-20
 ---
+
+## Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
+
+**User directive:** "try to retune viterbi and see if it drops to ~15m"
+
+**Finding:** Viterbi σ/β tuning has **zero effect** on the João Born harness output. Manager's recommendation (drop 38→15 m via σ/β retune) is **not achievable** from the current pipeline.
+
+### Why σ/β are inert here
+
+1. The João Born harness (`node debug-run-calc.mjs joao-born`) reads post positions from `debug_results.txt` PARSE DEBUG block — these are **static**, already-Viterbi-assigned positions captured from the browser parser. Node-side Viterbi runs (in `parsePdf`) but its output is discarded for this PDF.
+
+2. To exercise Node-side Viterbi, I wrote `debug-run-calc-revit.mjs` which loads route-numbered posts and re-runs `assignPolesGloballyByLabels` over the raw 417 Poste centroids. Result: **Viterbi assignment FAILS on pages 3, 4, and 5** ("N3 page X path 0: Viterbi assignment failed — greedy fallback"). The greedy fallback gives **68.50 m** — worse than the static baseline.
+
+3. Cause: candidate set is structurally too thin. Posts 16, 18, 23 (page 4) and 27 (page 5) get excluded by the 60 pt arc-match threshold. Even with `POSTE_CABLE_ARC_MATCH_MAX_PT=120` and `POSTE_CABLE_ANCHOR_MAX_PT=180`, Viterbi still fails on all three pages: post 26 finds *no* candidate within 180 pt anchor, 120 pt arc, 100 pt label.
+
+4. Sweeps confirming inertness:
+
+   | σ × β values tested | Result |
+   |---|---|
+   | σ ∈ {8, 12, 16, 20, 25, 35, 50} × β ∈ {1, 3, 5, 8} | All 28 combinations: **68.50 m** (Viterbi fails → identical greedy fallback) |
+   | σ=0.01, β=0.01 | 68.50 m (same — Viterbi returns null) |
+   | Default σ=20 β=5 with loosened thresholds (arc=120, anchor=180) | 68.50 m (Viterbi still fails on all 3 pages) |
+
+5. Other debug-flag sweeps on the static-positions pipeline (default 38.63 m baseline):
+
+   | Flag combination | Max | < 5 m |
+   |---|---:|---:|
+   | default | 38.63 m | 6/34 |
+   | `--disable-seam-lock` | 38.63 m | 4/34 (worse on count) |
+   | `--disable-arc-placer` | 83.34 m | 2/34 |
+   | `--disable-cable-chain` | 38.63 m | 6/34 (auto-detect already disabled it) |
+   | Anchor-override threshold 40 pt | 64.14 m | 6/34 |
+   | Anchor-override threshold 50 pt | 59.48 m | 6/34 |
+   | Anchor-override threshold 60 pt | 59.48 m | 6/34 |
+   | Anchor-override threshold 80 pt | 71.26 m | 6/34 |
+
+### Investigation artifacts (NOT COMMITTED — temporary)
+
+- `debug-run-calc-revit.mjs` — forces `assignPolesGloballyByLabels` re-run on raw centroids
+- `debug-viterbi-sweep.mjs` — σ/β sweep harness via revit
+- `debug-anchor-override.mjs` — label-anchor substitute experiment
+
+### Enhancement kept
+
+- `parser/post-positioning.js`: `VITERBI_SIGMA_PT`, `VITERBI_BETA_M`, `POSTE_CABLE_*` constants now read optional env-var overrides at module load. Defaults unchanged → behavior identical without env vars. Enables future tuning without code edits.
+
+### Updated conclusion
+
+Post 33's 38.6 m error has its root cause in the **static PDF position** captured from the browser: PARSE DEBUG places post 33 at (678.5, 124.5) on page 5, but page 5's route runs east-southeast (103.7° cable tangent → 73.8° posts-regression). Post 33 sits ~92 pt **north** of post 32 (683.42, 216.54) and slightly west — this is geometrically impossible if the route is monotonic east-southeast on this page. The captured symbol is wrong. Tuning Viterbi cannot recover this because (a) the harness doesn't use Node Viterbi, and (b) when forced to use it, Node Viterbi fails entirely on the João Born candidate set.
+
+**Recommended next steps if user wants to keep iterating:**
+1. Investigate why Node Viterbi fails to find candidates for posts 16, 18, 23, 26, 27 — likely the `nearestCableHitOnPage` is selecting wrong sub-paths from the fragmented cable polygon. Fix would consolidate cable sub-paths into a single connected polyline before candidate-building.
+2. Replace `debug_results.txt` static positions with a fresh browser export after fixing browser-side Viterbi/N3 — outside Node test loop.
+3. Implement second-anchor UI input (independent ground-truth per detail sheet) — bounds the LSQ at the architecture level instead of chasing residuals.
+
+---
+
 
 ## Symptoms
 

@@ -18,26 +18,32 @@ export const SNAP_POST_TO_POSTE_SYMBOL_MAX_PT = 220;
 /** Tight dedupe for square+X subpath centroids (same pole, multiple strokes). */
 export const POSTE_RAW_DEDUPE_PT = 12;
 
+function _envNum(name, def) {
+  const env = typeof process !== 'undefined' ? process.env?.[name] : null;
+  const v = env != null ? Number(env) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : def;
+}
+
 /** Max label anchor → pole symbol (PDF pt). */
-export const POSTE_LABEL_MATCH_MAX_PT = 100;
+export const POSTE_LABEL_MATCH_MAX_PT = _envNum('POSTE_LABEL_MATCH_MAX_PT', 100);
 
 /** Max label anchor → Cabo Projetado (pole symbol is often offset from the red line). */
-export const POSTE_CABLE_ANCHOR_MAX_PT = 95;
+export const POSTE_CABLE_ANCHOR_MAX_PT = _envNum('POSTE_CABLE_ANCHOR_MAX_PT', 95);
 
 /** Max |arc on cable| between label projection and symbol on the same polyline (PDF pt). */
-export const POSTE_CABLE_ARC_MATCH_MAX_PT = 60;
+export const POSTE_CABLE_ARC_MATCH_MAX_PT = _envNum('POSTE_CABLE_ARC_MATCH_MAX_PT', 60);
 
 /** Per-post fallback when the 60 pt cap excludes all symbols (D-SYM-01). */
-export const POSTE_CABLE_ARC_FALLBACK_PT = 150;
+export const POSTE_CABLE_ARC_FALLBACK_PT = _envNum('POSTE_CABLE_ARC_FALLBACK_PT', 150);
 
 /** Post-assignment diagnostic: warn when final nearest-cable distance exceeds this (D-SYM-02). */
 export const POSTE_CABLE_FINAL_WARN_PT = 50;
 
 /** Viterbi-HMM emission Gaussian sigma in PDF points (~7 m at typical scale). D-V-03. */
-export const VITERBI_SIGMA_PT = 20;
+export const VITERBI_SIGMA_PT = _envNum('VITERBI_SIGMA_PT', 20);
 
 /** Viterbi-HMM transition exponential beta in meters. D-V-03. */
-export const VITERBI_BETA_M = 5;
+export const VITERBI_BETA_M = _envNum('VITERBI_BETA_M', 5);
 
 /** Top-K Poste candidates per post in global assignment (N3). */
 export const GLOBAL_POLE_TOP_K = 4;
