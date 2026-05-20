@@ -7,6 +7,8 @@ import {
   isOffRouteCablePost,
   nearestCableHitOnPage,
   nearestPointOnPathOps,
+  pathTotalArcLength,
+  pointAtArcLength,
   prepareRouteCableOps,
 } from './cable-builder.js';
 
@@ -44,7 +46,11 @@ export const POSTE_CABLE_FINAL_WARN_PT = 50;
 export const VITERBI_SIGMA_PT = _envNum('VITERBI_SIGMA_PT', 20);
 
 /** Viterbi-HMM transition exponential beta in meters. D-V-03. */
-export const VITERBI_BETA_M = _envNum('VITERBI_BETA_M', 5);
+export const VITERBI_BETA_M = _envNum('VITERBI_BETA_M', 3);
+
+/** Relabel next pole when |arc×scale − label| exceeds this (m) and ratio is out of band. */
+const LABEL_ARC_REPAIR_MIN_DELTA_M = 12;
+const LABEL_ARC_REPAIR_RATIO = 1.55;
 
 /** Top-K Poste candidates per post in global assignment (N3). */
 export const GLOBAL_POLE_TOP_K = 4;
@@ -858,6 +864,93 @@ function buildRouteCandidatesPerPost(
  * @param {number} [cableDir]  +1 or -1 along route cable
  * @returns {PoleCandidate[]|null}
  */
+/**
+ * When Viterbi picks a pole too far along the cable vs Distância_Poste, snap the next post
+ * to the symbol nearest the label-implied arc position (João Born page 3 jumps).
+ *
+ * @param {Array<{ number: number, x: number, y: number }>} routePosts
+ * @param {PoleCandidate[]} assignment
+ * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
+ * @param {Array<{ x: number, y: number, si?: number }>} symbols
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} cableDir
+ * @param {Set<number>} usedSymbol
+ * @param {string[]} warnings
+ */
+function repairConsecutiveLabelArcJumps(
+  routePosts,
+  assignment,
+  routeOps,
+  symbols,
+  distMap,
+  scale,
+  cableDir,
+  usedSymbol,
+  warnings
+) {
+  if (!routeOps?.length || scale <= 0 || routePosts.length < 2) return;
+
+  const dir = cableDir >= 0 ? 1 : -1;
+  const totalLen = pathTotalArcLength(routeOps);
+
+  for (let i = 0; i < routePosts.length - 1; i++) {
+    const prevNum = routePosts[i].number;
+    const currNum = routePosts[i + 1].number;
+    const m =
+      distMap.get(`${prevNum}->${currNum}`) ??
+      distMap.get(`${currNum}->${prevNum}`);
+    if (m == null || m <= 0) continue;
+
+    const arcPt = Math.abs(assignment[i + 1].t - assignment[i].t);
+    const arcM = arcPt * scale;
+    const ratio = arcM / m;
+    if (
+      Math.abs(arcM - m) < LABEL_ARC_REPAIR_MIN_DELTA_M ||
+      (ratio >= 1 / LABEL_ARC_REPAIR_RATIO && ratio <= LABEL_ARC_REPAIR_RATIO)
+    ) {
+      continue;
+    }
+
+    const targetT = Math.max(
+      0,
+      Math.min(totalLen, assignment[i].t + dir * (m / scale))
+    );
+    const pt = pointAtArcLength(routeOps, targetT);
+    let bestSi = -1;
+    let bestD = Infinity;
+    for (let si = 0; si < symbols.length; si++) {
+      const sym = symbols[si];
+      const d = Math.hypot(sym.x - pt.x, sym.y - pt.y);
+      if (d < bestD) {
+        bestD = d;
+        bestSi = si;
+      }
+    }
+    if (bestSi < 0 || bestD > POSTE_CABLE_ARC_FALLBACK_PT) continue;
+
+    const prevSi = assignment[i + 1].si;
+    if (prevSi !== bestSi) {
+      if (prevSi >= 0) usedSymbol.delete(prevSi);
+      usedSymbol.add(bestSi);
+    }
+    const sym = symbols[bestSi];
+    assignment[i + 1] = {
+      si: bestSi,
+      t: targetT,
+      x: sym.x,
+      y: sym.y,
+      dLabel: assignment[i + 1].dLabel,
+    };
+    routePosts[i + 1].x = sym.x;
+    routePosts[i + 1].y = sym.y;
+    warnings.push(
+      `[post-positioning] post ${currNum}: relabeled arc jump ` +
+        `(${arcM.toFixed(0)} m cable vs ${m} m label → nearest symbol at ${bestD.toFixed(0)} pt).`
+    );
+  }
+}
+
 function viterbiAssignAlongCableCore(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
   const n = routePosts.length;
   if (n === 0) return null;
@@ -1428,6 +1521,18 @@ export function assignPolesGloballyByLabels(
         );
         continue;
       }
+
+      repairConsecutiveLabelArcJumps(
+        routePosts,
+        assignment,
+        routeOps,
+        symbolsOnPage,
+        distMap,
+        scale,
+        cableDir,
+        usedSymbol,
+        warnings
+      );
 
       let residualSum = 0;
       let labeledEdges = 0;

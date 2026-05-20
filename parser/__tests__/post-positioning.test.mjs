@@ -26,7 +26,7 @@ function assert(cond, name) {
   }
 }
 
-assert(VITERBI_SIGMA_PT === 20 && VITERBI_BETA_M === 5, 'Viterbi tuning constants exported (D-V-03)');
+assert(VITERBI_SIGMA_PT === 20 && VITERBI_BETA_M === 3, 'Viterbi tuning constants exported (D-V-03)');
 
 console.log('\n[post-positioning] refine mode caps move from label anchor');
 const posts = [

@@ -38,6 +38,7 @@ const SAMPLES = {
 
 const sampleKey = process.argv[2] === 'joao-born' ? 'joao-born' : 'valmor';
 const twoAnchor = process.argv.includes('--two-anchor');
+const reassignPoles = process.argv.includes('--reassign-poles');
 const forceParserPosts = process.argv.includes('--parser-posts');
 const useBrowserFixture = process.argv.includes('--browser-posts');
 const browserRouteOrder = process.argv.includes('--route-order');
@@ -218,7 +219,7 @@ const multiSheetRoute =
   overviewComposite || (parsed.viewportBoxes?.length ?? 0) >= 3;
 // N3 pole assignment only when using parser positions (browser debug_results already has Poste snaps).
 if (
-  !useBrowserPositions &&
+  (reassignPoles || !useBrowserPositions) &&
   multiSheetRoute &&
   parsed.posteRawCentroids?.length &&
   parsed.cablePaths?.length &&

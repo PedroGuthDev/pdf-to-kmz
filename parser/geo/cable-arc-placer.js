@@ -273,9 +273,9 @@ export function placePostsOnCableByArcLength({
     }
 
     if (
-      pageNum >= 5 &&
       posteSnapMajority &&
       anchorOnCable &&
+      (pageNum >= 5 || cableFragmented) &&
       consistencyFrac >= N1_SKIP_CONSISTENCY_FRAC
     ) {
       continue;
@@ -315,6 +315,15 @@ export function placePostsOnCableByArcLength({
           skipped.push({ number: curr.number, reason: 'tap' });
           continue;
         }
+        const currCableHit = nearestCableHitOnPage(curr.x, curr.y, pageNum, cablesByPage);
+        if (!isTap && currCableHit.d <= N1_POSTE_SNAP_CABLE_PT) {
+          anchorPost = curr;
+          cumDist = 0;
+          placed.set(curr.number, { ...curr });
+          pageCount++;
+          prevNum = curr.number;
+          continue;
+        }
         curr.x = anchorPost.x + cumDist * Math.sin(brg);
         curr.y = anchorPost.y - cumDist * Math.cos(brg);
         if (curr.anchorX != null) {
@@ -342,6 +351,15 @@ export function placePostsOnCableByArcLength({
         prevNum = curr.number;
         if (isTap) {
           skipped.push({ number: curr.number, reason: 'tap' });
+          continue;
+        }
+        const currCableHitRev = nearestCableHitOnPage(curr.x, curr.y, pageNum, cablesByPage);
+        if (!isTap && currCableHitRev.d <= N1_POSTE_SNAP_CABLE_PT) {
+          anchorPost = curr;
+          cumDist = 0;
+          placed.set(curr.number, { ...curr });
+          pageCount++;
+          prevNum = curr.number;
           continue;
         }
         curr.x = anchorPost.x + cumDist * Math.sin(revBrg);

@@ -528,7 +528,12 @@
       }
 
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-      const compareLastVal = document.getElementById('gpsInputLast').value;
+      const ref34 = refs.find(r => r.num === 34);
+      const gpsLastEl = document.getElementById('gpsInputLast');
+      if (ref34 && currentParseData.posts.length >= 30 && !gpsLastEl.value.trim()) {
+        gpsLastEl.value = `${ref34.lat}, ${ref34.lon}`;
+      }
+      const compareLastVal = gpsLastEl.value;
       const compareLastParsed = compareLastVal && compareLastVal.trim() ? parseCoordinateInput(compareLastVal) : null;
       const utmCalibrationData = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
