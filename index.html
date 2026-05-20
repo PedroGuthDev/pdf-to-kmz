@@ -509,7 +509,8 @@
       const refLines = refInput.value.trim().split('\n');
       const refs = [];
       for (const line of refLines) {
-        const m = line.match(/poste\s+(\d+)\s*;\s*([-\d.]+)\s*,\s*([-\d.]+)/i);
+        // Allow suffix after post number, e.g. "Poste 04 (N tem cabo); lat, lon"
+        const m = line.match(/poste\s+(\d+).*?([-\d.]+)\s*,\s*([-\d.]+)/i);
         if (m) refs.push({ num: parseInt(m[1], 10), lat: parseFloat(m[2]), lon: parseFloat(m[3]) });
       }
       if (refs.length === 0) {

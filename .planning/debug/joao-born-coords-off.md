@@ -25,6 +25,22 @@ updated: 2026-05-20
 
 **Remaining:** Revit path still worse than static baseline; G-2 gate not met. Next: export fresh PARSE DEBUG after browser Viterbi, or tune σ/β with working Node Viterbi.
 
+### Session 3b (tasks 9–10 + post 4 comparison fix)
+
+**Task 9 — `debug-run-calc-revit.mjs joao-born --verbose`:**
+- Viterbi **succeeds** on pages 3, 4, 5 (no greedy-fallback warnings).
+- Assignments: p3 6 posts, p4 9 posts, p5 9 posts; anchor locks 1–2–4, 15–16–17, 26–27–28.
+- Revit max **64.68 m**, 9/34 &lt; 5 m (static positions in dump barely moved: 4/34).
+
+**Task 10 — regression:**
+- `debug-run-calc.mjs joao-born`: max **23.65 m**, **10/34** &lt; 5 m, **post 4 included** (13.40 m).
+- `debug-run-calc.mjs` Valmor: max **4.19 m**, 11/11 &lt; 5 m.
+- Unit tests: coordinate-calculator, post-positioning, route-sequence, label-lsq, boundary-calibration, cable-boundary-calibrator — **all pass**.
+
+**Post 4 (N tem cabo / tap):**
+- Has PDF position in PARSE DEBUG and **gets GPS** (UTM project + label chain 3→4).
+- Was **missing from browser comparison table** (0/33 rows): `index.html` regex required `poste NN;` immediately after the number and rejected `Poste 04 (N tem cabo); …`. Fixed to allow text between number and coordinates (same as `debug-run-calc.mjs`).
+
 ---
 
 ## Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
