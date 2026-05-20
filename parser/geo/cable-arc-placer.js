@@ -80,6 +80,31 @@ function detectCableDir(pagePosts, routeOps) {
   return slope < 0 ? -1 : 1;
 }
 
+/**
+ * Bearing along the page route from a linear regression of post PDF coords vs post number.
+ */
+function postsRegressionBearingDeg(nonTapPosts) {
+  if (!nonTapPosts || nonTapPosts.length < 3) return null;
+  const n = nonTapPosts.length;
+  const xs = nonTapPosts.map(p => p.x);
+  const ys = nonTapPosts.map(p => p.y);
+  const idx = nonTapPosts.map((_, i) => i);
+  const iMean = idx.reduce((s, v) => s + v, 0) / n;
+  const xMean = xs.reduce((s, v) => s + v, 0) / n;
+  const yMean = ys.reduce((s, v) => s + v, 0) / n;
+  let sxn = 0, syn = 0, snn = 0;
+  for (let i = 0; i < n; i++) {
+    const di = idx[i] - iMean;
+    sxn += di * (xs[i] - xMean);
+    syn += di * (ys[i] - yMean);
+    snn += di * di;
+  }
+  if (snn < 1e-9) return null;
+  const dx = sxn / snn;
+  const dy = syn / snn;
+  return ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+}
+
 const ROUTE_CABLE_NEAR_PT = 80;
 
 /** Skip N1 walk when this fraction of labeled same-page pairs match Distância_Poste chords. */
@@ -161,7 +186,7 @@ export function placePostsOnCableByArcLength({
     }
 
     const routePost1 = sortedPosts.find(p => p.number === 1);
-    const anchorPost =
+    let anchorPost =
       routePost1 &&
       (routePost1.pageNum ?? 1) === pageNum &&
       !isOffRouteCablePost(routePost1, postByNum, cablesByPage)
@@ -183,7 +208,22 @@ export function placePostsOnCableByArcLength({
     const anchorT = nearestPointOnPathOps(anchorPost.x, anchorPost.y, routeOps).t;
 
     const cableDir = detectCableDir(nonTapPosts, routeOps);
-    const bearingDeg = cableTangentBearingDeg(routeOps, anchorT, cableDir);
+    const cableTangentDeg = cableTangentBearingDeg(routeOps, anchorT, cableDir);
+    const postsBearingDeg = postsRegressionBearingDeg(nonTapPosts);
+    // Count M sub-paths in routeOps — fragmented cables (dashed-ribbon polygons) give
+    // unreliable local tangents.
+    let mOpCount = 0;
+    for (const op of routeOps) if (op.type === 'M') mOpCount++;
+    const cableFragmented = mOpCount >= 5;
+    let bearingDeg = cableTangentDeg;
+    if (postsBearingDeg != null && cableFragmented) {
+      let diff = Math.abs(postsBearingDeg - cableTangentDeg);
+      if (diff > 180) diff = 360 - diff;
+      if (diff > 25) {
+        bearingDeg = postsBearingDeg;
+        warnings.push(`[cable-arc-placer] page ${pageNum}: cable fragmented (${mOpCount} sub-paths) — using posts regression bearing (${postsBearingDeg.toFixed(1)}°) instead of cable tangent (${cableTangentDeg.toFixed(1)}°).`);
+      }
+    }
 
     let consistentPairs = 0;
     let totalLabeledPairs = 0;
@@ -257,7 +297,15 @@ export function placePostsOnCableByArcLength({
         const isTap = isOffRouteCablePost(curr, postByNum, cablesByPage);
         const chainM = sumChainLabels(prevNum, curr.number, distMap);
         if (chainM == null || chainM <= 0) {
+          // Chain broken — only re-anchor if curr is reliably on the cable (raw PDF trustworthy).
           skipped.push({ number: curr.number, reason: isTap ? 'tap' : 'no-label' });
+          if (!isTap) {
+            const currCableHit = nearestCableHitOnPage(curr.x, curr.y, pageNum, cablesByPage);
+            if (currCableHit.d <= N1_POSTE_SNAP_CABLE_PT) {
+              anchorPost = curr;
+              cumDist = 0;
+            }
+          }
           prevNum = curr.number;
           continue;
         }

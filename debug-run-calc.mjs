@@ -6,7 +6,8 @@
  *   node debug-run-calc.mjs joao-born --two-anchor
  *   node debug-run-calc.mjs joao-born --parser-posts   # use parsePdf Poste positions (N3)
  *   node debug-run-calc.mjs joao-born --overview-composite  # remap detail sheets → page 2 space
- *   node debug-run-calc.mjs joao-born --browser-posts      # true Poste snaps (fixtures/)
+ *   node debug-run-calc.mjs joao-born --browser-posts      # Poste snaps → parser sequence
+ *   node debug-run-calc.mjs joao-born --browser-posts --route-order  # route milepost numbers
  *
  * João Born UAT positions: PARSE DEBUG block in debug_results.txt (parser export order).
  * fixtures/joao-born-browser-posts.json is route-numbered Poste snaps — different numbering.
@@ -18,6 +19,9 @@ import { associateDistances } from './parser/distance-associator.js';
 import { assignPolesGloballyByLabels } from './parser/post-positioning.js';
 import { applyOverviewComposite } from './parser/geo/overview-composite.js';
 import { computeScaleFactor, haversineMeters } from './parser/geo/utm-calibrator.js';
+import {
+  remapBrowserPostsToParserOrder,
+} from './parser/geo/route-sequence.js';
 
 const SAMPLES = {
   valmor: {
@@ -36,6 +40,7 @@ const sampleKey = process.argv[2] === 'joao-born' ? 'joao-born' : 'valmor';
 const twoAnchor = process.argv.includes('--two-anchor');
 const forceParserPosts = process.argv.includes('--parser-posts');
 const useBrowserFixture = process.argv.includes('--browser-posts');
+const browserRouteOrder = process.argv.includes('--route-order');
 const overviewComposite = process.argv.includes('--overview-composite');
 const JOAO_BORN_FIXTURE = './fixtures/joao-born-browser-posts.json';
 const sample = SAMPLES[sampleKey];
@@ -126,8 +131,11 @@ for (const p of parsed.posts) {
 
 const joaoFixture = sampleKey === 'joao-born' ? loadJoaoBornFixture() : null;
 const debugDumpPosts = loadPostsFromDebugResults();
-const browserPosts = useBrowserFixture ? joaoFixture?.posts ?? null : debugDumpPosts;
-const fixtureDistances = useBrowserFixture ? joaoFixture?.distances ?? null : null;
+const browserPostsRaw = useBrowserFixture ? joaoFixture?.posts ?? null : debugDumpPosts;
+const browserPosts =
+  useBrowserFixture && !browserRouteOrder
+    ? remapBrowserPostsToParserOrder(browserPostsRaw ?? [])
+    : browserPostsRaw;
 let parserPosts = parsed.posts;
 
 const useBrowserPositions =
@@ -138,7 +146,9 @@ const useBrowserPositions =
 
 if (useBrowserPositions) {
   const source = useBrowserFixture
-    ? 'fixtures/joao-born-browser-posts.json (route Poste snaps)'
+    ? browserRouteOrder
+      ? 'fixtures/joao-born-browser-posts.json (route milepost order)'
+      : 'fixtures/joao-born-browser-posts.json (renumbered to parser sequence)'
     : 'debug_results.txt PARSE DEBUG (parser export order)';
   console.warn(`\nUsing ${source} (${browserPosts.length} posts).\n`);
   parserPosts = browserPosts.map(p => ({ ...p }));
@@ -157,10 +167,7 @@ if (useBrowserPositions) {
 
 const start = REFERENCE[0];
 let distances = parsed.distances ?? [];
-if (fixtureDistances?.length) {
-  distances = fixtureDistances;
-  console.log(`\nDistância_Poste labels (${distances.length} segments from fixture).`);
-} else if (browserPosts && parsed.distanceLabelItems?.length) {
+if (browserPosts && parsed.distanceLabelItems?.length) {
   const { distances: assoc } = associateDistances(
     parserPosts,
     parsed.distanceLabelItems,
@@ -261,6 +268,19 @@ if (twoAnchor && lastRef) {
   console.log(`Two-anchor mode: post 1 + post ${lastRef.num} GPS from reference.\n`);
 }
 
+if (process.argv.includes('--disable-arc-placer')) {
+  calcOpts.disableCableArcPlacer = true;
+  console.log('Cable arc placer DISABLED (debug flag).\n');
+}
+if (process.argv.includes('--disable-seam-lock')) {
+  calcOpts.disableSeamLock = true;
+  console.log('Seam lock DISABLED (debug flag).');
+}
+if (process.argv.includes('--disable-cable-chain')) {
+  calcOpts.disableCableChainBearing = true;
+  console.log('Cable chain bearing DISABLED (debug flag).');
+}
+
 const { posts, warnings = [] } = calculateCoordinates(
   parserPosts,
   distances,
@@ -273,14 +293,17 @@ const { posts, warnings = [] } = calculateCoordinates(
 console.log('\nComparison vs reference:');
 let maxErr = 0;
 let nulls = 0;
+const errs = [];
 for (const ref of REFERENCE) {
   const p = posts.find(x => x.number === ref.num);
   if (!p || p.lat == null) {
     console.log(`  Post ${String(ref.num).padStart(2)}: NO GPS`);
     nulls++;
+    errs.push({ num: ref.num, err: Infinity });
     continue;
   }
   const err = haversineMeters(ref.lat, ref.lon, p.lat, p.lon);
+  errs.push({ num: ref.num, err });
   maxErr = Math.max(maxErr, err);
   const mark = err < 5 ? '✓' : err < 50 ? '~' : '✗';
   console.log(`  ${mark} Post ${String(ref.num).padStart(2)}: err=${err.toFixed(2)}m  page=${p.pageNum}`);
@@ -292,6 +315,10 @@ const under5 = REFERENCE.filter(ref => {
 console.log(
   `\nMax error: ${maxErr.toFixed(2)}m  null GPS: ${nulls}/${REFERENCE.length}  <5m: ${under5}/${REFERENCE.length}`
 );
+// Top 5 offenders
+errs.sort((a, b) => b.err - a.err);
+console.log(`\nTop 5 offenders: ${errs.slice(0, 5).map(e => `Post ${e.num} (${e.err.toFixed(1)}m)`).join(', ')}`);
+
 const allWarnings = [...(parsed.warnings ?? []), ...warnings];
 if (allWarnings.length) {
   console.log('\nWarnings (first 8):');

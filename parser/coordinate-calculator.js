@@ -38,6 +38,7 @@ import {
   buildOverviewCompositeTransform,
   remapPostsToOverviewViaUtm,
 } from './geo/overview-composite.js';
+import { detectSequenceFlipPages, flipBearingDeg } from './geo/route-sequence.js';
 
 const SEGMENT_SNAP_MAX_PT = 100;
 
@@ -237,7 +238,7 @@ function applyDistanceLabelGpsChain(
   branchStarts,
   opts = {}
 ) {
-  const { cablesByPage, postByNum, multiSheetRoute } = opts;
+  const { cablesByPage, postByNum, multiSheetRoute, sequenceFlipPages } = opts;
   const utm = sorted.map(p => ({ lat: p.lat, lon: p.lon }));
   let labeled = 0;
   let applied = 0;
@@ -284,20 +285,7 @@ function applyDistanceLabelGpsChain(
     for (let i = startIdx + 1; i <= endIdx; i++) {
       const prev = sorted[i - 1];
       const curr = sorted[i];
-      // INFOVIAS page 5: cable-bearing label chain overshoots mid-sheet; keep UTM there.
-      if (
-        multiSheetRoute &&
-        curr.pageNum != null &&
-        curr.pageNum >= 5 &&
-        curr.number >= 28 &&
-        curr.number <= 29
-      ) {
-        lat = utm[i].lat;
-        lon = utm[i].lon;
-        sorted[i].lat = lat;
-        sorted[i].lon = lon;
-        continue;
-      }
+      // 28-29 skip removed in attempt 13 — chain bearing now uses gpsBearing not cable tangent.
       const m = distMap.get(`${prev.number}->${curr.number}`);
       if (m == null || m <= 0 || utm[i - 1].lat == null || utm[i].lat == null) {
         lat = utm[i].lat;
@@ -318,6 +306,13 @@ function applyDistanceLabelGpsChain(
       }
       if (bearing == null) {
         bearing = gpsBearing(utm[i - 1].lat, utm[i - 1].lon, utm[i].lat, utm[i].lon);
+      }
+      if (
+        sequenceFlipPages?.has(curr.pageNum) &&
+        prev.pageNum != null &&
+        curr.pageNum === prev.pageNum
+      ) {
+        bearing = flipBearingDeg(bearing);
       }
       const next = destinationPoint(lat, lon, bearing, m);
       lat = next.lat;
@@ -563,6 +558,9 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     pageDimensions,
     lastPostGps,
     overviewComposite,
+    disableCableArcPlacer,
+    disableSeamLock,
+    disableCableChainBearing,
   } = opts_;
 
   if (opts_ &&
@@ -609,7 +607,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     repairPostsOnUncalibratedPages(sorted, calibratedPages, warnings);
 
     const routeCablePlacer =
-      (overviewComposite || viewportBoxes.length >= 3) && cableSegments?.length && scaleFactor != null;
+      !disableCableArcPlacer && (overviewComposite || viewportBoxes.length >= 3) && cableSegments?.length && scaleFactor != null;
     if (routeCablePlacer) {
       const arcCablesByPage = buildCablesByPage(cableSegments);
       // D-N1-03: missing-label fallback for N1 = augmentCrossPageDistances (existing wiring; no new code).
@@ -742,12 +740,22 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
             warnings
           );
         }
+        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else {
         const post15 = sorted.find(p => p.number === 15);
+        const sequenceFlipPages = detectSequenceFlipPages(sorted);
+        if (sequenceFlipPages.size > 0) {
+          warnings.push(
+            `[route-sequence] Label bearing flipped on page(s) ${[...sequenceFlipPages]
+              .sort((a, b) => a - b)
+              .join(', ')} (route vs parser order).`
+          );
+        }
         const gps15 = gpsAtPostViaLabelWalk(
           sorted,
           augDistMap,
           { lat: startLat, lon: startLon },
-          15
+          15,
+          sequenceFlipPages
         );
         if (
           post15 &&
@@ -764,6 +772,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           warnings.push(
             '[seam-locked] page 4 origin from post-1 label walk to post 15 at sheet break.'
           );
+        }
         }
       }
     } else if (scaleFactor === null) {
@@ -857,13 +866,32 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
     const multiSheetRoute =
       !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
-    const chainCables =
-      (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length
+    // Auto-disable cable-chain bearings when any active cable is fragmented (dashed-ribbon
+    // polygon with many M sub-paths). Local tangents are unreliable on such cables.
+    let cableFragmentedSomewhere = false;
+    if ((overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length) {
+      for (const seg of cableSegments) {
+        if (!seg?.ops) continue;
+        let mCount = 0;
+        for (const op of seg.ops) if (op.type === 'M') mCount++;
+        if (mCount >= 5) { cableFragmentedSomewhere = true; break; }
+      }
+    }
+    const chainCables = disableCableChainBearing || cableFragmentedSomewhere
+      ? null
+      : (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length
         ? buildCablesByPage(cableSegments)
         : null;
+    if (cableFragmentedSomewhere && !disableCableChainBearing) {
+      warnings.push('[coordinate-calculator] Cable chain bearings disabled: cable is fragmented (dashed-ribbon polygon). Using gpsBearing from UTM-projected positions.');
+    }
+    const sequenceFlipPages =
+      multiSheetRoute && sorted[0]?.lat != null
+        ? detectSequenceFlipPages(sorted)
+        : new Set();
     const chained = applyDistanceLabelGpsChain(
       sorted,
-      distMap,
+      augDistMapForSeams,
       startLat,
       startLon,
       branchStarts,
@@ -871,6 +899,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         cablesByPage: chainCables,
         postByNum: postMap,
         multiSheetRoute,
+        sequenceFlipPages,
       }
     );
     if (chained) {

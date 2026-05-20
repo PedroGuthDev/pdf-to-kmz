@@ -40,7 +40,7 @@ Plans:
 
 **Goal:** Implement GPS coordinate calculation from a user-provided starting point, using per-page UTM-grid calibration from PDF layout
 **Mode:** mvp
-**Plans:** 3 active plans (02-01/02-02 obsolete, replaced by 02-03/02-04/02-05)
+**Plans:** 4 active plans (02-01/02-02 obsolete; 02-03/02-04/02-05 shipped; 02-06 planned)
 
 Plans:
 - [x] 02-01-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
@@ -48,6 +48,7 @@ Plans:
 - [x] 02-03-PLAN.md — UTM calibration foundation: utm-calibrator.js module, layer-sources.js extensions, pdf-parser.js pipeline extension
 - [x] 02-04-PLAN.md — Coordinate calculation rewrite: calculateCoordinates() UTM projection, detectGaps() page filter, index.html wiring ✓ 2026-05-15
 - [x] 02-05-PLAN.md — Accuracy fix: Poste-symbol PDF positions + cable-aware match; Palhoça 11/11 < 5 m ✓ 2026-05-18
+- [ ] 02-06-PLAN.md — N1+Viterbi-HMM accuracy iteration: Viterbi symbol assignment, N1 default-on, 60 pt cable-proximity, Valmor p4 fixture (D-V-*, D-SYM-*, D-N1-*, D-N2-01)
 
 **Success Criteria**:
 

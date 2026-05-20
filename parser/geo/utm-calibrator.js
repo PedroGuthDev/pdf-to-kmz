@@ -640,7 +640,13 @@ function segmentMetersForWalk(prev, curr, sorted, index, distMap) {
   return null;
 }
 
-export function gpsAtPostViaLabelWalk(sortedPosts, distMap, post1Gps, targetNumber) {
+export function gpsAtPostViaLabelWalk(
+  sortedPosts,
+  distMap,
+  post1Gps,
+  targetNumber,
+  sequenceFlipPages = null
+) {
   if (!sortedPosts?.length || !distMap?.size) return null;
 
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
@@ -675,6 +681,10 @@ export function gpsAtPostViaLabelWalk(sortedPosts, distMap, post1Gps, targetNumb
         prevPrev && prevPrev.pageNum === prev.pageNum
           ? pdfBearing(prevPrev, prev)
           : pdfBearing(prev, curr);
+    }
+
+    if (sequenceFlipPages?.has(curr.pageNum) && !crossPage) {
+      bearing = (bearing + 180) % 360;
     }
 
     const next = destinationPoint(lat, lon, bearing, m);
