@@ -133,7 +133,13 @@
 9	poste 09; -27.65914949231848, -48.70230140211723
 10	poste 10; -27.6591063806582, -48.702660924999286
 11	poste 11; -27.659066208413993, -48.702999429619396</textarea>
-    <button id="compareBtn" style="padding:6px 12px; margin-top:8px;">Compare</button>
+    <p style="font-size:0.9em; color:#555; margin-top:8px;">
+      Compare re-runs the calculator using reference post&nbsp;1 (and optionally post&nbsp;34).
+      It does not change the “Last post” field above — use that only for Calculate Route.
+    </p>
+    <button id="compareBtn1" type="button" style="padding:6px 12px; margin-top:4px;">Compare (1 anchor: post 1)</button>
+    <button id="compareBtn2" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;">Compare (2 anchors: posts 1 + 34)</button>
+    <button id="fillRef34Btn" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;" title="Copy post 34 from reference into Last post field for Calculate Route">Fill post 34 → Last post</button>
     <pre id="compareOutput" style="background:#f4f4f4; padding:12px; border-radius:4px; overflow-x:auto; font-size:12px; margin-top:8px; display:none;"></pre>
   </section>
 
@@ -485,7 +491,9 @@
       outputPreview.textContent = summaryText + preview + (calculatedPosts.length > 10 ? '\n... and ' + (calculatedPosts.length - 10) + ' more' : '');
     });
     // ── Reference comparison ───────────────────────────────────────────────────
-    const compareBtn    = document.getElementById('compareBtn');
+    const compareBtn1   = document.getElementById('compareBtn1');
+    const compareBtn2   = document.getElementById('compareBtn2');
+    const fillRef34Btn  = document.getElementById('fillRef34Btn');
     const compareOutput = document.getElementById('compareOutput');
     const refInput      = document.getElementById('refInput');
 
@@ -498,28 +506,40 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
-    compareBtn.addEventListener('click', () => {
+    function parseReferenceLines() {
+      const refs = [];
+      for (const line of refInput.value.trim().split('\n')) {
+        const m = line.match(/poste\s+(\d+).*?([-\d.]+)\s*,\s*([-\d.]+)/i);
+        if (m) refs.push({ num: parseInt(m[1], 10), lat: parseFloat(m[2]), lon: parseFloat(m[3]) });
+      }
+      return refs;
+    }
+
+    fillRef34Btn.addEventListener('click', () => {
+      const ref34 = parseReferenceLines().find(r => r.num === 34);
+      if (!ref34) {
+        compareOutput.textContent = 'Reference has no post 34 — paste full João Born list first.';
+        compareOutput.style.display = 'block';
+        return;
+      }
+      document.getElementById('gpsInputLast').value = `${ref34.lat}, ${ref34.lon}`;
+      compareOutput.style.display = 'none';
+    });
+
+    function runReferenceCompare(twoAnchors) {
       if (!currentParseData) {
         compareOutput.textContent = 'No parse data yet — upload a PDF first.';
         compareOutput.style.display = 'block';
         return;
       }
 
-      // Parse reference lines: "1\tposte 01; -27.xxx, -48.xxx"
-      const refLines = refInput.value.trim().split('\n');
-      const refs = [];
-      for (const line of refLines) {
-        // Allow suffix after post number, e.g. "Poste 04 (N tem cabo); lat, lon"
-        const m = line.match(/poste\s+(\d+).*?([-\d.]+)\s*,\s*([-\d.]+)/i);
-        if (m) refs.push({ num: parseInt(m[1], 10), lat: parseFloat(m[2]), lon: parseFloat(m[3]) });
-      }
+      const refs = parseReferenceLines();
       if (refs.length === 0) {
         compareOutput.textContent = 'Could not parse reference lines. Expected format: "poste 01; -27.xxx, -48.xxx"';
         compareOutput.style.display = 'block';
         return;
       }
 
-      // Re-run calculateCoordinates with post1 = first ref
       const ref1 = refs.find(r => r.num === 1);
       if (!ref1) {
         compareOutput.textContent = 'Reference must include post #1.';
@@ -527,19 +547,25 @@
         return;
       }
 
-      const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-      const ref34 = refs.find(r => r.num === 34);
-      const gpsLastEl = document.getElementById('gpsInputLast');
-      if (ref34 && currentParseData.posts.length >= 30 && !gpsLastEl.value.trim()) {
-        gpsLastEl.value = `${ref34.lat}, ${ref34.lon}`;
+      let lastPostGps = null;
+      let anchorNote = 'Anchors: post 1 from reference (single-anchor UTM)';
+      if (twoAnchors) {
+        const ref34 = refs.find(r => r.num === 34);
+        if (!ref34 || ref34.num !== 34) {
+          compareOutput.textContent = 'Two-anchor compare needs post 34 in the reference list.';
+          compareOutput.style.display = 'block';
+          return;
+        }
+        lastPostGps = { lat: ref34.lat, lon: ref34.lon };
+        anchorNote = 'Anchors: post 1 + post 34 from reference (similarity refinement)';
       }
-      const compareLastVal = gpsLastEl.value;
-      const compareLastParsed = compareLastVal && compareLastVal.trim() ? parseCoordinateInput(compareLastVal) : null;
+
+      const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
       const utmCalibrationData = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
         pageDimensions: currentParseData.pageDimensions,
-        ...(compareLastParsed ? { lastPostGps: compareLastParsed } : {}),
+        ...(lastPostGps ? { lastPostGps } : {}),
       };
       const { posts: calcPosts } = calculateCoordinates(
         postsCopy,
@@ -553,6 +579,8 @@
 
       const lines = [];
       const pad = (s, n) => String(s).padEnd(n);
+      lines.push(anchorNote);
+      lines.push('');
       lines.push(
         pad('Post', 6) + pad('Ref lat', 20) + pad('Calc lat', 20) +
         pad('Ref lon', 20) + pad('Calc lon', 20) + pad('Error (m)', 12) + 'Status'
@@ -584,7 +612,10 @@
 
       compareOutput.textContent = lines.join('\n');
       compareOutput.style.display = 'block';
-    });
+    }
+
+    compareBtn1.addEventListener('click', () => runReferenceCompare(false));
+    compareBtn2.addEventListener('click', () => runReferenceCompare(true));
   </script>
 
 </body>
