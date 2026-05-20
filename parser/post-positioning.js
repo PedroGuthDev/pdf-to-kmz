@@ -7,6 +7,7 @@ import {
   isOffRouteCablePost,
   nearestCableHitOnPage,
   nearestPointOnPathOps,
+  prepareRouteCableOps,
 } from './cable-builder.js';
 
 /** Max PDF-pt move from label anchor in refine-only mode. */
@@ -848,6 +849,7 @@ function buildRouteCandidatesPerPost(
 
 /**
  * Viterbi-HMM along route cable (RESEARCH §2.1.1). O(n × k²) over per-post symbol candidates.
+ * Requires every post to have at least one candidate.
  *
  * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
  * @param {PoleCandidate[][]} candidatesPerPost
@@ -856,7 +858,7 @@ function buildRouteCandidatesPerPost(
  * @param {number} [cableDir]  +1 or -1 along route cable
  * @returns {PoleCandidate[]|null}
  */
-function viterbiAssignAlongCable(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
+function viterbiAssignAlongCableCore(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
   const n = routePosts.length;
   if (n === 0) return null;
   if (candidatesPerPost.some(c => !c.length)) return null;
@@ -939,6 +941,55 @@ function viterbiAssignAlongCable(routePosts, candidatesPerPost, distMap, scale, 
   }
 
   return pickIdx.map((ci, i) => candidatesPerPost[i][ci]);
+}
+
+/**
+ * Viterbi on full route, or on contiguous viable segments when some posts lack candidates.
+ *
+ * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
+ * @param {PoleCandidate[][]} candidatesPerPost
+ * @param {Map<string, number>} distMap
+ * @param {number} scale
+ * @param {number} [cableDir]
+ * @returns {PoleCandidate[]|null}
+ */
+function viterbiAssignAlongCable(routePosts, candidatesPerPost, distMap, scale, cableDir = 1) {
+  const full = viterbiAssignAlongCableCore(routePosts, candidatesPerPost, distMap, scale, cableDir);
+  if (full) return full;
+
+  const n = routePosts.length;
+  /** @type {(PoleCandidate|null)[]} */
+  const merged = new Array(n).fill(null);
+  let assigned = 0;
+
+  let i = 0;
+  while (i < n) {
+    while (i < n && !candidatesPerPost[i].length) i++;
+    if (i >= n) break;
+    let j = i;
+    while (j < n && candidatesPerPost[j].length) j++;
+    const len = j - i;
+    if (len >= 2) {
+      const sub = viterbiAssignAlongCableCore(
+        routePosts.slice(i, j),
+        candidatesPerPost.slice(i, j),
+        distMap,
+        scale,
+        cableDir
+      );
+      if (sub) {
+        for (let k = 0; k < len; k++) merged[i + k] = sub[k];
+        assigned += len;
+      }
+    } else if (len === 1) {
+      merged[i] = candidatesPerPost[i][0];
+      assigned += 1;
+    }
+    i = j;
+  }
+
+  if (assigned < 2 || merged.some(c => c == null)) return null;
+  return /** @type {PoleCandidate[]} */ (merged);
 }
 
 /**
@@ -1195,11 +1246,14 @@ export function assignPolesGloballyByLabels(
       }
 
       const paths = cablesByPage.get(pageNum) ?? [];
-      const routeOps = paths[pathIndex] ?? selectRouteCableOps(pageNum, cablesByPage, anchorOf(routePosts[0]));
-      if (!routeOps) {
+      const rawRouteOps =
+        paths[pathIndex] ?? selectRouteCableOps(pageNum, cablesByPage, anchorOf(routePosts[0]));
+      if (!rawRouteOps) {
         warnings.push(`[post-positioning] N3 page ${pageNum}: no route cable — greedy fallback.`);
         continue;
       }
+      const anchor0 = anchorOf(routePosts[0]);
+      const routeOps = prepareRouteCableOps(rawRouteOps, anchor0.x, anchor0.y, routePosts);
 
       let cableDir = refineCableDir(
         routePosts,

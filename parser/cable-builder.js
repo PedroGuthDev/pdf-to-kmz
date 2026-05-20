@@ -262,6 +262,157 @@ export function buildCablesByPage(cablePaths) {
   return cablesByPage;
 }
 
+/** Dashed-ribbon cables (many M sub-paths) need stitching before arc-length Viterbi. */
+export const FRAGMENTED_CABLE_MIN_SUBPATHS = 5;
+
+/**
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {number}
+ */
+export function countCableSubpaths(ops) {
+  if (!ops?.length) return 0;
+  return ops.filter(op => op.type === 'M').length;
+}
+
+/**
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {boolean}
+ */
+export function isFragmentedCableOps(ops) {
+  return countCableSubpaths(ops) >= FRAGMENTED_CABLE_MIN_SUBPATHS;
+}
+
+/**
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @returns {Array<Array<import('./construct-path-parser.js').PathOp>>}
+ */
+function splitCableSubpaths(ops) {
+  /** @type {Array<Array<import('./construct-path-parser.js').PathOp>>} */
+  const subpaths = [];
+  /** @type {Array<import('./construct-path-parser.js').PathOp>} */
+  let current = null;
+  for (const op of ops) {
+    if (op.type === 'M') {
+      if (current?.length) subpaths.push(current);
+      current = [op];
+    } else if (current) {
+      current.push(op);
+    }
+  }
+  if (current?.length) subpaths.push(current);
+  return subpaths;
+}
+
+/**
+ * @param {Array<{ anchorX?: number, anchorY?: number, x: number, y: number }>} [routePosts]
+ * @returns {{ ux: number, uy: number }|null}
+ */
+function routeAxisUnit(routePosts) {
+  if (!routePosts || routePosts.length < 3) return null;
+  const xs = routePosts.map(p => p.anchorX ?? p.x);
+  const ys = routePosts.map(p => p.anchorY ?? p.y);
+  const idx = routePosts.map((_, i) => i);
+  const n = routePosts.length;
+  const iMean = idx.reduce((s, v) => s + v, 0) / n;
+  const xMean = xs.reduce((s, v) => s + v, 0) / n;
+  const yMean = ys.reduce((s, v) => s + v, 0) / n;
+  let sxn = 0;
+  let syn = 0;
+  let snn = 0;
+  for (let i = 0; i < n; i++) {
+    const di = idx[i] - iMean;
+    sxn += di * (xs[i] - xMean);
+    syn += di * (ys[i] - yMean);
+    snn += di * di;
+  }
+  if (snn < 1e-9) return null;
+  const dx = sxn / snn;
+  const dy = syn / snn;
+  const len = Math.hypot(dx, dy) || 1;
+  return { ux: dx / len, uy: dy / len };
+}
+
+/**
+ * Midpoint of the longest L segment in one dash subpath (dashed-ribbon triangle).
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} subops
+ * @returns {{ mx: number, my: number }|null}
+ */
+function dashSpineFromSubpath(subops) {
+  /** @type {{ ax: number, ay: number, bx: number, by: number, len: number }[]} */
+  const segments = [];
+  /** @type {{ x: number, y: number } | null} */
+  let cur = null;
+  for (const op of subops) {
+    if (op.type === 'M') cur = { x: op.x, y: op.y };
+    else if (op.type === 'L' && cur) {
+      const len = Math.hypot(op.x - cur.x, op.y - cur.y);
+      segments.push({ ax: cur.x, ay: cur.y, bx: op.x, by: op.y, len });
+      cur = { x: op.x, y: op.y };
+    }
+  }
+  if (!segments.length) {
+    const ep = endpointFromPath(subops, 'start');
+    return ep ? { mx: ep.x, my: ep.y } : null;
+  }
+  const best = segments.reduce((a, b) => (b.len > a.len ? b : a));
+  return { mx: (best.ax + best.bx) / 2, my: (best.ay + best.by) / 2 };
+}
+
+/**
+ * Stitch dashed-ribbon cable dashes into one route polyline ordered along the span from ref.
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {number} refX
+ * @param {number} refY
+ * @param {Array<{ anchorX?: number, anchorY?: number, x: number, y: number }>} [routePosts]
+ * @returns {Array<import('./construct-path-parser.js').PathOp>}
+ */
+export function consolidateFragmentedCableOps(ops, refX, refY, routePosts = null) {
+  if (!isFragmentedCableOps(ops)) return ops;
+
+  const subpaths = splitCableSubpaths(ops);
+  const spines = subpaths.map(dashSpineFromSubpath).filter(Boolean);
+  if (spines.length < 2) return ops;
+
+  const axis =
+    routeAxisUnit(routePosts) ??
+    (() => {
+      const cx = spines.reduce((s, p) => s + p.mx, 0) / spines.length;
+      const cy = spines.reduce((s, p) => s + p.my, 0) / spines.length;
+      const dx = cx - refX;
+      const dy = cy - refY;
+      const axisLen = Math.hypot(dx, dy) || 1;
+      return { ux: dx / axisLen, uy: dy / axisLen };
+    })();
+
+  spines.sort((a, b) => {
+    const pa = (a.mx - refX) * axis.ux + (a.my - refY) * axis.uy;
+    const pb = (b.mx - refX) * axis.ux + (b.my - refY) * axis.uy;
+    return pa - pb;
+  });
+
+  /** @type {Array<import('./construct-path-parser.js').PathOp>} */
+  const out = [{ type: 'M', x: spines[0].mx, y: spines[0].my }];
+  for (let i = 1; i < spines.length; i++) {
+    out.push({ type: 'L', x: spines[i].mx, y: spines[i].my });
+  }
+  return out;
+}
+
+/**
+ * Use consolidated polyline for fragmented route cables (Viterbi / arc-length matching).
+ *
+ * @param {Array<import('./construct-path-parser.js').PathOp>} ops
+ * @param {number} refX
+ * @param {number} refY
+ * @param {Array<{ anchorX?: number, anchorY?: number, x: number, y: number }>} [routePosts]
+ * @returns {Array<import('./construct-path-parser.js').PathOp>}
+ */
+export function prepareRouteCableOps(ops, refX, refY, routePosts = null) {
+  return consolidateFragmentedCableOps(ops, refX, refY, routePosts);
+}
+
 /**
  * Bearing for Distância_Poste GPS chaining when a pole is off the cable (tap / no-cable post).
  * Uses Cabo Projetado direction between on-route neighbors (e.g. 3→5 past off-route post 4).

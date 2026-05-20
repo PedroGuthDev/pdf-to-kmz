@@ -5,6 +5,28 @@ created: 2026-05-18
 updated: 2026-05-20
 ---
 
+## Session 3 (2026-05-20, resumed in Cursor): Node Viterbi cable consolidation
+
+**Context:** Claude CLI session `65f8fa48-25ee-4b1c-92a2-d46abcd7ae55` stopped at rate limit while implementing cable consolidation + subset-Viterbi (tasks 7–8).
+
+**Changes:**
+- `parser/cable-builder.js`: `consolidateFragmentedCableOps` stitches dashed-ribbon dashes (≥5 M sub-paths) into one route polyline ordered along posts-regression axis.
+- `parser/post-positioning.js`: `prepareRouteCableOps` before candidate build; `viterbiAssignAlongCableCore` + segment fallback when some posts lack candidates.
+
+**Revit harness (`debug-run-calc-revit.mjs`):**
+| Metric | Before | After |
+|---|---:|---:|
+| Viterbi pages | 3/4/5 **fail** → greedy | **succeeds** (no fallback warnings) |
+| Max error | 68.50 m | **48.54 m** |
+| < 5 m | 4/34 | **8/34** |
+| Posts moved | 5/34 | **20/34** |
+
+**Static harness (`debug-run-calc.mjs joao-born`):** unchanged at max **38.63 m**, 6/34 < 5 m (uses PARSE DEBUG positions, not live Node Viterbi). Valmor G-1 still **4.19 m**, 11/11.
+
+**Remaining:** Revit path still worse than static baseline; G-2 gate not met. Next: export fresh PARSE DEBUG after browser Viterbi, or tune σ/β with working Node Viterbi.
+
+---
+
 ## Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
 
 **User directive:** "try to retune viterbi and see if it drops to ~15m"
