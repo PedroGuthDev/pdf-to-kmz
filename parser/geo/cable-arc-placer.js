@@ -275,7 +275,7 @@ export function placePostsOnCableByArcLength({
     if (
       posteSnapMajority &&
       anchorOnCable &&
-      (pageNum >= 5 || cableFragmented) &&
+      cableFragmented &&
       consistencyFrac >= N1_SKIP_CONSISTENCY_FRAC
     ) {
       continue;

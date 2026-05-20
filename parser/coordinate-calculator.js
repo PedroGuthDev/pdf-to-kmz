@@ -731,16 +731,25 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           cablesByPage,
           warnings
         );
-        if (!labelLsqImproved && n6 === 0) {
-          adjustPageOriginsAtBoundaries(
-            pageTransforms,
-            sorted,
-            augDistMap,
-            { lat: startLat, lon: startLon },
-            warnings
+        const nBoundary =
+          !labelLsqImproved && n6 === 0
+            ? adjustPageOriginsAtBoundaries(
+                pageTransforms,
+                sorted,
+                augDistMap,
+                { lat: startLat, lon: startLon },
+                warnings
+              )
+            : 0;
+        // Seam-lock walks from post #1 and overwrites label-lsq page origins when LSQ already
+        // improved RMSE (João Born). Use boundary lock first; seam only as fallback.
+        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else if (labelLsqImproved) {
+          warnings.push(
+            '[seam-lock] Skipped — global label-lsq already adjusted detail page origins.'
           );
-        }
-        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else {
+        } else if (nBoundary > 0) {
+          /* boundary-locked at sheet breaks */
+        } else {
         const post15 = sorted.find(p => p.number === 15);
         const sequenceFlipPages = detectSequenceFlipPages(sorted);
         if (sequenceFlipPages.size > 0) {
