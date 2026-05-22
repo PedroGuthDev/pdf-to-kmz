@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = '2026-05-multisheet-no-seam';
+export const CALC_PIPELINE_ID = '2026-05-sheet-break-prior';
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -10,7 +10,6 @@ export const CALC_PIPELINE_ID = '2026-05-multisheet-no-seam';
 import {
   computeScaleFactor,
   buildPageTransforms,
-  adjustPageOriginsAtBoundaries,
   gpsAtPostViaLabelWalk,
   lockPageOriginAtGps,
   projectPost,
@@ -43,6 +42,83 @@ import {
 import { detectSequenceFlipPages, flipBearingDeg } from './geo/route-sequence.js';
 
 const SEGMENT_SNAP_MAX_PT = 100;
+
+/**
+ * Lock sheet-break page origins from the previous page's UTM-projected last post +
+ * in-page exit bearing + cross-page label (no cumulative walk from post #1).
+ *
+ * @returns {number} pages adjusted
+ */
+function lockPageOriginsAtSheetBreaksFromPriorProjection(
+  transforms,
+  sortedPosts,
+  distMap,
+  warnings
+) {
+  if (transforms.size < 2 || !sortedPosts?.length || !distMap?.size) return 0;
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const pdfBearing = (from, to) => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
+  let adjusted = 0;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum === curr.pageNum
+    ) {
+      continue;
+    }
+
+    const prevTf = transforms.get(prev.pageNum);
+    if (!prevTf || !transforms.has(curr.pageNum)) continue;
+
+    const m =
+      distMap.get(`${prev.number}->${curr.number}`) ??
+      distMap.get(`${curr.number}->${prev.number}`);
+    if (m == null || m <= 0) continue;
+
+    const prevPrev = sorted[i - 2];
+    let bearing;
+    if (prevPrev && prevPrev.pageNum === prev.pageNum) {
+      bearing = pdfBearing(prevPrev, prev);
+    } else {
+      const next = sorted[i + 1];
+      if (!next || next.pageNum !== curr.pageNum) continue;
+      bearing = pdfBearing(prev, next);
+    }
+
+    const gpsPrev = projectPost(prev.x, prev.y, prevTf);
+    const gpsCurr = destinationPoint(gpsPrev.lat, gpsPrev.lon, bearing, m);
+
+    if (
+      lockPageOriginAtGps(
+        transforms,
+        curr.pageNum,
+        curr.x,
+        curr.y,
+        gpsCurr.lat,
+        gpsCurr.lon
+      )
+    ) {
+      adjusted++;
+    }
+  }
+
+  if (adjusted > 0) {
+    warnings.push(
+      `[boundary-locked] ${adjusted} page origin(s) at sheet breaks from prior-page UTM exit bearing + label (not post-1 walk).`
+    );
+  }
+  return adjusted;
+}
 
 /**
  * Parse decimal-degree coordinate string (Google Maps paste support — D-13).
@@ -738,11 +814,10 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         const nBoundary =
           labelLsqImproved || n6 > 0
             ? 0
-            : adjustPageOriginsAtBoundaries(
+            : lockPageOriginsAtSheetBreaksFromPriorProjection(
                 pageTransforms,
                 sorted,
                 augDistMap,
-                { lat: startLat, lon: startLon },
                 warnings
               );
         // Post-1→15 seam-lock drifts ~55 m on João Born; never use on 3+ detail sheets.

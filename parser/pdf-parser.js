@@ -63,7 +63,14 @@ import {
 } from './coordinate-calculator.js';
 
 // Re-export coordinate calculator functions for single-entry-point imports (Phase 2).
-export { calculateCoordinates, parseCoordinateInput, validateBrazilBounds, detectRouteTopology, detectGaps };
+export {
+  calculateCoordinates,
+  parseCoordinateInput,
+  validateBrazilBounds,
+  detectRouteTopology,
+  detectGaps,
+  CALC_PIPELINE_ID,
+};
 
 /** Poste-layer engineering label under the red circle, e.g. "10-300 (U)" / "10-150 (U)". */
 const POST_TYPE_LABEL_RE = /\b\d{1,3}\s*-\s*\d{1,4}\b(?:\s*\([^)]{0,24}\))?/;
