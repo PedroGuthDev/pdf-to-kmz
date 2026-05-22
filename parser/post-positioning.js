@@ -80,6 +80,9 @@ const OFF_CABLE_REPOSITION_PT = 36;
 const BETWEEN_NEIGHBOR_SEG_MIN = 0.12;
 const BETWEEN_NEIGHBOR_SEG_MAX = 0.88;
 
+/** Marker anchor vs snapped pole split — label pulled onto cable mid-span (e.g. post 8 at junction). */
+const ANCHOR_POLE_SPLIT_REALIGN_PT = 18;
+
 /**
  * @param {{ x: number, y: number, anchorX?: number, anchorY?: number }} p
  */
@@ -334,6 +337,8 @@ function repositionOffRoutePostsBetweenNeighbors(
     const segLen = Math.hypot(bx - ax, by - ay);
     if (segLen < 20) continue;
 
+    const uAnchor = segmentProjectionU(ax, ay, bx, by, anchor.x, anchor.y);
+
     let bestSi = -1;
     let bestScore = Infinity;
     for (let si = 0; si < symbols.length; si++) {
@@ -341,10 +346,13 @@ function repositionOffRoutePostsBetweenNeighbors(
       const sym = symbols[si];
       if ((sym.pageNum ?? 1) !== pg) continue;
       const u = segmentProjectionU(ax, ay, bx, by, sym.x, sym.y);
-      if (u < BETWEEN_NEIGHBOR_SEG_MIN || u > BETWEEN_NEIGHBOR_SEG_MAX) continue;
       const dLabel = Math.hypot(sym.x - anchor.x, sym.y - anchor.y);
-      const dCircle = Math.hypot(sym.x - p.x, sym.y - p.y);
-      const score = Math.min(dLabel, dCircle) + 0.2 * Math.abs(u - 0.5) * segLen;
+      const uLo = Math.min(BETWEEN_NEIGHBOR_SEG_MIN, uAnchor - 0.08);
+      const uHi = Math.max(BETWEEN_NEIGHBOR_SEG_MAX, uAnchor + 0.08);
+      if (u < uLo || u > uHi) {
+        if (dLabel > POSTE_LABEL_MATCH_MAX_PT) continue;
+      }
+      const score = dLabel + 0.12 * Math.abs(u - uAnchor) * segLen;
       if (score < bestScore) {
         bestScore = score;
         bestSi = si;
@@ -363,6 +371,64 @@ function repositionOffRoutePostsBetweenNeighbors(
       `[post-positioning] post ${p.number}: placed on pole symbol between posts ${prev.number} ` +
         `and ${next.number} (label off cable or outside route arc).`
     );
+  }
+}
+
+/**
+ * When assignment snapped a post onto the cable but the Numero_Poste / label anchor stayed
+ * beside the street (e.g. post 8 at circle "08" vs junction pole), prefer anchor or nearest
+ * Poste to the anchor — not the cable midpoint.
+ */
+function realignPostsToMarkerAnchorWhenCablePulled(
+  posts,
+  symbols,
+  cablesByPage,
+  warnings,
+) {
+  for (const p of posts) {
+    const anchor = anchorOf(p);
+    const split = Math.hypot(p.x - anchor.x, p.y - anchor.y);
+    if (split < ANCHOR_POLE_SPLIT_REALIGN_PT) continue;
+
+    const pg = p.pageNum ?? 1;
+    const posHit = nearestCableHitOnPage(p.x, p.y, pg, cablesByPage);
+    const anchHit = nearestCableHitOnPage(anchor.x, anchor.y, pg, cablesByPage);
+    const pulledOntoCable =
+      posHit.d <= OFF_CABLE_REPOSITION_PT &&
+      anchHit.d > posHit.d + 8;
+    if (!pulledOntoCable && split < POSTE_LABEL_MATCH_MAX_PT * 0.5) continue;
+
+    let bestSi = -1;
+    let bestD = Infinity;
+    for (let si = 0; si < symbols.length; si++) {
+      const sym = symbols[si];
+      if ((sym.pageNum ?? 1) !== pg) continue;
+      const d = Math.hypot(sym.x - anchor.x, sym.y - anchor.y);
+      if (d < bestD) {
+        bestD = d;
+        bestSi = si;
+      }
+    }
+
+    if (bestSi >= 0 && bestD + 6 < split) {
+      const sym = symbols[bestSi];
+      p.x = sym.x;
+      p.y = sym.y;
+      warnings.push(
+        `[post-positioning] post ${p.number}: realigned to Poste near label anchor ` +
+          `(${split.toFixed(0)} pt from cable snap, ${bestD.toFixed(0)} pt to anchor).`,
+      );
+      continue;
+    }
+
+    if (pulledOntoCable || bestD > POSTE_LABEL_MATCH_MAX_PT) {
+      p.x = anchor.x;
+      p.y = anchor.y;
+      warnings.push(
+        `[post-positioning] post ${p.number}: using label anchor position ` +
+          `(was ${split.toFixed(0)} pt from marker; snapped pole was on cable, not at post ${p.number} on plan).`,
+      );
+    }
   }
 }
 
@@ -560,6 +626,13 @@ export function assignPostPositionsFromPosteSymbols(
     usedSymbol,
     snappedPosts,
     postByNum,
+    warnings
+  );
+
+  realignPostsToMarkerAnchorWhenCablePulled(
+    posts,
+    symbols,
+    cablesByPage,
     warnings
   );
 
@@ -1677,6 +1750,13 @@ export function assignPolesGloballyByLabels(
     usedSymbol,
     snappedPosts,
     postByNum,
+    warnings
+  );
+
+  realignPostsToMarkerAnchorWhenCablePulled(
+    posts,
+    symbols,
+    cablesByPage,
     warnings
   );
 
