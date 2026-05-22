@@ -262,6 +262,7 @@ const calcOpts = {
   utmGridPathsPerPage: parsed.utmGridPathsPerPage,
   viewportBoxes: parsed.viewportBoxes,
   pageDimensions: parsed.pageDimensions,
+  posteRawCentroids: parsed.posteRawCentroids,
   overviewComposite,
 };
 if (twoAnchor && lastRef) {

@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = '2026-05-sheet-break-prior';
+export const CALC_PIPELINE_ID = "2026-05-label-outlier-lsq";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -18,28 +18,31 @@ import {
   latLonToUtm,
   utmToLatLon,
   destinationPoint,
-} from './geo/utm-calibrator.js';
+} from "./geo/utm-calibrator.js";
 import {
   nearestPointOnCablesOnPage,
   buildCablesByPage,
   cableSegmentBearingDeg,
   cableExitBearingAtPost,
   bearingForDistanceLabelChain,
-} from './cable-builder.js';
-import { placePostsOnCableByArcLength } from './geo/cable-arc-placer.js';
-import { attachMarkerAnchors } from './post-positioning.js';
+} from "./cable-builder.js";
+import { placePostsOnCableByArcLength } from "./geo/cable-arc-placer.js";
+import { attachMarkerAnchors } from "./post-positioning.js";
 import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
-  refinePageOriginsByLabelCalibration,
-} from './geo/label-lsq-calibrator.js';
-import { adjustPageOriginsByCableSimilarity } from './geo/cable-boundary-calibrator.js';
-import { applyGridAffineToTransforms } from './geo/grid-affine-calibrator.js';
+  refinePageOriginsByLabelLsq,
+} from "./geo/label-lsq-calibrator.js";
+import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
+import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
 import {
   buildOverviewCompositeTransform,
   remapPostsToOverviewViaUtm,
-} from './geo/overview-composite.js';
-import { detectSequenceFlipPages, flipBearingDeg } from './geo/route-sequence.js';
+} from "./geo/overview-composite.js";
+import {
+  detectSequenceFlipPages,
+  flipBearingDeg,
+} from "./geo/route-sequence.js";
 
 const SEGMENT_SNAP_MAX_PT = 100;
 
@@ -53,7 +56,7 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
   transforms,
   sortedPosts,
   distMap,
-  warnings
+  warnings,
 ) {
   if (transforms.size < 2 || !sortedPosts?.length || !distMap?.size) return 0;
 
@@ -105,7 +108,7 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
         curr.x,
         curr.y,
         gpsCurr.lat,
-        gpsCurr.lon
+        gpsCurr.lon,
       )
     ) {
       adjusted++;
@@ -114,7 +117,7 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
 
   if (adjusted > 0) {
     warnings.push(
-      `[boundary-locked] ${adjusted} page origin(s) at sheet breaks from prior-page UTM exit bearing + label (not post-1 walk).`
+      `[boundary-locked] ${adjusted} page origin(s) at sheet breaks from prior-page UTM exit bearing + label (not post-1 walk).`,
     );
   }
   return adjusted;
@@ -128,14 +131,14 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
  * @returns {{ lat: number, lon: number } | null}  Parsed coordinates or null if invalid.
  */
 export function parseCoordinateInput(input) {
-  if (typeof input !== 'string') return null;
+  if (typeof input !== "string") return null;
   const trimmed = input.trim();
   if (!trimmed) return null;
 
   // Try comma-separated first, then space-separated
   let parts;
-  if (trimmed.includes(',')) {
-    parts = trimmed.split(',').map(s => s.trim());
+  if (trimmed.includes(",")) {
+    parts = trimmed.split(",").map((s) => s.trim());
   } else {
     parts = trimmed.split(/\s+/);
   }
@@ -166,7 +169,7 @@ export function validateBrazilBounds(lat, lon) {
   }
   return {
     valid: false,
-    message: 'Coordinates outside Brazil bounds (lat -34 to 5, lon -74 to -35)',
+    message: "Coordinates outside Brazil bounds (lat -34 to 5, lon -74 to -35)",
   };
 }
 
@@ -214,7 +217,7 @@ export function detectRouteTopology(posts) {
           start: p.number,
           end: p.number,
           junctionPost: bestJunc ? bestJunc.number : null,
-          _posts: []
+          _posts: [],
         };
         branches.push(b);
         currentSequence = b._posts;
@@ -229,7 +232,11 @@ export function detectRouteTopology(posts) {
 
   return {
     mainRoute,
-    branches: branches.map(b => ({ start: b.start, end: b.end, junctionPost: b.junctionPost }))
+    branches: branches.map((b) => ({
+      start: b.start,
+      end: b.end,
+      junctionPost: b.junctionPost,
+    })),
   };
 }
 
@@ -253,7 +260,7 @@ export function detectRouteTopology(posts) {
 function repairPostsOnUncalibratedPages(posts, calibratedPages, warnings) {
   if (!calibratedPages.size) return;
 
-  const byNum = new Map(posts.map(p => [p.number, p]));
+  const byNum = new Map(posts.map((p) => [p.number, p]));
   const sortedNums = [...byNum.keys()].sort((a, b) => a - b);
 
   for (const num of sortedNums) {
@@ -275,7 +282,7 @@ function repairPostsOnUncalibratedPages(posts, calibratedPages, warnings) {
       post.y = prev.y + (next.y - prev.y) * t;
       warnings.push(
         `[coordinate-calculator] Post ${num}: moved from uncalibrated page ${pg} to page ${targetPage} ` +
-          `(interpolated PDF position between posts ${prev.number} and ${next.number}).`
+          `(interpolated PDF position between posts ${prev.number} and ${next.number}).`,
       );
       continue;
     }
@@ -284,13 +291,13 @@ function repairPostsOnUncalibratedPages(posts, calibratedPages, warnings) {
       post.pageNum = prev.pageNum;
       warnings.push(
         `[coordinate-calculator] Post ${num}: reassigned from page ${pg} to calibrated page ${prev.pageNum} ` +
-          `(PDF position unchanged — may be inaccurate).`
+          `(PDF position unchanged — may be inaccurate).`,
       );
     } else if (nextOk) {
       post.pageNum = next.pageNum;
       warnings.push(
         `[coordinate-calculator] Post ${num}: reassigned from page ${pg} to calibrated page ${next.pageNum} ` +
-          `(PDF position unchanged — may be inaccurate).`
+          `(PDF position unchanged — may be inaccurate).`,
       );
     }
   }
@@ -314,10 +321,10 @@ function applyDistanceLabelGpsChain(
   startLat,
   startLon,
   branchStarts,
-  opts = {}
+  opts = {},
 ) {
   const { cablesByPage, postByNum, multiSheetRoute, sequenceFlipPages } = opts;
-  const utm = sorted.map(p => ({ lat: p.lat, lon: p.lon }));
+  const utm = sorted.map((p) => ({ lat: p.lat, lon: p.lon }));
   let labeled = 0;
   let applied = 0;
 
@@ -328,7 +335,9 @@ function applyDistanceLabelGpsChain(
     const prev = sorted[i - 1];
     const curr = sorted[i];
     const crossPage =
-      prev.pageNum != null && curr.pageNum != null && prev.pageNum !== curr.pageNum;
+      prev.pageNum != null &&
+      curr.pageNum != null &&
+      prev.pageNum !== curr.pageNum;
     if (crossPage || branchStarts.has(curr.number)) {
       runs.push({ startIdx: runStart, endIdx: i - 1 });
       runStart = i;
@@ -383,7 +392,12 @@ function applyDistanceLabelGpsChain(
         }
       }
       if (bearing == null) {
-        bearing = gpsBearing(utm[i - 1].lat, utm[i - 1].lon, utm[i].lat, utm[i].lon);
+        bearing = gpsBearing(
+          utm[i - 1].lat,
+          utm[i - 1].lon,
+          utm[i].lat,
+          utm[i].lon,
+        );
       }
       if (
         sequenceFlipPages?.has(curr.pageNum) &&
@@ -417,8 +431,19 @@ function applyDistanceLabelGpsChain(
  * @param {string[]} warnings
  * @param {number} [threshold=30]  Max PDF-pt distance for a snap to count.
  */
-export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 30) {
-  if (!posts || posts.length === 0 || !cableSegments || cableSegments.length === 0) return;
+export function snapPostsToPolyline(
+  posts,
+  cableSegments,
+  warnings,
+  threshold = 30,
+) {
+  if (
+    !posts ||
+    posts.length === 0 ||
+    !cableSegments ||
+    cableSegments.length === 0
+  )
+    return;
 
   attachMarkerAnchors(posts);
 
@@ -431,20 +456,23 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
   for (let si = 0; si < cableSegments.length; si++) {
     const seg = cableSegments[si];
     const pageNum = seg.pageNum;
-    if (pageNum == null) { flatIndex++; continue; }
+    if (pageNum == null) {
+      flatIndex++;
+      continue;
+    }
 
     if (!verticesByPage.has(pageNum)) verticesByPage.set(pageNum, []);
     const bucket = verticesByPage.get(pageNum);
 
-    for (const op of (seg.ops || [])) {
-      if (op.type === 'M' || op.type === 'L') {
+    for (const op of seg.ops || []) {
+      if (op.type === "M" || op.type === "L") {
         bucket.push({ x: op.x, y: op.y, id: `${pageNum}:${flatIndex}` });
         flatIndex++;
-      } else if (op.type === 'C') {
+      } else if (op.type === "C") {
         // Only endpoint — bezier interior points are NOT vertices (D-ACC-01, T-02-05-04)
         bucket.push({ x: op.x3, y: op.y3, id: `${pageNum}:${flatIndex}` });
         flatIndex++;
-      } else if (op.type === 'C2') {
+      } else if (op.type === "C2") {
         bucket.push({ x: op.x2, y: op.y2, id: `${pageNum}:${flatIndex}` });
         flatIndex++;
       }
@@ -488,7 +516,7 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
 
   // Emit warnings for missed snaps (D-ACC-02 fallback)
   for (let pi = 0; pi < posts.length; pi++) {
-    if (usedPost.has(pi)) continue;  // successfully snapped — no warning
+    if (usedPost.has(pi)) continue; // successfully snapped — no warning
 
     const post = posts[pi];
     const pageNum = post.pageNum;
@@ -497,7 +525,7 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
     const bucket = verticesByPage.get(pageNum);
     if (!bucket || bucket.length === 0) {
       warnings.push(
-        `[coordinate-calculator] snap: post ${post.number} (page ${pageNum}) had no Cabo_Projetado vertices on its page — OCR position retained.`
+        `[coordinate-calculator] snap: post ${post.number} (page ${pageNum}) had no Cabo_Projetado vertices on its page — OCR position retained.`,
       );
       continue;
     }
@@ -509,7 +537,7 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
       if (d < dMin) dMin = d;
     }
     warnings.push(
-      `[coordinate-calculator] snap: post ${post.number} (page ${pageNum}) kept OCR position — nearest cable vertex was ${dMin.toFixed(2)} pt away (> ${threshold} pt threshold).`
+      `[coordinate-calculator] snap: post ${post.number} (page ${pageNum}) kept OCR position — nearest cable vertex was ${dMin.toFixed(2)} pt away (> ${threshold} pt threshold).`,
     );
   }
 
@@ -528,7 +556,12 @@ export function snapPostsToPolyline(posts, cableSegments, warnings, threshold = 
     const pageNum = post.pageNum;
     if (pageNum == null) continue;
     const anchor = { x: post.anchorX ?? post.x, y: post.anchorY ?? post.y };
-    const near = nearestPointOnCablesOnPage(anchor.x, anchor.y, pageNum, cablesByPage);
+    const near = nearestPointOnCablesOnPage(
+      anchor.x,
+      anchor.y,
+      pageNum,
+      cablesByPage,
+    );
     if (near.d > SEGMENT_SNAP_MAX_PT) continue;
     const move = Math.hypot(near.x - anchor.x, near.y - anchor.y);
     if (move > SEGMENT_SNAP_MAX_PT) continue;
@@ -547,10 +580,11 @@ export function detectGaps(posts, distances, cableSegments) {
   }
 
   const topology = detectRouteTopology(posts);
-  const branchStarts = new Set(topology.branches.map(b => b.start));
+  const branchStarts = new Set(topology.branches.map((b) => b.start));
   const sorted = [...posts].sort((a, b) => a.number - b.number);
 
-  const nearPost = (op, post, threshold) => Math.hypot(op.x - post.x, op.y - post.y) < threshold;
+  const nearPost = (op, post, threshold) =>
+    Math.hypot(op.x - post.x, op.y - post.y) < threshold;
 
   for (let i = 0; i < sorted.length - 1; i++) {
     const curr = sorted[i];
@@ -562,14 +596,21 @@ export function detectGaps(posts, distances, cableSegments) {
 
     // Check if ANY cable segment passes near both posts
     let connected = false;
-    for (const segment of (cableSegments || [])) {
+    for (const segment of cableSegments || []) {
       // D-REV: Only test cables on the same page — cross-page coords are not comparable
-      if (segment.pageNum != null && curr.pageNum != null && segment.pageNum !== curr.pageNum) continue;
+      if (
+        segment.pageNum != null &&
+        curr.pageNum != null &&
+        segment.pageNum !== curr.pageNum
+      )
+        continue;
       let nearA = false;
       let nearB = false;
       for (const op of segment.ops) {
-        if (!nearA && op.x !== undefined && nearPost(op, curr, 50)) nearA = true;
-        if (!nearB && op.x !== undefined && nearPost(op, next, 50)) nearB = true;
+        if (!nearA && op.x !== undefined && nearPost(op, curr, 50))
+          nearA = true;
+        if (!nearB && op.x !== undefined && nearPost(op, next, 50))
+          nearB = true;
         if (nearA && nearB) {
           connected = true;
           break;
@@ -600,8 +641,16 @@ export function detectGaps(posts, distances, cableSegments) {
  * @param {{ utmGridPathsPerPage: Map, viewportBoxes: Array, pageDimensions: Map, lastPostGps?: { lat: number, lon: number }, overviewComposite?: boolean }|null} opts
  * @returns {{ posts: Array, connections: Array, warnings: string[] }}
  */
-export function calculateCoordinates(posts, distances, startLat, startLon, cableSegments = [], opts = null) {
-  if (!posts || posts.length === 0) return { posts: [], connections: [], warnings: [] };
+export function calculateCoordinates(
+  posts,
+  distances,
+  startLat,
+  startLon,
+  cableSegments = [],
+  opts = null,
+) {
+  if (!posts || posts.length === 0)
+    return { posts: [], connections: [], warnings: [] };
 
   const warnings = [];
   const sorted = [...posts].sort((a, b) => a.number - b.number);
@@ -610,7 +659,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   // used below for gaps/topology and connection bearings — not to override pole positions.
 
   // postMap entries are live refs into sorted; lat/lon are current.
-  const postMap = new Map(sorted.map(p => [p.number, p]));
+  const postMap = new Map(sorted.map((p) => [p.number, p]));
 
   const distMap = new Map();
   for (const d of distances) {
@@ -621,10 +670,10 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
   // ── Detect topology and gaps ──────────────────────────────────────────────
   const topology = detectRouteTopology(sorted);
   const gaps = detectGaps(sorted, distances, cableSegments);
-  const gapSet = new Set(gaps.map(g => `${g.from}->${g.to}`));
+  const gapSet = new Set(gaps.map((g) => `${g.from}->${g.to}`));
 
   // ── UTM calibration setup (D-REV-01 through D-REV-12) ────────────────────
-  let pageTransforms = new Map();  // Map<pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }>
+  let pageTransforms = new Map(); // Map<pageNum, { origin_e, origin_n, x_scale_sf, y_scale_sf, zone }>
   let scaleFactor = null;
   let utmZone = null;
   let augDistMapForSeams = distMap;
@@ -641,11 +690,12 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     disableCableChainBearing,
   } = opts_;
 
-  if (opts_ &&
-      utmGridPathsPerPage instanceof Map &&
-      viewportBoxes &&
-      pageDimensions instanceof Map) {
-
+  if (
+    opts_ &&
+    utmGridPathsPerPage instanceof Map &&
+    viewportBoxes &&
+    pageDimensions instanceof Map
+  ) {
     // Compute scale factor from page-2 UTM grid (D-REV-06, D-REV-07)
     // Fallback to any detail page if page 2 has no UTM grid
     const page2Paths = utmGridPathsPerPage.get(2) ?? [];
@@ -656,7 +706,9 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         if (pn === 2) continue;
         scaleFactor = computeScaleFactor(paths, warnings);
         if (scaleFactor !== null) {
-          warnings.push(`UTM scale factor computed from page ${pn} (page 2 had no measurable grid).`);
+          warnings.push(
+            `UTM scale factor computed from page ${pn} (page 2 had no measurable grid).`,
+          );
           break;
         }
       }
@@ -664,12 +716,16 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
 
     // Fallback to distance-label scale (D-REV-16)
     if (scaleFactor === null) {
-      warnings.push('[coordinate-calculator] UTM grid not found on any page. Falling back to distance-label scale factor.');
-      let sumM = 0, sumPdf = 0;
+      warnings.push(
+        "[coordinate-calculator] UTM grid not found on any page. Falling back to distance-label scale factor.",
+      );
+      let sumM = 0,
+        sumPdf = 0;
       for (let i = 0; i < sorted.length - 1; i++) {
-        const a = sorted[i], b = sorted[i + 1];
-        if (a.pageNum !== b.pageNum) continue;  // same-page only for scale
-        if (topology.branches.some(br => br.start === b.number)) continue;
+        const a = sorted[i],
+          b = sorted[i + 1];
+        if (a.pageNum !== b.pageNum) continue; // same-page only for scale
+        if (topology.branches.some((br) => br.start === b.number)) continue;
         const m = distMap.get(`${a.number}->${b.number}`);
         if (m != null && m > 0) {
           sumM += m;
@@ -681,11 +737,14 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
 
     const calibratedPages = overviewComposite
       ? new Set([2])
-      : new Set(viewportBoxes.map(v => v.pageNum));
+      : new Set(viewportBoxes.map((v) => v.pageNum));
     repairPostsOnUncalibratedPages(sorted, calibratedPages, warnings);
 
     const routeCablePlacer =
-      !disableCableArcPlacer && (overviewComposite || viewportBoxes.length >= 3) && cableSegments?.length && scaleFactor != null;
+      !disableCableArcPlacer &&
+      (overviewComposite || viewportBoxes.length >= 3) &&
+      cableSegments?.length &&
+      scaleFactor != null;
     if (routeCablePlacer) {
       const arcCablesByPage = buildCablesByPage(cableSegments);
       // D-N1-03: missing-label fallback for N1 = augmentCrossPageDistances (existing wiring; no new code).
@@ -696,8 +755,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         sortedPosts: sorted,
         distMap: arcAugDistMap,
         cablesByPage: arcCablesByPage,
-        perPageScale: pn => {
-          if (overviewComposite) return scaleFactor;
+        perPageScale: (pn) => {
           const paths = utmGridPathsPerPage?.get(pn);
           if (paths?.length) {
             const sf = computeScaleFactor(paths, warnings);
@@ -711,14 +769,17 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       if (placer.placed.size > 0) {
         warnings.push(
           `[cable-arc-placer] Repositioned ${placer.placed.size} post(s) on ${placer.pagesPlaced.size} page(s) ` +
-            `where PDF coords disagreed with Distância_Poste (single anchor via post #1 per page).`
+            `where PDF coords disagreed with Distância_Poste (single anchor via post #1 per page).`,
         );
       }
     }
 
     // Build page transforms (D-REV-11, D-REV-12)
-    if (scaleFactor !== null && (overviewComposite || viewportBoxes.length > 0)) {
-      const post1 = sorted.find(p => p.number === sorted[0].number);
+    if (
+      scaleFactor !== null &&
+      (overviewComposite || viewportBoxes.length > 0)
+    ) {
+      const post1 = sorted.find((p) => p.number === sorted[0].number);
       const { zone } = latLonToUtm(startLat, startLon);
       utmZone = zone;
       const post1WithGps = { ...post1, lat: startLat, lon: startLon };
@@ -731,7 +792,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           scaleFactor,
           zone,
           warnings,
-          utmGridPathsPerPage
+          utmGridPathsPerPage,
         );
         const draftOverview = buildOverviewCompositeTransform(
           post1WithGps,
@@ -739,17 +800,22 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           scaleFactor,
           zone,
           warnings,
-          utmGridPathsPerPage
+          utmGridPathsPerPage,
         );
-        remapPostsToOverviewViaUtm(sorted, multiTransforms, draftOverview, warnings);
-        const post1Remapped = sorted.find(p => p.number === sorted[0].number);
+        remapPostsToOverviewViaUtm(
+          sorted,
+          multiTransforms,
+          draftOverview,
+          warnings,
+        );
+        const post1Remapped = sorted.find((p) => p.number === sorted[0].number);
         pageTransforms = buildOverviewCompositeTransform(
           { ...post1Remapped, lat: startLat, lon: startLon },
           pageDimensions,
           scaleFactor,
           zone,
           warnings,
-          utmGridPathsPerPage
+          utmGridPathsPerPage,
         );
       } else {
         pageTransforms = buildPageTransforms(
@@ -760,14 +826,14 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           zone,
           warnings,
           utmGridPathsPerPage,
-          false
+          false,
         );
         if (utmGridPathsPerPage?.size) {
           applyGridAffineToTransforms(
             pageTransforms,
             post1WithGps,
             utmGridPathsPerPage,
-            warnings
+            warnings,
           );
         }
       }
@@ -776,30 +842,29 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       // Global label LSQ + boundary lock on 3+ detail sheets (João Born, Siriu).
       // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
       if (!overviewComposite && viewportBoxes.length >= 3) {
-        const { map: distWithGaps, filled: gapFilled } = fillAdjacentMissingDistances(
-          sorted,
-          distMap
-        );
+        const { map: distWithGaps, filled: gapFilled } =
+          fillAdjacentMissingDistances(sorted, distMap);
         if (gapFilled > 0) {
           warnings.push(
-            `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`
+            `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`,
           );
         }
-        augDistMap = augmentCrossPageDistances(sorted, distWithGaps).map;
+        const crossAug = augmentCrossPageDistances(sorted, distWithGaps);
+        augDistMap = crossAug.map;
         augDistMapForSeams = augDistMap;
-        const lsq = refinePageOriginsByLabelCalibration(
+        if (crossAug.filled > 0) {
+          warnings.push(
+            `[label-lsq] Inferred ${crossAug.filled} cross-page distance label(s) from neighbors for global fit.`,
+          );
+        }
+        let lsq = refinePageOriginsByLabelLsq(
           pageTransforms,
           sorted,
-          distWithGaps,
+          augDistMap,
           { lat: startLat, lon: startLon },
-          warnings
+          warnings,
         );
-        const labelLsqImproved = Boolean(lsq.improved);
-        if (lsq.crossPageFilled > 0) {
-          warnings.push(
-            `[label-lsq] Inferred ${lsq.crossPageFilled} cross-page distance label(s) from neighbors for global fit.`
-          );
-        }
+        let labelLsqImproved = Boolean(lsq.improved);
         const cablesByPage = buildCablesByPage(cableSegments);
         const n6 = adjustPageOriginsByCableSimilarity(
           pageTransforms,
@@ -807,7 +872,7 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           augDistMap,
           { lat: startLat, lon: startLon },
           cablesByPage,
-          warnings
+          warnings,
         );
         const multiSheetDetail = viewportBoxes.length >= 3;
         // Boundary when global label-lsq did not run; LSQ already fit page 4–5 (do not stack boundary on top).
@@ -818,62 +883,85 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
                 pageTransforms,
                 sorted,
                 augDistMap,
-                warnings
+                warnings,
               );
+        if (!labelLsqImproved && nBoundary > 0) {
+          const lsq2 = refinePageOriginsByLabelLsq(
+            pageTransforms,
+            sorted,
+            augDistMap,
+            { lat: startLat, lon: startLon },
+            warnings,
+          );
+          if (lsq2.improved) {
+            labelLsqImproved = true;
+            lsq = lsq2;
+          }
+        }
         // Post-1→15 seam-lock drifts ~55 m on João Born; never use on 3+ detail sheets.
-        if (disableSeamLock) { /* seam-lock disabled by debug flag */ } else if (multiSheetDetail) {
+        if (disableSeamLock) {
+          /* seam-lock disabled by debug flag */
+        } else if (multiSheetDetail) {
           warnings.push(
-            '[seam-lock] Skipped — multi-sheet route' +
+            "[seam-lock] Skipped — multi-sheet route" +
               (labelLsqImproved
-                ? ' (global label-lsq fit page origins).'
+                ? " (global label-lsq fit page origins)."
                 : nBoundary > 0
-                  ? ' (boundary-locked at sheet breaks).'
-                  : ' (per-page UTM + label-lsq only).')
+                  ? " (boundary-locked at sheet breaks)."
+                  : " (per-page UTM + label-lsq only)."),
           );
         } else if (nBoundary > 0) {
           /* boundary-locked at sheet breaks */
         } else {
-        const post15 = sorted.find(p => p.number === 15);
-        const sequenceFlipPages = detectSequenceFlipPages(sorted);
-        if (sequenceFlipPages.size > 0) {
-          warnings.push(
-            `[route-sequence] Label bearing flipped on page(s) ${[...sequenceFlipPages]
-              .sort((a, b) => a - b)
-              .join(', ')} (route vs parser order).`
+          const post15 = sorted.find((p) => p.number === 15);
+          const sequenceFlipPages = detectSequenceFlipPages(sorted);
+          if (sequenceFlipPages.size > 0) {
+            warnings.push(
+              `[route-sequence] Label bearing flipped on page(s) ${[
+                ...sequenceFlipPages,
+              ]
+                .sort((a, b) => a - b)
+                .join(", ")} (route vs parser order).`,
+            );
+          }
+          const gps15 = gpsAtPostViaLabelWalk(
+            sorted,
+            augDistMap,
+            { lat: startLat, lon: startLon },
+            15,
+            sequenceFlipPages,
           );
-        }
-        const gps15 = gpsAtPostViaLabelWalk(
-          sorted,
-          augDistMap,
-          { lat: startLat, lon: startLon },
-          15,
-          sequenceFlipPages
-        );
-        if (
-          post15 &&
-          gps15 &&
-          lockPageOriginAtGps(
-            pageTransforms,
-            4,
-            post15.x,
-            post15.y,
-            gps15.lat,
-            gps15.lon
-          )
-        ) {
-          warnings.push(
-            '[seam-locked] page 4 origin from post-1 label walk to post 15 at sheet break.'
-          );
-        }
+          if (
+            post15 &&
+            gps15 &&
+            lockPageOriginAtGps(
+              pageTransforms,
+              4,
+              post15.x,
+              post15.y,
+              gps15.lat,
+              gps15.lon,
+            )
+          ) {
+            warnings.push(
+              "[seam-locked] page 4 origin from post-1 label walk to post 15 at sheet break.",
+            );
+          }
         }
       }
     } else if (scaleFactor === null) {
-      warnings.push('[coordinate-calculator] Cannot calibrate: no scale factor available. Posts will have lat: null, lon: null.');
+      warnings.push(
+        "[coordinate-calculator] Cannot calibrate: no scale factor available. Posts will have lat: null, lon: null.",
+      );
     } else {
-      warnings.push('[coordinate-calculator] Cannot calibrate: no viewport boxes found. Posts will have lat: null, lon: null.');
+      warnings.push(
+        "[coordinate-calculator] Cannot calibrate: no viewport boxes found. Posts will have lat: null, lon: null.",
+      );
     }
   } else {
-    warnings.push('[coordinate-calculator] opts not provided or incomplete. Posts will have lat: null, lon: null.');
+    warnings.push(
+      "[coordinate-calculator] opts not provided or incomplete. Posts will have lat: null, lon: null.",
+    );
   }
 
   for (const w of warnings) console.warn(w);
@@ -891,39 +979,61 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     }
   }
 
-  const branchStarts = new Set(topology.branches.map(b => b.start));
+  const branchStarts = new Set(topology.branches.map((b) => b.start));
 
   // ── Optional 2nd-anchor similarity refinement (D-ACC-07) ─────────────────
   // Runs BEFORE label chaining so the page-4 label chain starts from a
   // similarity-corrected post-7 anchor rather than the raw UTM position.
-  if (lastPostGps &&
-      typeof lastPostGps.lat === 'number' && isFinite(lastPostGps.lat) &&
-      typeof lastPostGps.lon === 'number' && isFinite(lastPostGps.lon)) {
-
+  if (
+    lastPostGps &&
+    typeof lastPostGps.lat === "number" &&
+    isFinite(lastPostGps.lat) &&
+    typeof lastPostGps.lon === "number" &&
+    isFinite(lastPostGps.lon)
+  ) {
     const boundsLast = validateBrazilBounds(lastPostGps.lat, lastPostGps.lon);
     if (!boundsLast.valid) {
-      warnings.push('[coordinate-calculator] 2nd anchor outside Brazil bounds — using single-anchor projection.');
+      warnings.push(
+        "[coordinate-calculator] 2nd anchor outside Brazil bounds — using single-anchor projection.",
+      );
     } else {
       const post1 = sorted[0];
       const lastPost = sorted[sorted.length - 1];
 
       if (post1.lat == null || lastPost.lat == null) {
-        warnings.push('[coordinate-calculator] 2nd anchor skipped — post 1 or last post has null lat/lon from projection.');
+        warnings.push(
+          "[coordinate-calculator] 2nd anchor skipped — post 1 or last post has null lat/lon from projection.",
+        );
       } else {
         // Ground-truth UTM for both anchors
-        const { easting: e1g, northing: n1g, zone: anchorZone } = latLonToUtm(startLat, startLon);
-        const { easting: eNg, northing: nNg } = latLonToUtm(lastPostGps.lat, lastPostGps.lon);
+        const {
+          easting: e1g,
+          northing: n1g,
+          zone: anchorZone,
+        } = latLonToUtm(startLat, startLon);
+        const { easting: eNg, northing: nNg } = latLonToUtm(
+          lastPostGps.lat,
+          lastPostGps.lon,
+        );
 
         // Projected UTM for both anchors
-        const { easting: e1p, northing: n1p } = latLonToUtm(post1.lat, post1.lon);
-        const { easting: eNp, northing: nNp } = latLonToUtm(lastPost.lat, lastPost.lon);
+        const { easting: e1p, northing: n1p } = latLonToUtm(
+          post1.lat,
+          post1.lon,
+        );
+        const { easting: eNp, northing: nNp } = latLonToUtm(
+          lastPost.lat,
+          lastPost.lon,
+        );
 
         const dxP = eNp - e1p;
         const dyP = nNp - n1p;
         const denomP = dxP * dxP + dyP * dyP;
 
         if (denomP < 1e-9) {
-          warnings.push('[coordinate-calculator] 2nd anchor coincides with post 1 in projection space — similarity undefined.');
+          warnings.push(
+            "[coordinate-calculator] 2nd anchor coincides with post 1 in projection space — similarity undefined.",
+          );
         } else {
           const dxG = eNg - e1g;
           const dyG = nNg - n1g;
@@ -944,9 +1054,9 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           }
 
           const scale = Math.hypot(cosScale, sinScale);
-          const rotDeg = Math.atan2(sinScale, cosScale) * 180 / Math.PI;
+          const rotDeg = (Math.atan2(sinScale, cosScale) * 180) / Math.PI;
           warnings.push(
-            `[coordinate-calculator] 2nd anchor applied — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`
+            `[coordinate-calculator] 2nd anchor applied — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`,
           );
         }
       }
@@ -961,21 +1071,31 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     // Auto-disable cable-chain bearings when any active cable is fragmented (dashed-ribbon
     // polygon with many M sub-paths). Local tangents are unreliable on such cables.
     let cableFragmentedSomewhere = false;
-    if ((overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length) {
+    if (
+      (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) &&
+      cableSegments?.length
+    ) {
       for (const seg of cableSegments) {
         if (!seg?.ops) continue;
         let mCount = 0;
-        for (const op of seg.ops) if (op.type === 'M') mCount++;
-        if (mCount >= 5) { cableFragmentedSomewhere = true; break; }
+        for (const op of seg.ops) if (op.type === "M") mCount++;
+        if (mCount >= 5) {
+          cableFragmentedSomewhere = true;
+          break;
+        }
       }
     }
-    const chainCables = disableCableChainBearing || cableFragmentedSomewhere
-      ? null
-      : (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) && cableSegments?.length
-        ? buildCablesByPage(cableSegments)
-        : null;
+    const chainCables =
+      disableCableChainBearing || cableFragmentedSomewhere
+        ? null
+        : (overviewComposite || (viewportBoxes?.length ?? 0) >= 3) &&
+            cableSegments?.length
+          ? buildCablesByPage(cableSegments)
+          : null;
     if (cableFragmentedSomewhere && !disableCableChainBearing) {
-      warnings.push('[coordinate-calculator] Cable chain bearings disabled: cable is fragmented (dashed-ribbon polygon). Using gpsBearing from UTM-projected positions.');
+      warnings.push(
+        "[coordinate-calculator] Cable chain bearings disabled: cable is fragmented (dashed-ribbon polygon). Using gpsBearing from UTM-projected positions.",
+      );
     }
     const sequenceFlipPages =
       multiSheetRoute && sorted[0]?.lat != null
@@ -992,25 +1112,27 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         postByNum: postMap,
         multiSheetRoute,
         sequenceFlipPages,
-      }
+      },
     );
     if (chained) {
       warnings.push(
-        '[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths ' +
-          '(bearings from Cabo Projetado where available; post #1 anchor unchanged).'
+        "[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths " +
+          "(bearings from Cabo Projetado where available; post #1 anchor unchanged).",
       );
     }
   }
 
   // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
   const connections = [];
-  const branchJunctionMap = new Map(topology.branches.map(b => [b.start, b.junctionPost]));
+  const branchJunctionMap = new Map(
+    topology.branches.map((b) => [b.start, b.junctionPost]),
+  );
 
   // Helper: same-page bearing from PDF coords (D-02, D-REV-14)
   const pdfBearing = (from, to) => {
     const dx = to.x - from.x;
-    const dy = from.y - to.y;  // flipY: up=North means dy = curr.y - next.y
-    return ((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360;
+    const dy = from.y - to.y; // flipY: up=North means dy = curr.y - next.y
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
   };
 
   // Process main route and branch junctions
@@ -1022,8 +1144,14 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
       const junctionId = branchJunctionMap.get(curr.number);
       if (junctionId != null) {
         const junc = postMap.get(junctionId);
-        if (junc && junc.lat != null && junc.lon != null && curr.lat != null && curr.lon != null) {
-          const isCrossPage = (junc.pageNum !== curr.pageNum);
+        if (
+          junc &&
+          junc.lat != null &&
+          junc.lon != null &&
+          curr.lat != null &&
+          curr.lon != null
+        ) {
+          const isCrossPage = junc.pageNum !== curr.pageNum;
           let meters, bearing;
           if (isCrossPage) {
             // D-REV-15: cross-page — use GPS-vector values
@@ -1032,12 +1160,18 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
           } else {
             // D-REV-14: same-page — use PDF-space values
             const pdfD = Math.hypot(curr.x - junc.x, curr.y - junc.y);
-            meters = scaleFactor != null ? pdfD * scaleFactor : haversineMeters(junc.lat, junc.lon, curr.lat, curr.lon);
+            meters =
+              scaleFactor != null
+                ? pdfD * scaleFactor
+                : haversineMeters(junc.lat, junc.lon, curr.lat, curr.lon);
             bearing = pdfBearing(junc, curr);
           }
           connections.push({
-            from: junc.number, to: curr.number,
-            meters, bearing, gap: false,
+            from: junc.number,
+            to: curr.number,
+            meters,
+            bearing,
+            gap: false,
             ...(isCrossPage ? { cross_page: true } : {}),
           });
         }
@@ -1047,15 +1181,23 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     // Forward connection to next post in sequence
     if (i < sorted.length - 1) {
       const next = sorted[i + 1];
-      if (branchStarts.has(next.number)) continue;  // branch starts handled above
+      if (branchStarts.has(next.number)) continue; // branch starts handled above
 
       const isGap = gapSet.has(`${curr.number}->${next.number}`);
-      const isCrossPage = (curr.pageNum != null && next.pageNum != null && curr.pageNum !== next.pageNum);
+      const isCrossPage =
+        curr.pageNum != null &&
+        next.pageNum != null &&
+        curr.pageNum !== next.pageNum;
 
       let meters, bearing;
       if (isCrossPage) {
         // D-REV-15: cross-page — GPS-vector
-        if (curr.lat != null && curr.lon != null && next.lat != null && next.lon != null) {
+        if (
+          curr.lat != null &&
+          curr.lon != null &&
+          next.lat != null &&
+          next.lon != null
+        ) {
           meters = haversineMeters(curr.lat, curr.lon, next.lat, next.lon);
           bearing = gpsBearing(curr.lat, curr.lon, next.lat, next.lon);
         } else {
@@ -1066,13 +1208,16 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
         // D-REV-14: same-page — PDF-space
         const pdfD = Math.hypot(next.x - curr.x, next.y - curr.y);
         const m = distMap.get(`${curr.number}->${next.number}`);
-        meters = m != null ? m : (scaleFactor != null ? pdfD * scaleFactor : 0);
+        meters = m != null ? m : scaleFactor != null ? pdfD * scaleFactor : 0;
         bearing = pdfBearing(curr, next);
       }
 
       connections.push({
-        from: curr.number, to: next.number,
-        meters, bearing, gap: isGap,
+        from: curr.number,
+        to: next.number,
+        meters,
+        bearing,
+        gap: isGap,
         ...(isCrossPage ? { cross_page: true } : {}),
       });
     }
@@ -1086,12 +1231,20 @@ export function calculateCoordinates(posts, distances, startLat, startLon, cable
     if (labelM == null || labelM <= 0) continue;
     const a = postMap.get(c.from);
     const b = postMap.get(c.to);
-    if (!a || !b || a.lat == null || a.lon == null || b.lat == null || b.lon == null) continue;
+    if (
+      !a ||
+      !b ||
+      a.lat == null ||
+      a.lon == null ||
+      b.lat == null ||
+      b.lon == null
+    )
+      continue;
     const hav = haversineMeters(a.lat, a.lon, b.lat, b.lon);
-    const tolerance = Math.max(5, 0.10 * labelM);
+    const tolerance = Math.max(5, 0.1 * labelM);
     if (Math.abs(hav - labelM) > tolerance) {
       warnings.push(
-        `[coordinate-calculator] label sanity-check: segment ${c.from}->${c.to} label=${labelM.toFixed(1)}m vs haversine=${hav.toFixed(1)}m (delta=${(hav - labelM).toFixed(1)}m, tol=${tolerance.toFixed(1)}m).`
+        `[coordinate-calculator] label sanity-check: segment ${c.from}->${c.to} label=${labelM.toFixed(1)}m vs haversine=${hav.toFixed(1)}m (delta=${(hav - labelM).toFixed(1)}m, tol=${tolerance.toFixed(1)}m).`,
       );
     }
   }

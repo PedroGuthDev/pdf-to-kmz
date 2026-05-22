@@ -278,7 +278,7 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
   }
 
   const rmseAfter = bestRmse;
-  const improved = rmseBefore - rmseAfter > 0.1;
+  const improved = rmseBefore - rmseAfter > 0.05;
 
   const maxLsqThetaRad = (3 * Math.PI) / 180;
 

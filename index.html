@@ -565,6 +565,7 @@
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
         pageDimensions: currentParseData.pageDimensions,
+        posteRawCentroids: currentParseData.posteRawCentroids,
         ...(lastPostGps ? { lastPostGps } : {}),
       };
       const calcResult = calculateCoordinates(

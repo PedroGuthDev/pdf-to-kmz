@@ -635,7 +635,7 @@ function warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings) {
  * @param {Array<{ number: number, anchorX?: number, anchorY?: number, x: number, y: number }>} routePosts
  * @param {Array<import('./construct-path-parser.js').PathOp>} routeOps
  */
-function detectCableDirFromAnchors(routePosts, routeOps) {
+export function detectCableDirFromAnchors(routePosts, routeOps) {
   const samples = routePosts.map(p => {
     const a = anchorOf(p);
     return { n: p.number, t: nearestPointOnPathOps(a.x, a.y, routeOps).t };
@@ -878,7 +878,7 @@ function buildRouteCandidatesPerPost(
  * @param {Set<number>} usedSymbol
  * @param {string[]} warnings
  */
-function repairConsecutiveLabelArcJumps(
+export function repairConsecutiveLabelArcJumps(
   routePosts,
   assignment,
   routeOps,
@@ -1245,6 +1245,91 @@ export function correctRouteNumberingByDistanceLabels(
 }
 
 /**
+ * Relabel poles along cable when arc length between consecutive posts disagrees with Distância_Poste.
+ * Runs after N3/greedy so Viterbi-failed pages still get label-consistent symbol snaps.
+ */
+function repairPagesLabelArcFromPositions(
+  posts,
+  partitionsByPage,
+  cablesByPage,
+  symbols,
+  distMap,
+  perPageScale,
+  postByNum,
+  usedSymbol,
+  warnings
+) {
+  for (const [pageNum, partitions] of partitionsByPage) {
+    const scale = perPageScale(pageNum);
+    if (scale == null || scale <= 0) continue;
+    const symbolsOnPage = symbols.filter((s) => (s.pageNum ?? 1) === pageNum);
+    if (!symbolsOnPage.length) continue;
+
+    for (const { pathIndex, posts: partPosts } of partitions) {
+      const routePosts = [...partPosts]
+        .sort((a, b) => a.number - b.number)
+        .filter((p) => !isOffRouteCablePost(p, postByNum, cablesByPage));
+      if (routePosts.length < 2) continue;
+
+      const paths = cablesByPage.get(pageNum) ?? [];
+      const rawRouteOps =
+        paths[pathIndex] ??
+        selectRouteCableOps(pageNum, cablesByPage, anchorOf(routePosts[0]));
+      if (!rawRouteOps) continue;
+      const routeOps = prepareRouteCableOps(
+        rawRouteOps,
+        routePosts[0].x,
+        routePosts[0].y,
+        routePosts
+      );
+      const cableDir = detectCableDirFromAnchors(routePosts, routeOps);
+
+      const assignment = routePosts.map((post) => {
+        let bestSi = -1;
+        let bestD = Infinity;
+        let bestT = 0;
+        for (let si = 0; si < symbolsOnPage.length; si++) {
+          const sym = symbolsOnPage[si];
+          const d = Math.hypot(sym.x - post.x, sym.y - post.y);
+          if (d < bestD) {
+            bestD = d;
+            bestSi = si;
+            bestT = nearestPointOnPathOps(sym.x, sym.y, routeOps).t;
+          }
+        }
+        return {
+          si: bestSi,
+          t: bestT,
+          x: post.x,
+          y: post.y,
+          dLabel: 0,
+        };
+      });
+
+      repairConsecutiveLabelArcJumps(
+        routePosts,
+        assignment,
+        routeOps,
+        symbolsOnPage,
+        distMap,
+        scale,
+        cableDir,
+        usedSymbol,
+        warnings
+      );
+
+      for (let i = 0; i < routePosts.length; i++) {
+        const pick = assignment[i];
+        if (pick.si >= 0) {
+          routePosts[i].x = pick.x;
+          routePosts[i].y = pick.y;
+        }
+      }
+    }
+  }
+}
+
+/**
  * N3: global pole-to-label assignment minimising distance-label residual per page.
  * Falls back to greedy `assignPostPositionsFromPosteSymbols` when labels or candidates are sparse.
  *
@@ -1571,6 +1656,18 @@ export function assignPolesGloballyByLabels(
     frozenPostIndices: globallySnapped,
   });
   for (const pi of greedySnapped) globallySnapped.add(pi);
+
+  repairPagesLabelArcFromPositions(
+    posts,
+    partitionsByPage,
+    cablesByPage,
+    symbols,
+    distMap,
+    perPageScale,
+    postByNum,
+    usedSymbol,
+    warnings
+  );
 
   const snappedPosts = globallySnapped;
   repositionOffRoutePostsBetweenNeighbors(
