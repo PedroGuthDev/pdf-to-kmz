@@ -3,7 +3,6 @@
  * Run:
  *   node debug-run-calc.mjs              # Valmor (default)
  *   node debug-run-calc.mjs joao-born    # João Born multi-sheet
- *   node debug-run-calc.mjs joao-born --mid-anchor
  *   node debug-run-calc.mjs joao-born --two-anchor
  *   node debug-run-calc.mjs joao-born --parser-posts   # use parsePdf Poste positions (N3)
  *   node debug-run-calc.mjs joao-born --overview-composite  # remap detail sheets → page 2 space
@@ -40,7 +39,6 @@ const SAMPLES = {
 
 const sampleKey = process.argv[2] === "joao-born" ? "joao-born" : "valmor";
 const twoAnchor = process.argv.includes("--two-anchor");
-const midAnchor = process.argv.includes("--mid-anchor");
 const reassignPoles = process.argv.includes("--reassign-poles");
 const forceParserPosts = process.argv.includes("--parser-posts");
 const useBrowserFixture = process.argv.includes("--browser-posts");
@@ -289,14 +287,8 @@ const calcOpts = {
   posteRawCentroids: parsed.posteRawCentroids,
   overviewComposite,
 };
-const ref14 = REFERENCE.find((r) => r.num === 14);
-if (midAnchor && ref14) {
-  calcOpts.lastPostGps = { lat: ref14.lat, lon: ref14.lon };
-  calcOpts.secondAnchorPostNumber = 14;
-  console.log("Mid-anchor mode: post 1 + post 14 GPS from reference.\n");
-} else if (twoAnchor && lastRef) {
+if (twoAnchor && lastRef) {
   calcOpts.lastPostGps = { lat: lastRef.lat, lon: lastRef.lon };
-  calcOpts.secondAnchorPostNumber = lastRef.num;
   console.log(
     `Two-anchor mode: post 1 + post ${lastRef.num} GPS from reference.\n`,
   );

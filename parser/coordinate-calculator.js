@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-mid-anchor-14";
+export const CALC_PIPELINE_ID = "2026-05-tail-anchor-utm";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -129,15 +129,11 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
  *
  * @returns {Set<number>} page numbers re-locked
  */
-function lockSheetBreaksFromChainedGps(
-  transforms,
-  sorted,
-  distMap,
-  warnings,
-) {
+function lockSheetBreaksFromChainedGps(transforms, sorted, distMap, warnings) {
   /** @type {Set<number>} */
   const relockedPages = new Set();
-  if (transforms.size < 2 || !sorted?.length || !distMap?.size) return relockedPages;
+  if (transforms.size < 2 || !sorted?.length || !distMap?.size)
+    return relockedPages;
 
   const pdfBearing = (from, to) => {
     const dx = to.x - from.x;
@@ -196,6 +192,72 @@ function lockSheetBreaksFromChainedGps(
     );
   }
   return relockedPages;
+}
+
+/**
+ * Re-lock the first cross-page sheet break using chained lat/lon on the outgoing post.
+ *
+ * @returns {number|null} page number re-locked, or null
+ */
+function lockFirstSheetBreakFromChainedGps(
+  transforms,
+  sorted,
+  distMap,
+  warnings,
+) {
+  const pdfBearing = (from, to) => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum === curr.pageNum ||
+      prev.lat == null ||
+      curr.lat == null
+    ) {
+      continue;
+    }
+
+    const m =
+      distMap.get(`${prev.number}->${curr.number}`) ??
+      distMap.get(`${curr.number}->${prev.number}`);
+    if (m == null || m <= 0) continue;
+
+    const prevPrev = sorted[i - 2];
+    let bearing;
+    if (prevPrev && prevPrev.pageNum === prev.pageNum) {
+      bearing = pdfBearing(prevPrev, prev);
+    } else {
+      const next = sorted[i + 1];
+      if (!next || next.pageNum !== curr.pageNum) continue;
+      bearing = pdfBearing(prev, next);
+    }
+
+    const gpsCurr = destinationPoint(prev.lat, prev.lon, bearing, m);
+    if (
+      lockPageOriginAtGps(
+        transforms,
+        curr.pageNum,
+        curr.x,
+        curr.y,
+        gpsCurr.lat,
+        gpsCurr.lon,
+      )
+    ) {
+      warnings.push(
+        `[boundary-locked] page ${curr.pageNum} at post ${curr.number} from chained post ${prev.number} + label (first sheet break).`,
+      );
+      return curr.pageNum;
+    }
+    return null;
+  }
+  return null;
 }
 
 /**
@@ -1070,6 +1132,8 @@ export function calculateCoordinates(
     return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
   };
 
+  let tailAnchorUtmRestore = false;
+
   // ── Optional 2nd-anchor similarity refinement (D-ACC-07) ─────────────────
   // Runs BEFORE label chaining so the page-4 label chain starts from a
   // similarity-corrected anchor rather than the raw UTM position.
@@ -1137,20 +1201,20 @@ export function calculateCoordinates(
           const sinScale = (dxP * dyG - dyP * dxG) / denomP;
 
           const routeEnd = sorted[sorted.length - 1].number;
-          const partialMidAnchor = anchorPostNum < routeEnd;
-          /** @type {Map<number, { lat: number, lon: number }>} */
-          const preSimGps = new Map();
-          if (partialMidAnchor) {
-            for (const p of sorted) {
-              if (p.number > anchorPostNum && p.lat != null) {
-                preSimGps.set(p.number, { lat: p.lat, lon: p.lon });
-              }
-            }
-          }
+          const isTailAnchor =
+            anchorPostNum === routeEnd && multiSheetRoute && post1.pageNum != null;
+          const anchorPage = post1.pageNum;
+          let skippedAnchorPage = 0;
 
           for (const p of sorted) {
             if (p.lat == null || p.lon == null) continue;
-            if (partialMidAnchor && p.number > anchorPostNum) continue;
+            if (
+              isTailAnchor &&
+              (p.number === post1.number || p.pageNum === anchorPage)
+            ) {
+              skippedAnchorPage++;
+              continue;
+            }
             const { easting: ep, northing: np } = latLonToUtm(p.lat, p.lon);
             const e = e1g + cosScale * (ep - e1p) - sinScale * (np - n1p);
             const n = n1g + sinScale * (ep - e1p) + cosScale * (np - n1p);
@@ -1158,24 +1222,43 @@ export function calculateCoordinates(
             p.lat = refined.lat;
             p.lon = refined.lon;
           }
-          if (partialMidAnchor) {
-            for (const p of sorted) {
-              const saved = preSimGps.get(p.number);
-              if (saved) {
-                p.lat = saved.lat;
-                p.lon = saved.lon;
-              }
-            }
+
+          if (isTailAnchor && skippedAnchorPage > 1) {
+            tailAnchorUtmRestore = true;
+            warnings.push(
+              `[coordinate-calculator] Tail 2nd-anchor: similarity on pages after ${anchorPage} only (${skippedAnchorPage - 1} post(s) on anchor sheet kept on per-page UTM).`,
+            );
           }
 
           const scale = Math.hypot(cosScale, sinScale);
           const rotDeg = (Math.atan2(sinScale, cosScale) * 180) / Math.PI;
           warnings.push(
-            partialMidAnchor
-              ? `[coordinate-calculator] Mid-anchor at post ${anchorPostNum} — similarity on posts 1–${anchorPostNum} only (scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°).`
-              : `[coordinate-calculator] 2nd anchor applied at post ${anchorPostNum} — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`,
+            `[coordinate-calculator] 2nd anchor applied at post ${anchorPostNum} — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`,
           );
+        }
+      }
+    }
+  }
 
+  if (
+    tailAnchorUtmRestore &&
+    pageTransforms.size > 0 &&
+    augDistMapForSeams?.size
+  ) {
+    const firstRelocked = lockFirstSheetBreakFromChainedGps(
+      pageTransforms,
+      sorted,
+      augDistMapForSeams,
+      warnings,
+    );
+    if (firstRelocked != null) {
+      for (const post of sorted) {
+        if (post.pageNum !== firstRelocked) continue;
+        const transform = pageTransforms.get(post.pageNum);
+        if (transform) {
+          const { lat, lon } = projectPost(post.x, post.y, transform);
+          post.lat = lat;
+          post.lon = lon;
         }
       }
     }
@@ -1232,19 +1315,21 @@ export function calculateCoordinates(
         "[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths " +
           "(bearings from Cabo Projetado where available; post #1 anchor unchanged).",
       );
-      const relockedPages = lockSheetBreaksFromChainedGps(
-        pageTransforms,
-        sorted,
-        augDistMapForSeams,
-        warnings,
-      );
-      for (const post of sorted) {
-        if (!relockedPages.has(post.pageNum)) continue;
-        const transform = pageTransforms.get(post.pageNum);
-        if (transform) {
-          const { lat, lon } = projectPost(post.x, post.y, transform);
-          post.lat = lat;
-          post.lon = lon;
+      if (!tailAnchorUtmRestore) {
+        const relockedPages = lockSheetBreaksFromChainedGps(
+          pageTransforms,
+          sorted,
+          augDistMapForSeams,
+          warnings,
+        );
+        for (const post of sorted) {
+          if (!relockedPages.has(post.pageNum)) continue;
+          const transform = pageTransforms.get(post.pageNum);
+          if (transform) {
+            const { lat, lon } = projectPost(post.x, post.y, transform);
+            post.lat = lat;
+            post.lon = lon;
+          }
         }
       }
     }
