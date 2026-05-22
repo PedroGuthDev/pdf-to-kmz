@@ -138,7 +138,9 @@
       It does not change the “Last post” field above — use that only for Calculate Route.
     </p>
     <button id="compareBtn1" type="button" style="padding:6px 12px; margin-top:4px;">Compare (1 anchor: post 1)</button>
+    <button id="compareBtnMid" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;">Compare (1 + 14: posts 1 + 14)</button>
     <button id="compareBtn2" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;">Compare (2 anchors: posts 1 + 34)</button>
+    <button id="fillRef14Btn" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;" title="Copy post 14 from reference into Last post field for Calculate Route">Fill post 14 → Last post</button>
     <button id="fillRef34Btn" type="button" style="padding:6px 12px; margin-top:4px; margin-left:6px;" title="Copy post 34 from reference into Last post field for Calculate Route">Fill post 34 → Last post</button>
     <pre id="compareOutput" style="background:#f4f4f4; padding:12px; border-radius:4px; overflow-x:auto; font-size:12px; margin-top:8px; display:none;"></pre>
   </section>
@@ -433,11 +435,18 @@
       // Deep clone to avoid mutating the original parse result on multiple runs
       const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
 
+      const lastAnchorNum = parseInt(
+        document.getElementById('gpsInputLast').dataset.anchorPost || '',
+        10,
+      );
       const opts = {
         utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
         viewportBoxes: currentParseData.viewportBoxes,
         pageDimensions: currentParseData.pageDimensions,
         ...(lastParsed ? { lastPostGps: lastParsed } : {}),
+        ...(lastParsed && Number.isFinite(lastAnchorNum)
+          ? { secondAnchorPostNumber: lastAnchorNum }
+          : {}),
       };
       const result = calculateCoordinates(
         postsCopy,
@@ -492,6 +501,7 @@
     });
     // ── Reference comparison ───────────────────────────────────────────────────
     const compareBtn1   = document.getElementById('compareBtn1');
+    const compareBtnMid = document.getElementById('compareBtnMid');
     const compareBtn2   = document.getElementById('compareBtn2');
     const fillRef34Btn  = document.getElementById('fillRef34Btn');
     const compareOutput = document.getElementById('compareOutput');
@@ -515,6 +525,20 @@
       return refs;
     }
 
+    const fillRef14Btn = document.getElementById('fillRef14Btn');
+    fillRef14Btn.addEventListener('click', () => {
+      const ref14 = parseReferenceLines().find(r => r.num === 14);
+      if (!ref14) {
+        compareOutput.textContent = 'Reference has no post 14 — paste full João Born list first.';
+        compareOutput.style.display = 'block';
+        return;
+      }
+      const lastIn = document.getElementById('gpsInputLast');
+      lastIn.value = `${ref14.lat}, ${ref14.lon}`;
+      lastIn.dataset.anchorPost = '14';
+      compareOutput.style.display = 'none';
+    });
+
     fillRef34Btn.addEventListener('click', () => {
       const ref34 = parseReferenceLines().find(r => r.num === 34);
       if (!ref34) {
@@ -522,11 +546,15 @@
         compareOutput.style.display = 'block';
         return;
       }
-      document.getElementById('gpsInputLast').value = `${ref34.lat}, ${ref34.lon}`;
+      const lastIn = document.getElementById('gpsInputLast');
+      lastIn.value = `${ref34.lat}, ${ref34.lon}`;
+      lastIn.dataset.anchorPost = '34';
       compareOutput.style.display = 'none';
     });
 
-    function runReferenceCompare(twoAnchors) {
+    function runReferenceCompare(mode) {
+      const twoAnchors = mode === 'tail';
+      const midAnchor = mode === 'mid';
       if (!currentParseData) {
         compareOutput.textContent = 'No parse data yet — upload a PDF first.';
         compareOutput.style.display = 'block';
@@ -548,8 +576,19 @@
       }
 
       let lastPostGps = null;
+      let secondAnchorPostNumber = null;
       let anchorNote = 'Anchors: post 1 from reference (single-anchor UTM)';
-      if (twoAnchors) {
+      if (midAnchor) {
+        const ref14 = refs.find(r => r.num === 14);
+        if (!ref14) {
+          compareOutput.textContent = 'Mid-anchor compare needs post 14 in the reference list.';
+          compareOutput.style.display = 'block';
+          return;
+        }
+        lastPostGps = { lat: ref14.lat, lon: ref14.lon };
+        secondAnchorPostNumber = 14;
+        anchorNote = 'Anchors: post 1 + post 14 from reference (mid similarity, page 3 only)';
+      } else if (twoAnchors) {
         const ref34 = refs.find(r => r.num === 34);
         if (!ref34 || ref34.num !== 34) {
           compareOutput.textContent = 'Two-anchor compare needs post 34 in the reference list.';
@@ -557,6 +596,7 @@
           return;
         }
         lastPostGps = { lat: ref34.lat, lon: ref34.lon };
+        secondAnchorPostNumber = 34;
         anchorNote = 'Anchors: post 1 + post 34 from reference (similarity refinement)';
       }
 
@@ -567,6 +607,7 @@
         pageDimensions: currentParseData.pageDimensions,
         posteRawCentroids: currentParseData.posteRawCentroids,
         ...(lastPostGps ? { lastPostGps } : {}),
+        ...(secondAnchorPostNumber != null ? { secondAnchorPostNumber } : {}),
       };
       const calcResult = calculateCoordinates(
         postsCopy,
@@ -626,8 +667,9 @@
       compareOutput.style.display = 'block';
     }
 
-    compareBtn1.addEventListener('click', () => runReferenceCompare(false));
-    compareBtn2.addEventListener('click', () => runReferenceCompare(true));
+    compareBtn1.addEventListener('click', () => runReferenceCompare('single'));
+    compareBtnMid.addEventListener('click', () => runReferenceCompare('mid'));
+    compareBtn2.addEventListener('click', () => runReferenceCompare('tail'));
   </script>
 
 </body>

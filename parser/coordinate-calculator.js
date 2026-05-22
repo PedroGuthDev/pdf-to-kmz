@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-label-outlier-lsq";
+export const CALC_PIPELINE_ID = "2026-05-mid-anchor-14";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -121,6 +121,81 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
     );
   }
   return adjusted;
+}
+
+/**
+ * After label GPS chain, re-lock sheet-break page origins using chained lat/lon at the
+ * outgoing post (e.g. post 25 → lock page 5 at post 26).
+ *
+ * @returns {Set<number>} page numbers re-locked
+ */
+function lockSheetBreaksFromChainedGps(
+  transforms,
+  sorted,
+  distMap,
+  warnings,
+) {
+  /** @type {Set<number>} */
+  const relockedPages = new Set();
+  if (transforms.size < 2 || !sorted?.length || !distMap?.size) return relockedPages;
+
+  const pdfBearing = (from, to) => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
+  let adjusted = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum === curr.pageNum ||
+      prev.lat == null ||
+      curr.lat == null
+    ) {
+      continue;
+    }
+
+    const m =
+      distMap.get(`${prev.number}->${curr.number}`) ??
+      distMap.get(`${curr.number}->${prev.number}`);
+    if (m == null || m <= 0) continue;
+
+    const prevPrev = sorted[i - 2];
+    let bearing;
+    if (prevPrev && prevPrev.pageNum === prev.pageNum) {
+      bearing = pdfBearing(prevPrev, prev);
+    } else {
+      const next = sorted[i + 1];
+      if (!next || next.pageNum !== curr.pageNum) continue;
+      bearing = pdfBearing(prev, next);
+    }
+
+    const gpsCurr = destinationPoint(prev.lat, prev.lon, bearing, m);
+    if (
+      lockPageOriginAtGps(
+        transforms,
+        curr.pageNum,
+        curr.x,
+        curr.y,
+        gpsCurr.lat,
+        gpsCurr.lon,
+      )
+    ) {
+      adjusted++;
+      relockedPages.add(curr.pageNum);
+    }
+  }
+
+  if (adjusted > 0) {
+    warnings.push(
+      `[boundary-locked] ${adjusted} page origin(s) re-aligned after label chain at sheet breaks.`,
+    );
+  }
+  return relockedPages;
 }
 
 /**
@@ -684,6 +759,7 @@ export function calculateCoordinates(
     viewportBoxes,
     pageDimensions,
     lastPostGps,
+    secondAnchorPostNumber,
     overviewComposite,
     disableCableArcPlacer,
     disableSeamLock,
@@ -981,9 +1057,22 @@ export function calculateCoordinates(
 
   const branchStarts = new Set(topology.branches.map((b) => b.start));
 
+  const multiSheetRoute =
+    !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
+  const sequenceFlipPagesForSim =
+    multiSheetRoute && sorted[0]?.lat != null
+      ? detectSequenceFlipPages(sorted)
+      : new Set();
+
+  const pdfBearing = (from, to) => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+  };
+
   // ── Optional 2nd-anchor similarity refinement (D-ACC-07) ─────────────────
   // Runs BEFORE label chaining so the page-4 label chain starts from a
-  // similarity-corrected post-7 anchor rather than the raw UTM position.
+  // similarity-corrected anchor rather than the raw UTM position.
   if (
     lastPostGps &&
     typeof lastPostGps.lat === "number" &&
@@ -998,11 +1087,16 @@ export function calculateCoordinates(
       );
     } else {
       const post1 = sorted[0];
-      const lastPost = sorted[sorted.length - 1];
+      const anchorPostNum =
+        typeof secondAnchorPostNumber === "number" &&
+        Number.isFinite(secondAnchorPostNumber)
+          ? secondAnchorPostNumber
+          : sorted[sorted.length - 1].number;
+      const anchorPost = sorted.find((p) => p.number === anchorPostNum);
 
-      if (post1.lat == null || lastPost.lat == null) {
+      if (post1.lat == null || !anchorPost || anchorPost.lat == null) {
         warnings.push(
-          "[coordinate-calculator] 2nd anchor skipped — post 1 or last post has null lat/lon from projection.",
+          `[coordinate-calculator] 2nd anchor skipped — post 1 or post ${anchorPostNum} has null lat/lon from projection.`,
         );
       } else {
         // Ground-truth UTM for both anchors
@@ -1022,8 +1116,8 @@ export function calculateCoordinates(
           post1.lon,
         );
         const { easting: eNp, northing: nNp } = latLonToUtm(
-          lastPost.lat,
-          lastPost.lon,
+          anchorPost.lat,
+          anchorPost.lon,
         );
 
         const dxP = eNp - e1p;
@@ -1042,9 +1136,21 @@ export function calculateCoordinates(
           const cosScale = (dxP * dxG + dyP * dyG) / denomP;
           const sinScale = (dxP * dyG - dyP * dxG) / denomP;
 
-          // Apply similarity to every post with non-null lat/lon
+          const routeEnd = sorted[sorted.length - 1].number;
+          const partialMidAnchor = anchorPostNum < routeEnd;
+          /** @type {Map<number, { lat: number, lon: number }>} */
+          const preSimGps = new Map();
+          if (partialMidAnchor) {
+            for (const p of sorted) {
+              if (p.number > anchorPostNum && p.lat != null) {
+                preSimGps.set(p.number, { lat: p.lat, lon: p.lon });
+              }
+            }
+          }
+
           for (const p of sorted) {
             if (p.lat == null || p.lon == null) continue;
+            if (partialMidAnchor && p.number > anchorPostNum) continue;
             const { easting: ep, northing: np } = latLonToUtm(p.lat, p.lon);
             const e = e1g + cosScale * (ep - e1p) - sinScale * (np - n1p);
             const n = n1g + sinScale * (ep - e1p) + cosScale * (np - n1p);
@@ -1052,12 +1158,24 @@ export function calculateCoordinates(
             p.lat = refined.lat;
             p.lon = refined.lon;
           }
+          if (partialMidAnchor) {
+            for (const p of sorted) {
+              const saved = preSimGps.get(p.number);
+              if (saved) {
+                p.lat = saved.lat;
+                p.lon = saved.lon;
+              }
+            }
+          }
 
           const scale = Math.hypot(cosScale, sinScale);
           const rotDeg = (Math.atan2(sinScale, cosScale) * 180) / Math.PI;
           warnings.push(
-            `[coordinate-calculator] 2nd anchor applied — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`,
+            partialMidAnchor
+              ? `[coordinate-calculator] Mid-anchor at post ${anchorPostNum} — similarity on posts 1–${anchorPostNum} only (scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°).`
+              : `[coordinate-calculator] 2nd anchor applied at post ${anchorPostNum} — similarity refined: scale=${scale.toFixed(5)}, rot=${rotDeg.toFixed(2)}°.`,
           );
+
         }
       }
     }
@@ -1066,8 +1184,6 @@ export function calculateCoordinates(
   // ── Distance-label route chain (when Distância_Poste labels cover the route) ─
   // Runs after 2nd anchor so the page-4 label chain starts from a similarity-corrected anchor.
   if (pageTransforms.size > 0 && sorted[0].lat != null) {
-    const multiSheetRoute =
-      !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
     // Auto-disable cable-chain bearings when any active cable is fragmented (dashed-ribbon
     // polygon with many M sub-paths). Local tangents are unreliable on such cables.
     let cableFragmentedSomewhere = false;
@@ -1097,10 +1213,7 @@ export function calculateCoordinates(
         "[coordinate-calculator] Cable chain bearings disabled: cable is fragmented (dashed-ribbon polygon). Using gpsBearing from UTM-projected positions.",
       );
     }
-    const sequenceFlipPages =
-      multiSheetRoute && sorted[0]?.lat != null
-        ? detectSequenceFlipPages(sorted)
-        : new Set();
+    const sequenceFlipPages = sequenceFlipPagesForSim;
     const chained = applyDistanceLabelGpsChain(
       sorted,
       augDistMapForSeams,
@@ -1119,6 +1232,21 @@ export function calculateCoordinates(
         "[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths " +
           "(bearings from Cabo Projetado where available; post #1 anchor unchanged).",
       );
+      const relockedPages = lockSheetBreaksFromChainedGps(
+        pageTransforms,
+        sorted,
+        augDistMapForSeams,
+        warnings,
+      );
+      for (const post of sorted) {
+        if (!relockedPages.has(post.pageNum)) continue;
+        const transform = pageTransforms.get(post.pageNum);
+        if (transform) {
+          const { lat, lon } = projectPost(post.x, post.y, transform);
+          post.lat = lat;
+          post.lon = lon;
+        }
+      }
     }
   }
 
@@ -1127,13 +1255,6 @@ export function calculateCoordinates(
   const branchJunctionMap = new Map(
     topology.branches.map((b) => [b.start, b.junctionPost]),
   );
-
-  // Helper: same-page bearing from PDF coords (D-02, D-REV-14)
-  const pdfBearing = (from, to) => {
-    const dx = to.x - from.x;
-    const dy = from.y - to.y; // flipY: up=North means dy = curr.y - next.y
-    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
-  };
 
   // Process main route and branch junctions
   for (let i = 0; i < sorted.length; i++) {
