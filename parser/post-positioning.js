@@ -378,14 +378,38 @@ function repositionOffRoutePostsBetweenNeighbors(
  * When assignment snapped a post onto the cable but the Numero_Poste / label anchor stayed
  * beside the street (e.g. post 8 at circle "08" vs junction pole), prefer anchor or nearest
  * Poste to the anchor — not the cable midpoint.
+ *
+ * `usedSymbol` (optional) prevents two posts from claiming the same pole symbol — without
+ * it, two posts with overlapping nearest-to-anchor pole produce identical (x, y) (D-SYM-04).
  */
 function realignPostsToMarkerAnchorWhenCablePulled(
   posts,
   symbols,
   cablesByPage,
   warnings,
+  usedSymbol = null,
 ) {
-  for (const p of posts) {
+  // Track which symbol each post currently occupies so we can release it on move.
+  /** @type {Map<number, number>} si occupied by post index */
+  const postOwnedSi = new Map();
+  if (usedSymbol) {
+    for (let pi = 0; pi < posts.length; pi++) {
+      const p = posts[pi];
+      const pg = p.pageNum ?? 1;
+      for (let si = 0; si < symbols.length; si++) {
+        if (!usedSymbol.has(si)) continue;
+        const sym = symbols[si];
+        if ((sym.pageNum ?? 1) !== pg) continue;
+        if (Math.abs(sym.x - p.x) < 0.5 && Math.abs(sym.y - p.y) < 0.5) {
+          postOwnedSi.set(pi, si);
+          break;
+        }
+      }
+    }
+  }
+
+  for (let pi = 0; pi < posts.length; pi++) {
+    const p = posts[pi];
     const anchor = anchorOf(p);
     const split = Math.hypot(p.x - anchor.x, p.y - anchor.y);
     if (split < ANCHOR_POLE_SPLIT_REALIGN_PT) continue;
@@ -398,11 +422,14 @@ function realignPostsToMarkerAnchorWhenCablePulled(
       anchHit.d > posHit.d + 8;
     if (!pulledOntoCable && split < POSTE_LABEL_MATCH_MAX_PT * 0.5) continue;
 
+    // Search nearest pole to label anchor, skipping any symbol another post already owns.
+    const ownSi = postOwnedSi.get(pi);
     let bestSi = -1;
     let bestD = Infinity;
     for (let si = 0; si < symbols.length; si++) {
       const sym = symbols[si];
       if ((sym.pageNum ?? 1) !== pg) continue;
+      if (usedSymbol && usedSymbol.has(si) && si !== ownSi) continue;
       const d = Math.hypot(sym.x - anchor.x, sym.y - anchor.y);
       if (d < bestD) {
         bestD = d;
@@ -414,6 +441,11 @@ function realignPostsToMarkerAnchorWhenCablePulled(
       const sym = symbols[bestSi];
       p.x = sym.x;
       p.y = sym.y;
+      if (usedSymbol) {
+        if (ownSi != null && ownSi !== bestSi) usedSymbol.delete(ownSi);
+        usedSymbol.add(bestSi);
+        postOwnedSi.set(pi, bestSi);
+      }
       warnings.push(
         `[post-positioning] post ${p.number}: realigned to Poste near label anchor ` +
           `(${split.toFixed(0)} pt from cable snap, ${bestD.toFixed(0)} pt to anchor).`,
@@ -424,6 +456,10 @@ function realignPostsToMarkerAnchorWhenCablePulled(
     if (pulledOntoCable || bestD > POSTE_LABEL_MATCH_MAX_PT) {
       p.x = anchor.x;
       p.y = anchor.y;
+      if (usedSymbol && ownSi != null) {
+        usedSymbol.delete(ownSi);
+        postOwnedSi.delete(pi);
+      }
       warnings.push(
         `[post-positioning] post ${p.number}: using label anchor position ` +
           `(was ${split.toFixed(0)} pt from marker; snapped pole was on cable, not at post ${p.number} on plan).`,
@@ -633,7 +669,8 @@ export function assignPostPositionsFromPosteSymbols(
     posts,
     symbols,
     cablesByPage,
-    warnings
+    warnings,
+    usedSymbol,
   );
 
   warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
@@ -1757,7 +1794,8 @@ export function assignPolesGloballyByLabels(
     posts,
     symbols,
     cablesByPage,
-    warnings
+    warnings,
+    usedSymbol,
   );
 
   warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);

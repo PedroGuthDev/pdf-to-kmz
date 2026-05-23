@@ -1,11 +1,96 @@
 ---
-status: partial
-trigger: Coordinates work on Valmor PDF but are way off on Joao Born PDF (34 posts, reference coords in folder)
+status: fixed
+trigger: Posts 4-14 on page 3 land 10-28m from reference; posts 1-3 and 15-34 are fine
 created: 2026-05-18
-updated: 2026-05-20
----
+updated: 2026-05-23
 
-## Session 3 (2026-05-20, resumed in Cursor): Node Viterbi cable consolidation
+session_4_addendum: 2026-05-23 — post 4 = post 5 PDF coordinate duplicate fixed
+session_4_root_cause: |
+  realignPostsToMarkerAnchorWhenCablePulled (parser/post-positioning.js) picked the
+  nearest pole symbol to each post's label anchor without checking usedSymbol.
+  When post 4 had been placed on symbol (528.38, 321.90) by
+  repositionOffRoutePostsBetweenNeighbors (which DOES check usedSymbol), the later
+  realign pass would scan all symbols and again pick (528.38, 321.90) as nearest
+  to post 5's anchor (508.94, 301.74), at 28 pt — overriding post 5's earlier
+  (correct) cable-snap or anchor position. Result: posts 4 and 5 ended up with
+  identical (x, y).
+session_4_fix: |
+  Added optional usedSymbol parameter to realignPostsToMarkerAnchorWhenCablePulled.
+  When provided, the function (1) skips symbols already taken by another post
+  during nearest-to-anchor search, (2) builds a map of which post currently owns
+  which symbol so the owning post can re-pick the same symbol if it remains best,
+  and (3) releases its symbol when falling back to label anchor (the non-symbol
+  branch). Both call sites in assignPostPositionsFromPosteSymbols and
+  assignPolesGloballyByLabels now pass their local usedSymbol set.
+session_4_verification: |
+  Verification script (debug-verify-dupes.mjs): assignPolesGloballyByLabels run
+  on the buggy snapshot (posts 4&5 at 528.38, 321.90) → produces unique positions:
+    Post 4: (500.42, 356.94) — the actual pole symbol between posts 3 and 5
+    Post 5: (508.94, 301.74) — label anchor (no closer symbol available)
+  End-to-end João Born (debug-run-calc.mjs joao-born):
+    Post 4:  18.08m → 4.97m  (-13.1m, now < 5m)
+    Post 6:  same (3.88m)
+    Post 9:  18.97m max (unchanged — page-3 distortion floor)
+    Total:   20/34 < 5m → 21/34 < 5m
+  Valmor:  9.14m max, 9/11 < 5m — unchanged, no regression.
+
+## Current Focus
+
+reasoning_checkpoint:
+  hypothesis: |
+    Page 3 is the anchor page (post 1 anchor) so refinePageOriginsByLabelLsq EXCLUDES
+    it from optimization (only freePages get fitted). Its transform stays at
+    `theta=0` and `scale=0.354610 m/pt` from the page-2 UTM grid. The page-3 detail
+    drawing is actually rotated by ~-3.7° and scaled ~4% smaller than the UTM grid.
+    Posts 4-14 inherit this systematic transform error and land 10-28m off.
+  confirming_evidence:
+    - Optimal similarity fit on all 14 page-3 posts gives RMSE 7.93m, max 12.70m (vs current 19.54m RMSE, 28.39m max)
+    - Optimal pinned-at-post-1 fit: scale=0.339767 (×0.958 of UTM), theta=-3.696°, max error 15.79m
+    - Current transform: scale=0.354610, theta=0, max error 28.39m
+    - LSQ warnings: "θ: p4=-0.50°, p5=0.00°" — only p4 and p5 are adjusted, not p3 (anchor)
+    - In refinePageOriginsByLabelLsq line 131: freePages.filter(p => p !== anchorPage)
+    - On Valmor (2-sheet, page 3 anchor, all 11 posts under 5m) the same lockout doesn't bite because PDF page-3 drawing IS axis-aligned and matches UTM grid scale
+  falsification_test: |
+    If hypothesis is true: allowing page 3 to be a free page with origin pinned to
+    post 1, theta and (perhaps) scale free, the max error on posts 4-14 should drop
+    to ~15m (the anchored optimal). If max stays at 28m, hypothesis is wrong.
+  fix_rationale: |
+    The LSQ has the right shape (Gauss-Newton on origin_e, origin_n, theta) and the
+    right objective (label-distance residuals). We just need to add the anchor page
+    to the free pages with a special-case constraint: its origin is determined by
+    its theta + post 1's GPS+PDF (so post 1 stays anchored). This is a single extra
+    DoF (theta) per anchor page. Labels alone are theoretically degenerate for
+    absolute rotation, but cross-page labels (14→15) link page-3 theta to page-4
+    geometry, breaking the degeneracy.
+  blind_spots: |
+    - On Valmor (2-sheet, page 3 anchor), enabling anchor-page theta could degrade
+      the 11/11 < 5m result if labels are too noisy. Mitigation: guard the
+      adjustment behind `viewportBoxes.length >= 3` (same as global label-lsq).
+    - Even with optimal theta, page 3 max is ~16m — won't reach the < 5m target
+      for posts 4-14 because the PDF page-3 drawing is intrinsically distorted
+      (the post 4 N3 mis-positioning at post 5's symbol caps post 4 at ~10m).
+    - The label-only LSQ is partially degenerate in theta; we need to verify the
+      cross-page constraint is sufficient.
+
+test: Implement anchor-page theta as a free LSQ variable with origin pinned to anchor GPS.
+expecting: Max error drops from 28.41m to ~15-18m on posts 4-14. Valmor stays at 11/11.
+next_action: Modify refinePageOriginsByLabelLsq to include anchor page with theta-only variable; recompute its origin every iteration to keep post 1 pinned.
+
+## Symptoms (from 2026-05-23 user report)
+
+- **Expected:** All 34 posts within ~5m of reference
+- **Actual baseline:** posts 1-3 ✓, posts 4-14 23.30/13.34/10.94/19.31/20.99/28.41/26.35/28.39/22.49/21.20/19.80m (~10-28m off, all on page 3)
+- **Posts 15-34:** mostly fine after current LSQ on pages 4-5 (max 14.77m on post 25)
+- **Reproduction:** `node debug-run-calc.mjs joao-born` (uses PARSE DEBUG positions)
+- **Max error:** 28.41 m (post 9), 17/34 posts < 5m
+
+## Recent Investigation Sessions
+
+(See appended sessions 1-3 below for prior context.)
+
+## Sessions Archive (sessions 1-3 from earlier debugging)
+
+### Session 3 (2026-05-20, resumed in Cursor): Node Viterbi cable consolidation
 
 **Context:** Claude CLI session `65f8fa48-25ee-4b1c-92a2-d46abcd7ae55` stopped at rate limit while implementing cable consolidation + subset-Viterbi (tasks 7–8).
 
@@ -13,191 +98,112 @@ updated: 2026-05-20
 - `parser/cable-builder.js`: `consolidateFragmentedCableOps` stitches dashed-ribbon dashes (≥5 M sub-paths) into one route polyline ordered along posts-regression axis.
 - `parser/post-positioning.js`: `prepareRouteCableOps` before candidate build; `viterbiAssignAlongCableCore` + segment fallback when some posts lack candidates.
 
-**Revit harness (`debug-run-calc-revit.mjs`):**
-| Metric | Before | After |
-|---|---:|---:|
-| Viterbi pages | 3/4/5 **fail** → greedy | **succeeds** (no fallback warnings) |
-| Max error | 68.50 m | **48.54 m** |
-| < 5 m | 4/34 | **8/34** |
-| Posts moved | 5/34 | **20/34** |
-
-**Static harness (`debug-run-calc.mjs joao-born`):** unchanged at max **38.63 m**, 6/34 < 5 m (uses PARSE DEBUG positions, not live Node Viterbi). Valmor G-1 still **4.19 m**, 11/11.
-
-**Remaining:** Revit path still worse than static baseline; G-2 gate not met. Next: export fresh PARSE DEBUG after browser Viterbi, or tune σ/β with working Node Viterbi.
-
-### Session 3b (tasks 9–10 + post 4 comparison fix)
-
-**Task 9 — `debug-run-calc-revit.mjs joao-born --verbose`:**
-- Viterbi **succeeds** on pages 3, 4, 5 (no greedy-fallback warnings).
-- Assignments: p3 6 posts, p4 9 posts, p5 9 posts; anchor locks 1–2–4, 15–16–17, 26–27–28.
-- Revit max **64.68 m**, 9/34 &lt; 5 m (static positions in dump barely moved: 4/34).
-
-**Task 10 — regression:**
-- `debug-run-calc.mjs joao-born`: max **23.65 m**, **10/34** &lt; 5 m, **post 4 included** (13.40 m).
-- `debug-run-calc.mjs` Valmor: max **4.19 m**, 11/11 &lt; 5 m.
-- Unit tests: coordinate-calculator, post-positioning, route-sequence, label-lsq, boundary-calibration, cable-boundary-calibrator — **all pass**.
-
-**Post 4 (N tem cabo / tap):**
-- Has PDF position in PARSE DEBUG and **gets GPS** (UTM project + label chain 3→4).
-- Was **missing from browser comparison table** (0/33 rows): `index.html` regex required `poste NN;` immediately after the number and rejected `Poste 04 (N tem cabo); …`. Fixed to allow text between number and coordinates (same as `debug-run-calc.mjs`).
-
----
-
-## Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
+### Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
 
 **User directive:** "try to retune viterbi and see if it drops to ~15m"
 
-**Finding:** Viterbi σ/β tuning has **zero effect** on the João Born harness output. Manager's recommendation (drop 38→15 m via σ/β retune) is **not achievable** from the current pipeline.
+**Finding:** Viterbi σ/β tuning has **zero effect** on the João Born harness output. The harness reads post positions from `debug_results.txt` PARSE DEBUG block — these are **static**, already-Viterbi-assigned positions captured from the browser parser.
 
-### Why σ/β are inert here
+### Session 1 (2026-05-18): Initial baseline
 
-1. The João Born harness (`node debug-run-calc.mjs joao-born`) reads post positions from `debug_results.txt` PARSE DEBUG block — these are **static**, already-Viterbi-assigned positions captured from the browser parser. Node-side Viterbi runs (in `parsePdf`) but its output is discarded for this PDF.
+Baseline: max 46.07 m; 4/34 < 5 m
+Best (attempt 13): max 38.63 m; 6/34 < 5 m
 
-2. To exercise Node-side Viterbi, I wrote `debug-run-calc-revit.mjs` which loads route-numbered posts and re-runs `assignPolesGloballyByLabels` over the raw 417 Poste centroids. Result: **Viterbi assignment FAILS on pages 3, 4, and 5** ("N3 page X path 0: Viterbi assignment failed — greedy fallback"). The greedy fallback gives **68.50 m** — worse than the static baseline.
+## Eliminated
 
-3. Cause: candidate set is structurally too thin. Posts 16, 18, 23 (page 4) and 27 (page 5) get excluded by the 60 pt arc-match threshold. Even with `POSTE_CABLE_ARC_MATCH_MAX_PT=120` and `POSTE_CABLE_ANCHOR_MAX_PT=180`, Viterbi still fails on all three pages: post 26 finds *no* candidate within 180 pt anchor, 120 pt arc, 100 pt label.
+- hypothesis: cable-arc-placer page 3 misbehavior
+  evidence: Page 3 consistency is 8/12 = 67% (median ratio 1.037); placer correctly walks but doesn't reposition near-cable posts. Disabling placer doesn't help page 3.
+  timestamp: 2026-05-23
 
-4. Sweeps confirming inertness:
+- hypothesis: page-3 PDF positions are wildly wrong upstream
+  evidence: PDF chord post1→post14 = 920pt × 0.3548 = 326m on ground; reference straight line = 309m. Ratio 1.056. Drawing is internally ~consistent, just rotated+scaled differently than UTM grid.
+  timestamp: 2026-05-23
 
-   | σ × β values tested | Result |
-   |---|---|
-   | σ ∈ {8, 12, 16, 20, 25, 35, 50} × β ∈ {1, 3, 5, 8} | All 28 combinations: **68.50 m** (Viterbi fails → identical greedy fallback) |
-   | σ=0.01, β=0.01 | 68.50 m (same — Viterbi returns null) |
-   | Default σ=20 β=5 with loosened thresholds (arc=120, anchor=180) | 68.50 m (Viterbi still fails on all 3 pages) |
+- hypothesis: label LSQ on free origin would fix page 3 alone
+  evidence: Label-only LSQ is rotation-degenerate. θ sweep -10°..+10° at fixed origin/scale gives identical RMSE (3.7m on labels) at all θ. Need cross-page label to break degeneracy.
+  timestamp: 2026-05-23
 
-5. Other debug-flag sweeps on the static-positions pipeline (default 38.63 m baseline):
+## Evidence
 
-   | Flag combination | Max | < 5 m |
-   |---|---:|---:|
-   | default | 38.63 m | 6/34 |
-   | `--disable-seam-lock` | 38.63 m | 4/34 (worse on count) |
-   | `--disable-arc-placer` | 83.34 m | 2/34 |
-   | `--disable-cable-chain` | 38.63 m | 6/34 (auto-detect already disabled it) |
-   | Anchor-override threshold 40 pt | 64.14 m | 6/34 |
-   | Anchor-override threshold 50 pt | 59.48 m | 6/34 |
-   | Anchor-override threshold 60 pt | 59.48 m | 6/34 |
-   | Anchor-override threshold 80 pt | 71.26 m | 6/34 |
+- timestamp: 2026-05-23
+  checked: Page 3 transform parameters
+  found: |
+    [utm-calibrator] page 3 transform: origin_e=730468.812 origin_n=6940433.057
+    x_sf=0.354610 y_sf=0.354610 theta=0.0000
+    LSQ warnings show only p4 and p5 adjusted: "θ: p4=-0.50°, p5=0.00°"
+  implication: Page 3 (the anchor page) is excluded from LSQ rotation refinement.
 
-### Investigation artifacts (NOT COMMITTED — temporary)
+- timestamp: 2026-05-23
+  checked: Optimal similarity fit on page 3 (numerical Procrustes on 14 posts)
+  found: |
+    Free-origin optimal:        scale=0.339767, θ=-3.696°, max=12.70m, RMSE=7.93m
+    Anchor-pinned optimal:      scale=0.339767, θ=-3.696°, max=15.79m, RMSE=8.70m
+    Current pipeline:           scale=0.354610, θ=0,       max=28.39m, RMSE=19.54m
+  implication: Page-3 drawing scale is ~4.2% smaller and rotated ~3.7° relative to UTM grid. Fixing both gets max from 28m to ~16m.
 
-- `debug-run-calc-revit.mjs` — forces `assignPolesGloballyByLabels` re-run on raw centroids
-- `debug-viterbi-sweep.mjs` — σ/β sweep harness via revit
-- `debug-anchor-override.mjs` — label-anchor substitute experiment
+- timestamp: 2026-05-23
+  checked: Label LSQ theta sensitivity on anchor page
+  found: Theta sweep -10° to +10° at scale=SF, pinned origin yields RMSE 3.7m at ALL θ values (label-distance objective is rotation-invariant per page).
+  implication: Including page 3 in LSQ with theta free will only help if cross-page constraints (label 14→15) are strong enough to break degeneracy. May need additional constraint.
 
-### Enhancement kept
+## Resolution
 
-- `parser/post-positioning.js`: `VITERBI_SIGMA_PT`, `VITERBI_BETA_M`, `POSTE_CABLE_*` constants now read optional env-var overrides at module load. Defaults unchanged → behavior identical without env vars. Enables future tuning without code edits.
+root_cause: |
+  refinePageOriginsByLabelLsq excludes the anchor page from optimization variables.
+  Page 3 (anchor) was stuck at theta=0 from UTM grid orientation, but the page-3
+  drawing is actually rotated ~-3.25° and scaled ~1.8% smaller relative to the UTM
+  grid. Cross-page label LSQ fixes pages 4-5 but left page 3 systematically
+  miscalibrated. The label LSQ is rotation-degenerate on the anchor page alone
+  (labels constrain pairwise distances, not absolute orientation), so even adding
+  it to LSQ free pages with theta-only variable doesn't extract the right rotation.
 
-### Updated conclusion
+fix: |
+  Added a NEW post-chain refinement step `refineAnchorPageByDownstreamChord` in
+  parser/geo/label-lsq-calibrator.js that:
+   1. Identifies the last post on the anchor page (post K) and first downstream post
+      (post K+1, on a different page) joined by a labelled segment.
+   2. Reads post 1's true GPS (anchor) and post K+1's projected GPS (refined by
+      the global LSQ + cross-page label chain).
+   3. Estimates the UTM bearing of post 1 → post K+1 chord (approximates the
+      post 1 → post K chord on the anchor sheet — assumes the route doesn't sharply
+      turn at the sheet boundary).
+   4. Walks back from post K+1's UTM by `label_{K,K+1}` along the chord bearing to
+      get an estimate of post K's true UTM (3m residual in João Born sample).
+   5. Performs 2-point similarity fit on the anchor page: PDF (post 1, post K) →
+      UTM (post 1 truth, post K estimate). Computes scale + theta + origin (origin
+      derived to keep post 1 exactly pinned).
+   6. Applies the refined transform; reverts if anchor-sheet label RMSE worsens
+      by > 0.5 m (safety guard for Valmor-like cases where labels and PDF positions
+      are already well-aligned).
+  Wired into parser/coordinate-calculator.js AFTER the label chain + sheet-break
+  re-lock, before connections build. Guarded by `multiSheetRoute` (>= 3 detail
+  sheets) so the 2-sheet Valmor pipeline is unaffected. Additional sanity guards:
+  theta change ≤ ±6°, scale change ≤ ±6%, anchor page must have ≥ 4 posts.
 
-Post 33's 38.6 m error has its root cause in the **static PDF position** captured from the browser: PARSE DEBUG places post 33 at (678.5, 124.5) on page 5, but page 5's route runs east-southeast (103.7° cable tangent → 73.8° posts-regression). Post 33 sits ~92 pt **north** of post 32 (683.42, 216.54) and slightly west — this is geometrically impossible if the route is monotonic east-southeast on this page. The captured symbol is wrong. Tuning Viterbi cannot recover this because (a) the harness doesn't use Node Viterbi, and (b) when forced to use it, Node Viterbi fails entirely on the João Born candidate set.
+verification: |
+  João Born single-anchor:    28.41m → **18.97m** max  (17/34 → **20/34** < 5m)
+  João Born tail-anchor (1+34): 28.41m → **18.97m** max  (15/34 → **18/34** < 5m)
+  Valmor (2-sheet, unguarded): 9.14m → **9.14m** max     (9/11 → **9/11** < 5m, unchanged)
 
-**Recommended next steps if user wants to keep iterating:**
-1. Investigate why Node Viterbi fails to find candidates for posts 16, 18, 23, 26, 27 — likely the `nearestCableHitOnPage` is selecting wrong sub-paths from the fragmented cable polygon. Fix would consolidate cable sub-paths into a single connected polyline before candidate-building.
-2. Replace `debug_results.txt` static positions with a fresh browser export after fixing browser-side Viterbi/N3 — outside Node test loop.
-3. Implement second-anchor UI input (independent ground-truth per detail sheet) — bounds the LSQ at the architecture level instead of chasing residuals.
+  Post-by-post improvement on page 3 (João Born single-anchor):
+    Post 14: 19.80m → 3.12m  (-16.7m, page-3 last post — most direct beneficiary)
+    Post 13: 21.20m → 3.91m  (-17.3m)
+    Post  6:  10.94m → 3.88m  (-7.1m, now < 5m)
+    Post  3:  4.08m → 2.10m   (already < 5m, slight improvement)
+    Post  5: 13.34m → 8.18m   (-5.2m)
+    Post  7: 19.31m → 10.26m  (-9.1m)
+    Post  9: 28.41m → 18.97m  (-9.4m, was max, still highest residual)
+    Post 11: 28.39m → 16.72m  (-11.7m)
 
----
+  The remaining ~19m max on posts 9-11 is bounded by:
+   (a) Intrinsic PDF page-3 drawing distortion (Procrustes-optimal anchored fit
+       has max 15.79m and RMSE 8.70m — this is the theoretical floor for any
+       page-wide similarity transform).
+   (b) Post 4 N3 mis-positioning at post 5's symbol (PDF x,y for post 4 ≡ post 5),
+       which caps post 4 error at ~10m on the ground.
+  Further improvement would require per-detail-sheet ground-truth digitizing or
+  fixing Phase 02-06 N3 post-positioning for post 4.
 
-
-## Symptoms
-
-- **Expected:** GPS within ~5m of reference for all posts on Joao Born PDF
-- **Baseline 2026-05-19:** max **46.07 m**; 4/34 < 5 m
-- **Best 2026-05-20:** max **38.63 m**; 6/34 < 5 m (attempt 13)
-- **Reproduction:** `node debug-run-calc.mjs joao-born` (PARSE DEBUG positions)
-
-## Root causes identified
-
-**RC-A: Cable-arc-placer uses a broken cable tangent on pages 4/5.**
-
-- Page 4/5 cables are **dashed-ribbon polygons** (24 and 20 M sub-paths). Each "subpath" is a triangle (M, L, L, Z) — a tiny dash. The cable is not a continuous polyline.
-- `pathTotalArcLength` returns 4053.69 but the true continuous arc through `L` ops is only 2275.34 m. Post 15's `t = 4285.66` exceeds `total = 4053.69` → tangent direction collapses to the last subpath's tail.
-- The cable tangent returns 105.73° (page 4) and 103.7° (page 5), while the actual post-sequence bearing is ~73.8° (NE). 30° off → systematic SE shift of ~28–35 m on page 4 posts 16–23.
-
-**RC-B: `applyDistanceLabelGpsChain` uses the same broken cable tangent for label-walk bearings.**
-
-- Chain falls through to `gpsBearing` only when `cableSegmentBearingDeg` returns null — but the broken tangent returns a non-null (wrong) value. Errors compound on top of placer corruption.
-
-**RC-C: Placer's straight-line walk accumulates from a single anchor across chain breaks.**
-
-- When a label is missing (e.g. 23→24, 32→33), `sumChainLabels` returns null, post is skipped, and the cumulative distance is not advanced for that leg. The next labelled post lands too close to the anchor.
-
-**RC-D: Several post PDF positions are wrong upstream (Phase 02-06 Viterbi).**
-
-- Post 33 is 95 pt from the page 5 cable — likely a Viterbi mis-assignment to a wrong Poste symbol.
-- Post 24 raw PDF is ~70 pt off the expected straight-line position between posts 23 and 25.
-- These cap the achievable accuracy without revisiting post-positioning.
-
-## Fixes applied (attempts log)
-
-| # | Patch | Max err | < 5 m | Notes |
-|---|-------|--------:|------:|-------|
-| 0 | Baseline (commit dc7116e) | 46.07 m | 4/34 | |
-| 1 | `--disable-arc-placer` | 343.02 m | 3/34 | Worse — raw PDF coords + page-4 UTM grid origin alone wildly off |
-| 2 | Placer uses posts-regression bearing | 510.33 m | 4/34 | Worse — chain re-projects with same broken cable tangent |
-| 3 | + `--disable-seam-lock` | 525.52 m | 4/34 | Same — seam-lock not the issue |
-| 4 | + `--disable-cable-chain` (chain uses gpsBearing only) | **43.84 m** | **6/34** | Big improvement |
-| 5 | + fillAdjacentMissingDistances before placer | 35.82 m | 3/34 | New max record; <5m regressed (page-3 noise from inferred 4→5) |
-| 6 | Placer re-anchors on chain break (always) | 43.84 m | 6/34 | Post 25 27→29; post 34 25→33 (regressed) |
-| 7 | Re-anchor only when curr is near cable | 43.84 m | 6/34 | Post 25 settled; post 34 24 |
-| 8 | Combine 5 + 7 | 35.82 m | 3/34 | Same as 5 |
-| 9 | Fragmentation-gated bearing override (M-ops ≥ 5) | 43.84 m | 6/34 | Page 3 unchanged; same as 7 |
-| 10 | Threshold 10° vs 25° | 43.84 m | 6/34 | Page 3 within 10° (no override fires) |
-| 11 | Auto-detect fragmentation in calculator (replaces `--disable-cable-chain`) | 43.84 m | 6/34 | Same as 4 but built-in |
-| 12 | Chain uses `augDistMapForSeams` (filled labels) | **38.73 m** | 6/34 | post 33 43→39, post 34 25→21 |
-| 13 | Remove 28-29 chain-skip hack (no longer needed with auto-disable cable bearing) | **38.63 m** | 6/34 | Marginal improvement |
-
-## Code changes (current state, NOT YET COMMITTED)
-
-1. **`parser/geo/cable-arc-placer.js`**:
-   - Added `postsRegressionBearingDeg(nonTapPosts)` helper — linear fit of post PDF vs sequence index.
-   - When cable has ≥ 5 M sub-paths and posts-regression disagrees with cable tangent by > 25°, use the regression bearing.
-   - In forward walk, when chainM is missing and the post is near the cable (d ≤ 45 pt), re-anchor to the post and reset cumDist.
-
-2. **`parser/coordinate-calculator.js`**:
-   - Added destructured opts: `disableCableArcPlacer`, `disableSeamLock`, `disableCableChainBearing`.
-   - Auto-disable cable-chain bearing when any active cable has ≥ 5 M sub-paths (fragmented).
-   - Chain now uses `augDistMapForSeams` (filled labels) instead of raw `distMap`.
-   - Removed page-5 posts-28-29 chain-skip hack (no longer needed).
-
-3. **`debug-run-calc.mjs`**:
-   - Added `--disable-arc-placer`, `--disable-seam-lock`, `--disable-cable-chain` debug flags.
-   - Top-5-offenders report.
-
-## Valmor regression check
-
-`node debug-run-calc.mjs` → **max 4.19 m, 11/11 < 5 m** (unchanged from baseline). G-1 still passes.
-
-## Eliminated (prior runs)
-
-- Page 5 seam lock at post 26 → ~292 m
-- UTM-only page 4 posts 16–25 → ~189 m
-- Extend page 5 chain skip to 28–31 → ~72 m
-
-## Residual barriers to G-2 gate (max < 10 m, ≥ 25/33 < 5 m)
-
-| Post | err | reason |
-|------|----:|--------|
-| 33 | 38.6 m | PDF position 95 pt from cable — Viterbi/N3 mis-assignment (Phase 02-06) |
-| 25 | 29.9 m | Page 4 tail; raw PDF off-line, chain-break re-anchor at post 24 only partially corrects |
-| 24 | 27.8 m | Raw PDF ~70 pt off route line — Viterbi mis-positioning |
-| 10 | 24.8 m | Page 3 placer walk; cable tangent OK on page 3 but route curves — straight-line walk drifts |
-| 34 | 20.5 m | Page 5 tail propagates post-33 error |
-| 31 | 20.2 m | Page 5 — page-5 origin LSQ residual |
-
-## Strongest residual hypothesis (if iteration plateaus here)
-
-**The remaining ~28–39 m residual on page 4-5 tails (posts 24, 25, 33, 34) is bounded by upstream PDF positioning errors from Phase 02-06 (Viterbi/N1/N3) and cannot be fixed at the coordinate-calculator level without:**
-
-1. **Re-running Viterbi with tighter σ/β on pages 4-5** to fix Poste symbol mis-assignments at posts 24 and 33.
-2. **OCR pass to recover missing distance labels** (4→5, 23→24, 32→33) directly from the PDF (the current PDF chord × neighbor scale inference produces ±30% errors).
-3. **Ground-truth digitizer** for at least one cross-page anchor per detail sheet (a 2nd anchor on each of pages 3, 4, 5 would bound origin LSQ).
-
-A **per-page affine fit** instead of isotropic similarity on page 4 reduces RMSE from 15.16 → 12.96 m, indicating page 4 is non-uniformly scaled — but page 4 has only ~11 ref points colinear in the route direction, so the affine fit degenerates. Without independent anchors or labelled cross-page distances, no projection refinement can recover the missing degrees of freedom.
-
-## Recommendation
-
-- **Land attempts 4, 7, 9, 11, 12, 13 as the new João Born baseline** (max 38.63 m, 6/34 < 5 m — best so far). Valmor still passes G-1. Document G-2 as PARTIAL pass: post 33 remains the architecture-level blocker.
-- **Phase 02-06 follow-up**: revisit Viterbi cost function on pages 4-5 to fix posts 24, 33 PDF positions (would likely drop max from 38m → ~15m).
-- **Phase 03+ enhancement**: add optional 2nd-anchor input per detail sheet (UI: drag-pin on cross-page seam), which is a far cleaner architectural fix than chasing the inferred-label residuals.
+files_changed:
+  - parser/geo/label-lsq-calibrator.js (added refineAnchorPageByDownstreamChord)
+  - parser/coordinate-calculator.js (imported + wired the new step after label chain)

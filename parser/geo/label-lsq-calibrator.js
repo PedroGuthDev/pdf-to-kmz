@@ -335,6 +335,171 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
 }
 
 /**
+ * Refine the anchor-page transform (scale + theta) using post 1 (true GPS) and the first
+ * post on the page AFTER the anchor sheet (projected GPS after the global LSQ on free pages).
+ *
+ * Rationale: the global label LSQ excludes the anchor page from optimization. On multi-sheet
+ * route detail drawings, the anchor sheet often has a 3–5° rotation against the UTM grid that
+ * cannot be detected from labels alone (rotation-degenerate per page) but IS visible from
+ * the cross-page chord to the first downstream post (whose UTM position is now well-fit by
+ * the LSQ). We approximate the post-1 → post-K UTM bearing as the bearing of the cross-page
+ * step at the sheet boundary, walk back by the labeled distance to estimate the last
+ * anchor-sheet post's UTM, then do a 2-point Procrustes (post 1 + last anchor post) to
+ * compute the page's scale and theta. Origin is recomputed to keep post 1 exactly pinned.
+ *
+ * Guards:
+ *  - Anchor page must have ≥ 4 same-page posts (needs spatial spread for fit to make sense).
+ *  - First downstream post must exist with non-null lat/lon (LSQ-fit projection).
+ *  - Resulting theta must be within ±MAX_ANCHOR_REFINE_THETA_DEG of the initial theta.
+ *  - Scale change must be within ±MAX_ANCHOR_REFINE_SCALE_FRAC of the initial scale.
+ *  - Result is only applied if the anchor-page label RMSE improves OR stays within
+ *    `RMSE_TOLERANCE_M` of the original; otherwise reverted to keep Valmor-like cases safe.
+ *
+ * @param {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta?: number, zone: number }>} transforms
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, lat?: number|null, lon?: number|null }>} sortedPosts
+ * @param {Map<string, number|null>} distMap
+ * @param {{ lat: number, lon: number }} post1Gps
+ * @param {string[]} warnings
+ * @returns {boolean}  true if anchor page was refined
+ */
+const MAX_ANCHOR_REFINE_THETA_DEG = 6;
+const MAX_ANCHOR_REFINE_SCALE_FRAC = 0.06;
+const ANCHOR_REFINE_RMSE_TOLERANCE_M = 0.5;
+
+export function refineAnchorPageByDownstreamChord(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  if (sorted.length < 4) return false;
+
+  const post1 = sorted[0];
+  const anchorPage = post1.pageNum;
+  if (anchorPage == null || !transforms.has(anchorPage)) return false;
+  const tAnchor = transforms.get(anchorPage);
+  if (tAnchor.affine) return false;
+
+  const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
+  if (anchorPagePosts.length < 4) return false;
+
+  // Find the last post on the anchor page and the first post on the next page.
+  // They MUST be consecutive in the route (post number K and K+1) to use the label.
+  const lastOnAnchor = anchorPagePosts[anchorPagePosts.length - 1];
+  const lastIdx = sorted.findIndex(p => p.number === lastOnAnchor.number);
+  const firstDownstream = sorted[lastIdx + 1];
+  if (
+    !firstDownstream ||
+    firstDownstream.pageNum === anchorPage ||
+    firstDownstream.lat == null ||
+    firstDownstream.lon == null
+  ) {
+    return false;
+  }
+  const labelKtoK1 = distMap.get(`${lastOnAnchor.number}->${firstDownstream.number}`);
+  if (labelKtoK1 == null || labelKtoK1 <= 0) return false;
+
+  // True UTM for post 1 (exact) and projected UTM for first-downstream (post-chain).
+  const { easting: e1, northing: n1, zone: zone1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const { easting: eK1, northing: nK1 } = latLonToUtm(firstDownstream.lat, firstDownstream.lon);
+
+  // Estimate UTM bearing of the chord (post 1 → post K+1), which approximates the chord
+  // (post 1 → post K) on the anchor sheet (route nearly continues straight at the seam).
+  const chordE = eK1 - e1;
+  const chordN = nK1 - n1;
+  const chordLen = Math.hypot(chordE, chordN);
+  if (chordLen < labelKtoK1) return false;  // sanity: chord must be longer than the last segment
+  const utmBrgRad = Math.atan2(chordE, chordN);
+
+  // Walk back from first-downstream's UTM by label distance to estimate post K's UTM.
+  const eKest = eK1 - labelKtoK1 * Math.sin(utmBrgRad);
+  const nKest = nK1 - labelKtoK1 * Math.cos(utmBrgRad);
+
+  // 2-point similarity fit on (post 1, post K):
+  //   ΔE = u*Δx + v*Δy
+  //   ΔN = -u*Δy + v*Δx           (utm-calibrator convention)
+  // where (u, v) = (s*cosθ, s*sinθ).
+  const dx = lastOnAnchor.x - post1.x;
+  const dy = lastOnAnchor.y - post1.y;
+  const det = dx * dx + dy * dy;
+  if (det < 1) return false;
+  const dE = eKest - e1;
+  const dN = nKest - n1;
+  const u = (dx * dE - dy * dN) / det;
+  const v = (dy * dE + dx * dN) / det;
+  const newScale = Math.hypot(u, v);
+  const newTheta = Math.atan2(v, u);
+
+  // Sanity check: don't accept extreme rotations or scale changes.
+  const initialTheta = tAnchor.theta ?? 0;
+  const initialScale = tAnchor.x_scale_sf;
+  if (
+    !Number.isFinite(newScale) ||
+    !Number.isFinite(newTheta) ||
+    newScale <= 0
+  ) {
+    return false;
+  }
+  if (Math.abs(newTheta - initialTheta) > (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180) {
+    warnings.push(
+      `[anchor-refit] Page ${anchorPage}: theta change ${(((newTheta - initialTheta) * 180) / Math.PI).toFixed(2)}° exceeds ±${MAX_ANCHOR_REFINE_THETA_DEG}° guard — skipped.`,
+    );
+    return false;
+  }
+  if (Math.abs(newScale / initialScale - 1) > MAX_ANCHOR_REFINE_SCALE_FRAC) {
+    warnings.push(
+      `[anchor-refit] Page ${anchorPage}: scale change ${((newScale / initialScale - 1) * 100).toFixed(2)}% exceeds ±${(MAX_ANCHOR_REFINE_SCALE_FRAC * 100).toFixed(0)}% guard — skipped.`,
+    );
+    return false;
+  }
+
+  // Compute new origin so post 1's PDF projects exactly to (e1, n1).
+  const c = Math.cos(newTheta);
+  const s = Math.sin(newTheta);
+  const rx1 = c * post1.x + s * post1.y;
+  const ry1 = -s * post1.x + c * post1.y;
+  const newOriginE = e1 - rx1 * newScale;
+  const newOriginN = n1 + ry1 * newScale;
+
+  // Trial: snapshot transforms, apply change, check label RMSE.
+  const snapTransform = { ...tAnchor };
+  const trial = {
+    ...tAnchor,
+    origin_e: newOriginE,
+    origin_n: newOriginN,
+    x_scale_sf: newScale,
+    y_scale_sf: newScale,
+    theta: newTheta,
+    zone: zone1,
+  };
+  const rmseBefore = labelDistanceRmse(transforms, sorted, distMap);
+  transforms.set(anchorPage, trial);
+  const rmseAfter = labelDistanceRmse(transforms, sorted, distMap);
+  if (
+    rmseBefore != null &&
+    rmseAfter != null &&
+    rmseAfter > rmseBefore + ANCHOR_REFINE_RMSE_TOLERANCE_M
+  ) {
+    // Revert: refit worsened label residuals beyond tolerance.
+    transforms.set(anchorPage, snapTransform);
+    warnings.push(
+      `[anchor-refit] Page ${anchorPage}: label RMSE worsened ${rmseBefore.toFixed(2)}→${rmseAfter.toFixed(2)}m (>${ANCHOR_REFINE_RMSE_TOLERANCE_M}m tolerance) — reverted.`,
+    );
+    return false;
+  }
+
+  warnings.push(
+    `[anchor-refit] Page ${anchorPage}: refined scale ${initialScale.toFixed(6)}→${newScale.toFixed(6)} ` +
+      `(×${(newScale / initialScale).toFixed(4)}), θ ${((initialTheta * 180) / Math.PI).toFixed(2)}°→${((newTheta * 180) / Math.PI).toFixed(2)}° ` +
+      `using post 1 + post ${firstDownstream.number} chord (${chordLen.toFixed(1)}m); ` +
+      `label RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m.`
+  );
+  return true;
+}
+
+/**
  * RMSE of (UTM chord length − label) over labeled consecutive post pairs.
  *
  * @param {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number }>} transforms

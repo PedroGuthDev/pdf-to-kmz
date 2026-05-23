@@ -31,6 +31,7 @@ import { attachMarkerAnchors } from "./post-positioning.js";
 import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
+  refineAnchorPageByDownstreamChord,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1121,6 +1122,7 @@ export function calculateCoordinates(
 
   const multiSheetRoute =
     !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
+
   const sequenceFlipPagesForSim =
     multiSheetRoute && sorted[0]?.lat != null
       ? detectSequenceFlipPages(sorted)
@@ -1330,6 +1332,43 @@ export function calculateCoordinates(
             post.lat = lat;
             post.lon = lon;
           }
+        }
+      }
+    }
+  }
+
+  // ── Anchor-page refit (multi-sheet routes only) ──────────────────────────
+  // The global label LSQ excludes the anchor page from optimization (its origin is
+  // pinned to post 1's GPS). On multi-sheet detail drawings the anchor sheet often has
+  // a 3–5° rotation against the UTM grid that labels alone cannot detect. Use the
+  // chord (post 1 → first downstream post, refined by the chain) to extract the
+  // anchor-sheet scale + theta via 2-point Procrustes. Runs AFTER the chain so the
+  // first-downstream-post's GPS reflects the cross-sheet refinement.
+  // Also runs after the 2nd-anchor similarity (when used) since that refines pages
+  // AFTER the anchor sheet, leaving the anchor sheet on raw per-page UTM.
+  if (
+    multiSheetRoute &&
+    pageTransforms.size > 0 &&
+    sorted[0]?.lat != null &&
+    augDistMapForSeams?.size
+  ) {
+    const refined = refineAnchorPageByDownstreamChord(
+      pageTransforms,
+      sorted,
+      augDistMapForSeams,
+      { lat: startLat, lon: startLon },
+      warnings,
+    );
+    if (refined) {
+      const anchorPage = sorted[0].pageNum;
+      // Reproject anchor-page posts with the refined transform.
+      for (const post of sorted) {
+        if (post.pageNum !== anchorPage) continue;
+        const transform = pageTransforms.get(post.pageNum);
+        if (transform) {
+          const { lat, lon } = projectPost(post.x, post.y, transform);
+          post.lat = lat;
+          post.lon = lon;
         }
       }
     }

@@ -1,40 +1,98 @@
+Parser warnings
+
+    Page 2: skipped post OCR — not a viewport-calibrated route detail page
+    Page 6: skipped post OCR — not a viewport-calibrated route detail page
+    Page 7: skipped post OCR — not a viewport-calibrated route detail page
+    Page 8: skipped post OCR — not a viewport-calibrated route detail page
+    Page 9: skipped post OCR — not a viewport-calibrated route detail page
+    No distance label found between posts 3 and 4
+    [post-positioning] Viterbi anchor: page 3 locked posts 1,2,3 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] post 5: relabeled arc jump (13 m cable vs 38.9 m label → nearest symbol at 6 pt).
+    [post-positioning] post 6: relabeled arc jump (1 m cable vs 25.2 m label → nearest symbol at 10 pt).
+    [post-positioning] N3 page 3 path 0: Viterbi assigned 13 posts (10 labeled edges, label RMSE ≈ 1.2 m).
+    [post-positioning] Viterbi anchor: page 4 locked posts 15,16,18 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 4 path 0: Viterbi assigned 10 posts (8 labeled edges, label RMSE ≈ 0.3 m).
+    [post-positioning] Viterbi anchor: page 5 locked posts 26,27,28 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 5 path 0: Viterbi assigned 9 posts (8 labeled edges, label RMSE ≈ 0.5 m).
+    [post-positioning] post 1: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 1 on plan).
+    [post-positioning] post 2: using label anchor position (was 28 pt from marker; snapped pole was on cable, not at post 2 on plan).
+    [post-positioning] post 3: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 3 on plan).
+    [post-positioning] post 4: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 4 on plan).
+    [post-positioning] post 5: using label anchor position (was 28 pt from marker; snapped pole was on cable, not at post 5 on plan).
+    [post-positioning] post 6: using label anchor position (was 29 pt from marker; snapped pole was on cable, not at post 6 on plan).
+    [post-positioning] post 7: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 7 on plan).
+    [post-positioning] post 8: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 8 on plan).
+    [post-positioning] post 9: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 9 on plan).
+    [post-positioning] post 10: using label anchor position (was 38 pt from marker; snapped pole was on cable, not at post 10 on plan).
+    [post-positioning] post 11: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 11 on plan).
+    [post-positioning] post 12: using label anchor position (was 31 pt from marker; snapped pole was on cable, not at post 12 on plan).
+    [post-positioning] post 13: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 13 on plan).
+    [post-positioning] post 14: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 14 on plan).
+    [post-positioning] post 15: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 15 on plan).
+    [post-positioning] post 16: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 16 on plan).
+    [post-positioning] post 17: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 17 on plan).
+    [post-positioning] post 18: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 18 on plan).
+    [post-positioning] post 19: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 19 on plan).
+    [post-positioning] post 20: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 20 on plan).
+    [post-positioning] post 21: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 21 on plan).
+    [post-positioning] post 22: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 22 on plan).
+    [post-positioning] post 23: using label anchor position (was 35 pt from marker; snapped pole was on cable, not at post 23 on plan).
+    [post-positioning] post 24: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 24 on plan).
+    [post-positioning] post 25: realigned to Poste near label anchor (50 pt from cable snap, 14 pt to anchor).
+    [post-positioning] post 26: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 26 on plan).
+    [post-positioning] post 27: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 27 on plan).
+    [post-positioning] post 28: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 28 on plan).
+    [post-positioning] post 29: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 29 on plan).
+    [post-positioning] post 30: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 30 on plan).
+    [post-positioning] post 31: using label anchor position (was 30 pt from marker; snapped pole was on cable, not at post 31 on plan).
+    [post-positioning] post 32: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 32 on plan).
+    [post-positioning] post 33: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 33 on plan).
+    [post-positioning] post 34: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 34 on plan).
+    [post-positioning] post 5: relabeled arc jump (13 m cable vs 38.9 m label → nearest symbol at 6 pt).
+    [post-positioning] post 6: relabeled arc jump (1 m cable vs 25.2 m label → nearest symbol at 10 pt).
+    [post-positioning] post 25: relabeled arc jump (16 m cable vs 35.2 m label → nearest symbol at 14 pt).
+    [post-positioning] post 4: placed on pole symbol between posts 3 and 5 (label off cable or outside route arc).
+    [post-positioning] post 5: realigned to Poste near label anchor (89 pt from cable snap, 28 pt to anchor).
+    [post-positioning] post 6: realigned to Poste near label anchor (69 pt from cable snap, 29 pt to anchor).
+    [post-positioning] post 25: realigned to Poste near label anchor (50 pt from cable snap, 14 pt to anchor).
+
 ══ PARSE DEBUG DUMP ══════════════════════════════════════════════════
 
 Posts found: 34
-  Post 01: page=3  x=268.82  y=421.50  anchor=(272.66,444.30)  type=11-600 (U)
-  Post 02: page=3  x=352.46  y=457.26  anchor=(342.38,428.82)  type=11-300 (U)
-  Post 03: page=3  x=438.98  y=471.42  anchor=(436.82,396.78)  type=11-300 (U)
-  Post 04: page=3  x=500.42  y=356.94  anchor=(504.14,382.38)  type=10-150 (U)
-  Post 05: page=3  x=528.38  y=321.90  anchor=(508.94,301.74)  type=10-150 (U)
-  Post 06: page=3  x=629.72  y=327.66  anchor=(606.02,277.74)  type=11-150 (U)
-  Post 07: page=3  x=674.54  y=283.74  anchor=(668.54,261.54)  type=12-1000 (U)
-  Post 08: page=3  x=769.10  y=257.46  anchor=(752.54,236.94)  type=10-90 (U)
-  Post 09: page=3  x=803.54  y=215.22  anchor=(849.50,214.98)  type=11-300 (U)
-  Post 10: page=3  x=862.70  y=237.18  anchor=(883.10,201.42)  type=10-300 (U)
-  Post 11: page=3  x=949.70  y=213.30  anchor=(939.50,189.30)  type=10-90 (U)
-  Post 12: page=3  x=980.24  y=209.52  anchor=(986.18,179.34)  type=10-90 (U)
-  Post 13: page=3  x=1054.22  y=185.58  anchor=(1048.10,160.86)  type=10-90 (U)
-  Post 14: page=3  x=1111.82  y=199.14  anchor=(1139.66,136.38)  type=10-90 (U)
-  Post 15: page=4  x=118.58  y=347.46  anchor=(152.42,283.26)  type=10-90 (U)
-  Post 16: page=4  x=161.18  y=307.14  anchor=(247.58,258.78)  type=10-90 (U)
-  Post 17: page=4  x=353.54  y=254.94  anchor=(349.46,231.66)  type=10-90 (U)
-  Post 18: page=4  x=411.14  y=271.50  anchor=(439.10,206.94)  type=10-90 (U)
-  Post 19: page=4  x=550.10  y=203.58  anchor=(549.98,177.54)  type=10-90 (U)
-  Post 20: page=4  x=600.86  y=223.86  anchor=(637.58,154.62)  type=10-90 (U)
-  Post 21: page=4  x=737.66  y=214.98  anchor=(735.86,129.18)  type=10-90 (U)
-  Post 22: page=4  x=842.12  y=129.06  anchor=(836.42,104.82)  type=9-150 (U)
-  Post 23: page=4  x=1038.50  y=79.02  anchor=(949.94,71.70)  type=13-1000 (U)
-  Post 24: page=4  x=1053.38  y=43.62  anchor=(1037.18,54.42)  type=11-300 (U)
+  Post 01: page=3  x=272.66  y=444.30  anchor=(272.66,444.30)  type=11-450 (U)
+  Post 02: page=3  x=342.38  y=428.82  anchor=(342.38,428.82)  type=11-600 (U)
+  Post 03: page=3  x=436.82  y=396.78  anchor=(436.82,396.78)  type=11-300 (U)
+  Post 04: page=3  x=500.42  y=356.94  anchor=(528.38,321.90)  type=10-150 (U)
+  Post 05: page=3  x=508.94  y=301.74  anchor=(508.94,301.74)  type=10-150 (U)
+  Post 06: page=3  x=597.38  y=305.82  anchor=(606.02,277.74)  type=11-150 (U)
+  Post 07: page=3  x=668.54  y=261.54  anchor=(668.54,261.54)  type=11-300 (U)
+  Post 08: page=3  x=752.54  y=236.94  anchor=(752.54,236.94)  type=11-300 (U)
+  Post 09: page=3  x=849.50  y=214.98  anchor=(849.50,214.98)  type=11-300 (U)
+  Post 10: page=3  x=883.10  y=201.42  anchor=(883.10,201.42)  type=12-1000 (U)
+  Post 11: page=3  x=939.50  y=189.30  anchor=(939.50,189.30)  type=11-300 (U)
+  Post 12: page=3  x=986.18  y=179.34  anchor=(986.18,179.34)  type=11-600 (U)
+  Post 13: page=3  x=1048.10  y=160.86  anchor=(1048.10,160.86)  type=11-300 (U)
+  Post 14: page=3  x=1139.66  y=136.38  anchor=(1139.66,136.38)  type=11-300 (U)
+  Post 15: page=4  x=152.42  y=283.26  anchor=(152.42,283.26)  type=10-150 (U)
+  Post 16: page=4  x=247.58  y=258.78  anchor=(247.58,258.78)  type=11-300 (U)
+  Post 17: page=4  x=349.46  y=231.66  anchor=(349.46,231.66)  type=11-300 (U)
+  Post 18: page=4  x=439.10  y=206.94  anchor=(439.10,206.94)  type=11-300 (U)
+  Post 19: page=4  x=549.98  y=177.54  anchor=(549.98,177.54)  type=11-300 (U)
+  Post 20: page=4  x=637.58  y=154.62  anchor=(637.58,154.62)  type=11-300 (U)
+  Post 21: page=4  x=735.86  y=129.18  anchor=(735.86,129.18)  type=12-600 (U)
+  Post 22: page=4  x=836.42  y=104.82  anchor=(836.42,104.82)  type=12-300 (U)
+  Post 23: page=4  x=949.94  y=71.70  anchor=(949.94,71.70)  type=13-1000 (U)
+  Post 24: page=4  x=1037.18  y=54.42  anchor=(1037.18,54.42)  type=11-300 (U)
   Post 25: page=4  x=1098.14  y=46.38  anchor=(1084.82,42.54)  type=12-1000 (U)
   Post 26: page=5  x=134.18  y=330.42  anchor=(134.18,330.42)  type=11-300 (U)
-  Post 27: page=5  x=140.90  y=354.18  anchor=(218.18,303.78)  type=—
-  Post 28: page=5  x=231.38  y=326.82  anchor=(310.34,284.46)  type=11-300 (U)
-  Post 29: page=5  x=318.38  y=309.90  anchor=(403.22,262.14)  type=11-300 (U)
-  Post 30: page=5  x=485.90  y=265.50  anchor=(481.46,240.54)  type=9-150 (U)
-  Post 31: page=5  x=592.70  y=246.42  anchor=(590.78,216.30)  type=10-450 (U)
-  Post 32: page=5  x=683.42  y=216.54  anchor=(672.38,193.38)  type=11-300 (U)
-  Post 33: page=5  x=678.50  y=124.50  anchor=(765.02,167.46)  type=11-300 (U)
-  Post 34: page=5  x=782.18  y=183.78  anchor=(847.70,116.70)  type=11-300 (U)
+  Post 27: page=5  x=218.18  y=303.78  anchor=(218.18,303.78)  type=11-300 (U)
+  Post 28: page=5  x=310.34  y=284.46  anchor=(310.34,284.46)  type=11-300 (U)
+  Post 29: page=5  x=403.22  y=262.14  anchor=(403.22,262.14)  type=11-300 (U)
+  Post 30: page=5  x=481.46  y=240.54  anchor=(481.46,240.54)  type=11-300 (U)
+  Post 31: page=5  x=590.78  y=216.30  anchor=(590.78,216.30)  type=11-300 (U)
+  Post 32: page=5  x=672.38  y=193.38  anchor=(672.38,193.38)  type=11-300 (U)
+  Post 33: page=5  x=765.02  y=167.46  anchor=(765.02,167.46)  type=11-600 (U)
+  Post 34: page=5  x=847.70  y=116.70  anchor=(847.70,116.70)  type=11-600 (U)
 
 Page dimensions (w × h in PDF points):
   Page 1: 1191.00 × 842.00 pt
@@ -72,165 +130,105 @@ Viewport boxes (paired from page-2 Padrão layer):
 
 ══ END DUMP ══════════════════════════════════════════════════════════
 
-══ CALCULATION DEBUG ═══════════════════════════════════════════════════
-
-Projected coordinates:
-  Post 01: lat=-27.64196660  lon=-48.66305969  page=3  x=268.82  y=421.50
-  Post 02: lat=-27.64192235  lon=-48.66283472  page=3  x=352.46  y=457.26
-  Post 03: lat=-27.64181429  lon=-48.66247516  page=3  x=438.98  y=471.42
-  Post 04: lat=-27.64175453  lon=-48.66223296  page=3  x=500.42  y=356.94
-  Post 05: lat=-27.64146507  lon=-48.66245170  page=3  x=528.38  y=321.90
-  Post 06: lat=-27.64141068  lon=-48.66220335  page=3  x=629.72  y=327.66
-  Post 07: lat=-27.64134639  lon=-48.66192327  page=3  x=674.54  y=283.74
-  Post 08: lat=-27.64125843  lon=-48.66158423  page=3  x=769.10  y=257.46
-  Post 09: lat=-27.64119089  lon=-48.66124759  page=3  x=803.54  y=215.22
-  Post 10: lat=-27.64115421  lon=-48.66114498  page=3  x=862.70  y=237.18
-  Post 11: lat=-27.64112057  lon=-48.66096831  page=3  x=949.70  y=213.30
-  Post 12: lat=-27.64109411  lon=-48.66082832  page=3  x=980.24  y=209.52
-  Post 13: lat=-27.64102313  lon=-48.66055983  page=3  x=1054.22  y=185.58
-  Post 14: lat=-27.64093950  lon=-48.66020676  page=3  x=1111.82  y=199.14
-  Post 15: lat=-27.64088211  lon=-48.65986202  page=4  x=118.58  y=347.46
-  Post 16: lat=-27.64080482  lon=-48.65952283  page=4  x=161.18  y=307.14
-  Post 17: lat=-27.64072084  lon=-48.65916672  page=4  x=353.54  y=254.94
-  Post 18: lat=-27.64063716  lon=-48.65882420  page=4  x=411.14  y=271.50
-  Post 19: lat=-27.64055188  lon=-48.65846113  page=4  x=550.10  y=203.58
-  Post 20: lat=-27.64047129  lon=-48.65811346  page=4  x=600.86  y=223.86
-  Post 21: lat=-27.64039196  lon=-48.65776752  page=4  x=737.66  y=214.98
-  Post 22: lat=-27.64031489  lon=-48.65740838  page=4  x=842.12  y=129.06
-  Post 23: lat=-27.64022573  lon=-48.65706339  page=4  x=1038.50  y=79.02
-  Post 24: lat=-27.64016160  lon=-48.65669792  page=4  x=1053.38  y=43.62
-  Post 25: lat=-27.64008500  lon=-48.65635120  page=4  x=1098.14  y=46.38
-  Post 26: lat=-27.63997090  lon=-48.65603426  page=5  x=134.18  y=330.42
-  Post 27: lat=-27.63987955  lon=-48.65570912  page=5  x=140.90  y=354.18
-  Post 28: lat=-27.63982161  lon=-48.65539714  page=5  x=231.38  y=326.82
-  Post 29: lat=-27.63975016  lon=-48.65506154  page=5  x=318.38  y=309.90
-  Post 30: lat=-27.63968435  lon=-48.65479243  page=5  x=485.90  y=265.50
-  Post 31: lat=-27.63960764  lon=-48.65440194  page=5  x=592.70  y=246.42
-  Post 32: lat=-27.63952544  lon=-48.65407160  page=5  x=683.42  y=216.54
-  Post 33: lat=-27.63943554  lon=-48.65370890  page=5  x=678.50  y=124.50
-  Post 34: lat=-27.63927556  lon=-48.65341475  page=5  x=782.18  y=183.78
-
-══ END CALCULATION DEBUG ═══════════════════════════════════════════════
-
-══ CALCULATION DEBUG ═══════════════════════════════════════════════════
-
-Projected coordinates:
-  Post 01: lat=-27.64196660  lon=-48.66305969  page=3  x=268.82  y=421.50
-  Post 02: lat=-27.64192235  lon=-48.66283472  page=3  x=352.46  y=457.26
-  Post 03: lat=-27.64181429  lon=-48.66247516  page=3  x=438.98  y=471.42
-  Post 04: lat=-27.64176454  lon=-48.66221170  page=3  x=500.42  y=356.94
-  Post 05: lat=-27.64141532  lon=-48.66218823  page=3  x=528.38  y=321.90
-  Post 06: lat=-27.64136093  lon=-48.66193988  page=3  x=629.72  y=327.66
-  Post 07: lat=-27.64129664  lon=-48.66165981  page=3  x=674.54  y=283.74
-  Post 08: lat=-27.64120868  lon=-48.66132076  page=3  x=769.10  y=257.46
-  Post 09: lat=-27.64114114  lon=-48.66098412  page=3  x=803.54  y=215.22
-  Post 10: lat=-27.64110445  lon=-48.66088151  page=3  x=862.70  y=237.18
-  Post 11: lat=-27.64107082  lon=-48.66070484  page=3  x=949.70  y=213.30
-  Post 12: lat=-27.64104436  lon=-48.66056485  page=3  x=980.24  y=209.52
-  Post 13: lat=-27.64097337  lon=-48.66029636  page=3  x=1054.22  y=185.58
-  Post 14: lat=-27.64088975  lon=-48.65994330  page=3  x=1111.82  y=199.14
-  Post 15: lat=-27.64094242  lon=-48.65959712  page=4  x=118.58  y=347.46
-  Post 16: lat=-27.64086512  lon=-48.65925792  page=4  x=161.18  y=307.14
-  Post 17: lat=-27.64078114  lon=-48.65890181  page=4  x=353.54  y=254.94
-  Post 18: lat=-27.64069746  lon=-48.65855929  page=4  x=411.14  y=271.50
-  Post 19: lat=-27.64061218  lon=-48.65819622  page=4  x=550.10  y=203.58
-  Post 20: lat=-27.64053160  lon=-48.65784855  page=4  x=600.86  y=223.86
-  Post 21: lat=-27.64045227  lon=-48.65750261  page=4  x=737.66  y=214.98
-  Post 22: lat=-27.64037520  lon=-48.65714347  page=4  x=842.12  y=129.06
-  Post 23: lat=-27.64028603  lon=-48.65679848  page=4  x=1038.50  y=79.02
-  Post 24: lat=-27.64022190  lon=-48.65643301  page=4  x=1053.38  y=43.62
-  Post 25: lat=-27.64014531  lon=-48.65608629  page=4  x=1098.14  y=46.38
-  Post 26: lat=-27.64002215  lon=-48.65577369  page=5  x=134.18  y=330.42
-  Post 27: lat=-27.63993080  lon=-48.65544856  page=5  x=140.90  y=354.18
-  Post 28: lat=-27.63987286  lon=-48.65513657  page=5  x=231.38  y=326.82
-  Post 29: lat=-27.63980141  lon=-48.65480097  page=5  x=318.38  y=309.90
-  Post 30: lat=-27.63973560  lon=-48.65453186  page=5  x=485.90  y=265.50
-  Post 31: lat=-27.63965889  lon=-48.65414137  page=5  x=592.70  y=246.42
-  Post 32: lat=-27.63957669  lon=-48.65381103  page=5  x=683.42  y=216.54
-  Post 33: lat=-27.63948679  lon=-48.65344833  page=5  x=678.50  y=124.50
-  Post 34: lat=-27.63935438  lon=-48.65323375  page=5  x=782.18  y=183.78
-
-══ END CALCULATION DEBUG ═══════════════════════════════════════════════
+Anchors: post 1 from reference (single-anchor UTM)
+Pipeline: 2026-05-tail-anchor-utm
 
 Post  Ref lat             Calc lat            Ref lon             Calc lon            Error (m)   Status
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-1     -27.64196660        -27.64196660        -48.66305969        -48.66305969        0.00m       ✓
-2     -27.64189641        -27.64192235        -48.66274618        -48.66283472        9.19m       ~
-3     -27.64183537        -27.64181429        -48.66249642        -48.66247516        3.14m       ✓
-5     -27.64167515        -27.64146507        -48.66218636        -48.66245170        35.05m      ~
-6     -27.64160190        -27.64141068        -48.66191420        -48.66220335        35.54m      ~
-7     -27.64153171        -27.64134639        -48.66165065        -48.66192327        33.85m      ~
-8     -27.64145541        -27.64125843        -48.66129064        -48.66158423        36.28m      ~
-9     -27.64141879        -27.64119089        -48.66114940        -48.66124759        27.12m      ~
-10    -27.64136996        -27.64115421        -48.66099092        -48.66114498        28.39m      ~
-11    -27.64134097        -27.64112057        -48.66080661        -48.66096831        29.23m      ~
-12    -27.64127383        -27.64109411        -48.66056201        -48.66082832        32.98m      ~
-13    -27.64120363        -27.64102313        -48.66029502        -48.66055983        32.91m      ~
-14    -27.64110445        -27.64093950        -48.65993156        -48.66020676        32.73m      ~
-15    -27.64099763        -27.64088211        -48.65955950        -48.65986202        32.45m      ~
-16    -27.64092896        -27.64080482        -48.65925288        -48.65952283        29.96m      ~
-17    -27.64084046        -27.64072084        -48.65890493        -48.65916672        29.02m      ~
-18    -27.64075653        -27.64063716        -48.65856215        -48.65882420        29.03m      ~
-19    -27.64067260        -27.64055188        -48.65820558        -48.65846113        28.53m      ~
-20    -27.64059936        -27.64047129        -48.65786624        -48.65811346        28.21m      ~
-21    -27.64045439        -27.64039196        -48.65750968        -48.65776752        26.33m      ~
-22    -27.64037504        -27.64031489        -48.65714278        -48.65740838        27.00m      ~
-23    -27.64028806        -27.64022573        -48.65679655        -48.65706339        27.18m      ~
-24    -27.64023160        -27.64016160        -48.65643999        -48.65669792        26.57m      ~
-25    -27.64015531        -27.64008500        -48.65610926        -48.65635120        25.08m      ~
-26    -27.64006833        -27.63997090        -48.65577853        -48.65603426        27.42m      ~
-27    -27.63999661        -27.63987955        -48.65547020        -48.65570912        26.89m      ~
-28    -27.63991573        -27.63982161        -48.65515670        -48.65539714        25.89m      ~
-29    -27.63982723        -27.63975016        -48.65483458        -48.65506154        23.94m      ~
-30    -27.63976638        -27.63968435        -48.65456531        -48.65479243        24.16m      ~
-31    -27.63967807        -27.63960764        -48.65417579        -48.65440194        23.61m      ~
-32    -27.63958193        -27.63952544        -48.65382095        -48.65407160        25.48m      ~
-33    -27.63949850        -27.63943554        -48.65349022        -48.65370890        22.65m      ~
-34    -27.63935438        -27.63927556        -48.65323375        -48.65341475        19.87m      ~
+1     -27.64196660        -27.64196661        -48.66305969        -48.66306017        0.05m       ✓
+2     -27.64189641        -27.64191287        -48.66274618        -48.66281080        6.62m       ~
+3     -27.64183537        -27.64180467        -48.66249642        -48.66247377        4.08m       ✓
+4     -27.64175907        -27.64155960        -48.66222253        -48.66215001        23.30m      ~
+5     -27.64167515        -27.64155960        -48.66218636        -48.66215001        13.34m      ~
+6     -27.64160190        -27.64150399        -48.66191420        -48.66190327        10.94m      ~
+7     -27.64153171        -27.64135804        -48.66165065        -48.66165069        19.31m      ~
+8     -27.64145541        -27.64127426        -48.66129064        -48.66135066        20.99m      ~
+9     -27.64141879        -27.64119814        -48.66114940        -48.66100390        28.41m      ~
+10    -27.64136996        -27.64115273        -48.66099092        -48.66088414        26.35m      ~
+11    -27.64134097        -27.64111055        -48.66080661        -48.66068239        28.39m      ~
+12    -27.64127383        -27.64107586        -48.66056201        -48.66051540        22.49m      ~
+13    -27.64120363        -27.64101299        -48.66029502        -48.66029426        21.20m      ~
+14    -27.64110445        -27.64092914        -48.65993156        -48.65996707        19.80m      ~
+15    -27.64099763        -27.64100952        -48.65955950        -48.65962822        6.90m       ~
+16    -27.64092896        -27.64092810        -48.65925288        -48.65928728        3.39m       ✓
+17    -27.64084046        -27.64083802        -48.65890493        -48.65892230        1.73m       ✓
+18    -27.64075653        -27.64075602        -48.65856215        -48.65860120        3.85m       ✓
+19    -27.64067260        -27.64065835        -48.65820558        -48.65820398        1.59m       ✓
+20    -27.64059936        -27.64058217        -48.65786624        -48.65789014        3.03m       ✓
+21    -27.64045439        -27.64049758        -48.65750968        -48.65753803        5.56m       ~
+22    -27.64037504        -27.64041637        -48.65714278        -48.65717770        5.74m       ~
+23    -27.64028806        -27.64030671        -48.65679655        -48.65677113        3.25m       ✓
+24    -27.64023160        -27.64024858        -48.65643999        -48.65645838        2.62m       ✓
+25    -27.64015531        -27.64022087        -48.65610926        -48.65623969        14.77m      ~
+26    -27.64006833        -27.64008845        -48.65577853        -48.65578215        2.27m       ✓
+27    -27.63999661        -27.63999813        -48.65547020        -48.65548226        1.20m       ✓
+28    -27.63991573        -27.63993074        -48.65515670        -48.65515257        1.72m       ✓
+29    -27.63982723        -27.63985370        -48.65483458        -48.65482050        3.25m       ✓
+30    -27.63976638        -27.63977985        -48.65456531        -48.65454096        2.83m       ✓
+31    -27.63967807        -27.63969567        -48.65417579        -48.65414997        3.21m       ✓
+32    -27.63958193        -27.63961740        -48.65382095        -48.65385845        5.40m       ~
+33    -27.63949850        -27.63952886        -48.65349022        -48.65352749        4.99m       ✓
+34    -27.63935438        -27.63936147        -48.65323375        -48.65323399        0.79m       ✓
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-Max error: 36.28 m  |  Posts with null GPS: 0/33
+Max error: 28.41 m  |  Posts with null GPS: 0/34
 
 Legend: ✓ < 5m  ~ 5–50m  ✗ > 50m or null
 
+Calibration (compare run):
+  [cable-arc-placer] Repositioned 22 post(s) on 2 page(s) where PDF coords disagreed with Distância_Poste (single anchor via post #1 per page).
+  [label-lsq] Inferred 1 same-page gap distance(s) from neighbors for global fit.
+  [label-lsq] Global label fit: RMSE 7.86 m → 7.60 m (33 segments, 2 page(s) adjusted; θ: p4=-0.50°, p5=0.00°).
+  [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
+  [boundary-locked] 2 page origin(s) re-aligned after label chain at sheet breaks.
 
--- 2 anchors --
+
+Anchors: post 1 + post 34 from reference (similarity refinement)
+Pipeline: 2026-05-tail-anchor-utm
 
 Post  Ref lat             Calc lat            Ref lon             Calc lon            Error (m)   Status
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-1     -27.64196660        -27.64196660        -48.66305969        -48.66305969        0.00m       ✓
-2     -27.64189641        -27.64192235        -48.66274618        -48.66283472        9.19m       ~
-3     -27.64183537        -27.64181429        -48.66249642        -48.66247516        3.14m       ✓
-5     -27.64167515        -27.64141532        -48.66218636        -48.66218823        28.89m      ~
-6     -27.64160190        -27.64136093        -48.66191420        -48.66193988        26.91m      ~
-7     -27.64153171        -27.64129664        -48.66165065        -48.66165981        26.15m      ~
-8     -27.64145541        -27.64120868        -48.66129064        -48.66132076        27.60m      ~
-9     -27.64141879        -27.64114114        -48.66114940        -48.66098412        34.90m      ~
-10    -27.64136996        -27.64110445        -48.66099092        -48.66088151        31.43m      ~
-11    -27.64134097        -27.64107082        -48.66080661        -48.66070484        31.67m      ~
-12    -27.64127383        -27.64104436        -48.66056201        -48.66056485        25.52m      ~
-13    -27.64120363        -27.64097337        -48.66029502        -48.66029636        25.60m      ~
-14    -27.64110445        -27.64088975        -48.65993156        -48.65994330        23.90m      ~
-15    -27.64099763        -27.64094242        -48.65955950        -48.65959712        7.17m       ~
-16    -27.64092896        -27.64086512        -48.65925288        -48.65925792        7.12m       ~
-17    -27.64084046        -27.64078114        -48.65890493        -48.65890181        6.60m       ~
-18    -27.64075653        -27.64069746        -48.65856215        -48.65855929        6.57m       ~
-19    -27.64067260        -27.64061218        -48.65820558        -48.65819622        6.78m       ~
-20    -27.64059936        -27.64053160        -48.65786624        -48.65784855        7.73m       ~
-21    -27.64045439        -27.64045227        -48.65750968        -48.65750261        0.74m       ✓
-22    -27.64037504        -27.64037520        -48.65714278        -48.65714347        0.07m       ✓
-23    -27.64028806        -27.64028603        -48.65679655        -48.65679848        0.30m       ✓
-24    -27.64023160        -27.64022190        -48.65643999        -48.65643301        1.28m       ✓
-25    -27.64015531        -27.64014531        -48.65610926        -48.65608629        2.52m       ✓
-26    -27.64006833        -27.64002215        -48.65577853        -48.65577369        5.16m       ~
-27    -27.63999661        -27.63993080        -48.65547020        -48.65544856        7.62m       ~
-28    -27.63991573        -27.63987286        -48.65515670        -48.65513657        5.16m       ~
-29    -27.63982723        -27.63980141        -48.65483458        -48.65480097        4.38m       ✓
-30    -27.63976638        -27.63973560        -48.65456531        -48.65453186        4.75m       ✓
-31    -27.63967807        -27.63965889        -48.65417579        -48.65414137        4.01m       ✓
-32    -27.63958193        -27.63957669        -48.65382095        -48.65381103        1.14m       ✓
-33    -27.63949850        -27.63948679        -48.65349022        -48.65344833        4.33m       ✓
-34    -27.63935438        -27.63935438        -48.65323375        -48.65323375        0.00m       ✓
+1     -27.64196660        -27.64196661        -48.66305969        -48.66306017        0.05m       ✓
+2     -27.64189641        -27.64191287        -48.66274618        -48.66281080        6.62m       ~
+3     -27.64183537        -27.64180467        -48.66249642        -48.66247377        4.08m       ✓
+4     -27.64175907        -27.64155960        -48.66222253        -48.66215001        23.30m      ~
+5     -27.64167515        -27.64155960        -48.66218636        -48.66215001        13.34m      ~
+6     -27.64160190        -27.64150399        -48.66191420        -48.66190327        10.94m      ~
+7     -27.64153171        -27.64135804        -48.66165065        -48.66165069        19.31m      ~
+8     -27.64145541        -27.64127426        -48.66129064        -48.66135066        20.99m      ~
+9     -27.64141879        -27.64119814        -48.66114940        -48.66100390        28.41m      ~
+10    -27.64136996        -27.64115273        -48.66099092        -48.66088414        26.35m      ~
+11    -27.64134097        -27.64111055        -48.66080661        -48.66068239        28.39m      ~
+12    -27.64127383        -27.64107586        -48.66056201        -48.66051540        22.49m      ~
+13    -27.64120363        -27.64101299        -48.66029502        -48.66029426        21.20m      ~
+14    -27.64110445        -27.64092914        -48.65993156        -48.65996707        19.80m      ~
+15    -27.64099763        -27.64100952        -48.65955950        -48.65962822        6.90m       ~
+16    -27.64092896        -27.64092876        -48.65925288        -48.65929005        3.66m       ✓
+17    -27.64084046        -27.64084115        -48.65890493        -48.65893506        2.97m       ✓
+18    -27.64075653        -27.64075396        -48.65856215        -48.65859365        3.12m       ✓
+19    -27.64067260        -27.64066497        -48.65820558        -48.65823172        2.71m       ✓
+20    -27.64059936        -27.64058084        -48.65786624        -48.65788512        2.77m       ✓
+21    -27.64045439        -27.64049798        -48.65750968        -48.65754023        5.71m       ~
+22    -27.64037504        -27.64041727        -48.65714278        -48.65718212        6.09m       ~
+23    -27.64028806        -27.64032454        -48.65679655        -48.65683832        5.78m       ~
+24    -27.64023160        -27.64025677        -48.65643999        -48.65647369        4.34m       ✓
+25    -27.64015531        -27.64021195        -48.65610926        -48.65611995        6.39m       ~
+26    -27.64006833        -27.64003171        -48.65577853        -48.65578958        4.21m       ✓
+27    -27.63999661        -27.63994043        -48.65547020        -48.65546442        6.27m       ~
+28    -27.63991573        -27.63988268        -48.65515670        -48.65515239        3.70m       ✓
+29    -27.63982723        -27.63981140        -48.65483458        -48.65481674        2.49m       ✓
+30    -27.63976638        -27.63974568        -48.65456531        -48.65454761        2.89m       ✓
+31    -27.63967807        -27.63966919        -48.65417579        -48.65415706        2.09m       ✓
+32    -27.63958193        -27.63958710        -48.65382095        -48.65382668        0.81m       ✓
+33    -27.63949850        -27.63949732        -48.65349022        -48.65346395        2.59m       ✓
+34    -27.63935438        -27.63933718        -48.65323375        -48.65316991        6.57m       ~
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-Max error: 34.90 m  |  Posts with null GPS: 0/33
+Max error: 28.41 m  |  Posts with null GPS: 0/34
 
 Legend: ✓ < 5m  ~ 5–50m  ✗ > 50m or null
+
+Calibration (compare run):
+  [cable-arc-placer] Repositioned 22 post(s) on 2 page(s) where PDF coords disagreed with Distância_Poste (single anchor via post #1 per page).
+  [label-lsq] Inferred 1 same-page gap distance(s) from neighbors for global fit.
+  [label-lsq] Global label fit: RMSE 7.86 m → 7.60 m (33 segments, 2 page(s) adjusted; θ: p4=-0.50°, p5=0.00°).
+  [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
+  [boundary-locked] page 4 at post 15 from chained post 14 + label (first sheet break).
