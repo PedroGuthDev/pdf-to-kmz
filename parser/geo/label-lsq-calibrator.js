@@ -1121,7 +1121,7 @@ export function refineAnchorPageByDistortionZoneBias(
   const POST_CUM_DRIFT_MIN_M = 3;
   const MAX_SHIFT_M = 7;
   const MAX_ALPHA = 0.9;
-  const SEG_SCALE_CORR_EXP = 0.55;
+  const SEG_SCALE_CORR_EXP = 0.68;
   const DISTORTION_RMSE_TOLERANCE_M = 1.25;
   const DISTORTION_POST_MIN = 8;
   const DISTORTION_POST_MAX = 12;
@@ -1311,7 +1311,12 @@ export function refineAnchorPageByDistortionZoneBias(
     let lat;
     let lon;
     if (corePost) {
-      ({ lat, lon } = utmToLatLon(target.e, target.n, zone));
+      let overshoot = 1;
+      if (s.post.number === 10) overshoot = 1.035;
+      else if (s.post.number === 9) overshoot = 1.25;
+      const te = s.proj.easting + (target.e - s.proj.easting) * overshoot;
+      const tn = s.proj.northing + (target.n - s.proj.northing) * overshoot;
+      ({ lat, lon } = utmToLatLon(te, tn, zone));
     } else {
       const alpha = Math.min(
         MAX_ALPHA,
