@@ -99,7 +99,7 @@ function loadPostsFromDebugResults(path = "./debug_results.txt") {
     dumpIdx >= 0
       ? text.slice(dumpIdx, text.indexOf("\nPage dimensions", dumpIdx))
       : text;
-  /** @type {Map<number, { number: number, pageNum: number, x: number, y: number }>} */
+  /** @type {Map<number, { number: number, pageNum: number, x: number, y: number, anchorX?: number, anchorY?: number }>} */
   const byNum = new Map();
   for (const line of block.split("\n")) {
     if (line.includes("lat=") || line.includes("lon=")) continue;
@@ -109,12 +109,19 @@ function loadPostsFromDebugResults(path = "./debug_results.txt") {
     if (!m) continue;
     const number = parseInt(m[1], 10);
     if (byNum.has(number)) continue;
-    byNum.set(number, {
+    const post = {
       number,
       pageNum: parseInt(m[2], 10),
       x: parseFloat(m[3]),
       y: parseFloat(m[4]),
-    });
+    };
+    // Also preserve label anchor (Numero_Poste centroid) if present — needed for N3 re-snap.
+    const am = line.match(/anchor=\(([\d.]+)\s*,\s*([\d.]+)\)/);
+    if (am) {
+      post.anchorX = parseFloat(am[1]);
+      post.anchorY = parseFloat(am[2]);
+    }
+    byNum.set(number, post);
   }
   const posts = [...byNum.values()].sort((a, b) => a.number - b.number);
   return posts.length >= sample.minPosts ? posts : null;
@@ -236,9 +243,10 @@ if (
 
 const multiSheetRoute =
   overviewComposite || (parsed.viewportBoxes?.length ?? 0) >= 3;
-// N3 pole assignment only when using parser positions (browser debug_results already has Poste snaps).
+// N3 pole assignment: always for PARSE DEBUG dump (may lack usedSymbol dedup); skip for
+// --browser-posts fixture (browser already ran Poste snap + N3).
 if (
-  (reassignPoles || !useBrowserPositions) &&
+  (reassignPoles || !useBrowserFixture) &&
   multiSheetRoute &&
   parsed.posteRawCentroids?.length &&
   parsed.cablePaths?.length &&
