@@ -34,7 +34,7 @@ import {
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
   refineAnchorPageByDistortionZoneBias,
-  refineMidAnchorPostPdfByLabelBracket,
+  refineAnchorPagePdfByLabelBracket,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1111,7 +1111,7 @@ export function calculateCoordinates(
   const multiSheetRouteEarly =
     !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
   if (multiSheetRouteEarly && augDistMapForSeams?.size) {
-    refineMidAnchorPostPdfByLabelBracket(sorted, augDistMapForSeams, warnings);
+    refineAnchorPagePdfByLabelBracket(sorted, augDistMapForSeams, warnings);
   }
 
   // ── Project GPS for all posts (D-REV-01, D-REV-02) ───────────────────────
