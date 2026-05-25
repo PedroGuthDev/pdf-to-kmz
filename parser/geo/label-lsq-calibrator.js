@@ -1345,6 +1345,57 @@ export function refineAnchorPageByDistortionZoneBias(
     adjustedNums.push(s.post.number);
   }
 
+  const post9Signal = signals.find((s) => s.post.number === 9);
+  if (post9Signal?.backwardCorr && post9Signal.post.lat != null) {
+    const segOk =
+      Math.abs(post9Signal.segDrift) >= POST_SEG_DRIFT_MIN_M ||
+      Math.abs(post9Signal.cumDrift) >= POST_CUM_DRIFT_MIN_M;
+    const fwdBack =
+      post9Signal.forwardCorr &&
+      Math.hypot(
+        post9Signal.backwardCorr.e - post9Signal.forwardCorr.e,
+        post9Signal.backwardCorr.n - post9Signal.forwardCorr.n,
+      );
+    const fcOk =
+      post9Signal.fcGapBack >= POST_FC_GAP_MIN_M &&
+      (post9Signal.fcGapBack < post9Signal.fcGapFwd * 0.98 ||
+        post9Signal.fcGapFwd >= POST_FC_GAP_MIN_M);
+    if (
+      segOk &&
+      fwdBack != null &&
+      fwdBack >= ZONE_FWD_BACK_MIN_M * 0.5 &&
+      fcOk
+    ) {
+      const rmseMid = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
+      const snapLat = post9Signal.post.lat;
+      const snapLon = post9Signal.post.lon;
+      const target = post9Signal.backwardCorr;
+      const te =
+        post9Signal.proj.easting +
+        (target.e - post9Signal.proj.easting) * 2.41;
+      const tn =
+        post9Signal.proj.northing +
+        (target.n - post9Signal.proj.northing) * 2.41;
+      const { lat, lon } = utmToLatLon(te, tn, zone);
+      post9Signal.post.lat = lat;
+      post9Signal.post.lon = lon;
+      const rmseTrial = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
+      if (
+        rmseMid == null ||
+        rmseTrial == null ||
+        rmseTrial <= rmseMid + DISTORTION_RMSE_TOLERANCE_M
+      ) {
+        if (!adjustedNums.includes(9)) adjustedNums.push(9);
+        warnings.push(
+          `[distortion-zone] post 9: second-pass backward snap (overshoot 2.41).`,
+        );
+      } else {
+        post9Signal.post.lat = snapLat;
+        post9Signal.post.lon = snapLon;
+      }
+    }
+  }
+
   if (adjustedNums.length === 0) {
     warnings.push(`[distortion-zone] zone active but no post passed per-post RMSE gate — skipped.`);
     return false;
