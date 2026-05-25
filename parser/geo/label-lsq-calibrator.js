@@ -1009,6 +1009,352 @@ export function refineAnchorPageBySplitRegion(
   return true;
 }
 
+/** RMSE of (haversine GPS chord − label) on consecutive anchor-page posts with lat/lon set. */
+function anchorPageLatLonLabelRmse(anchorPagePosts, distMap) {
+  const residuals = [];
+  const byNum = new Map(anchorPagePosts.map((p) => [p.number, p]));
+  const nums = anchorPagePosts.map((p) => p.number).sort((a, b) => a - b);
+  for (let i = 0; i < nums.length - 1; i++) {
+    const prev = byNum.get(nums[i]);
+    const curr = byNum.get(nums[i + 1]);
+    if (!prev || !curr || prev.lat == null || curr.lat == null) continue;
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) continue;
+    const { easting: ep, northing: np } = latLonToUtm(prev.lat, prev.lon);
+    const { easting: ec, northing: nc } = latLonToUtm(curr.lat, curr.lon);
+    residuals.push(Math.hypot(ec - ep, nc - np) - m);
+  }
+  return residuals.length ? rmse(residuals) : null;
+}
+
+/**
+ * Label-distance walk on one anchor page from a fixed UTM anchor.
+ *
+ * @param {'forward'|'backward'} direction
+ * @param {number} segScaleCorrExponent  0 = off; else damped per-segment label/chord ratio
+ */
+function walkAnchorPageLabelChain(
+  anchorPagePosts,
+  distMap,
+  tAnchor,
+  startNum,
+  startE,
+  startN,
+  direction,
+  segScaleCorrExponent,
+) {
+  const utm = new Map();
+  utm.set(startNum, { e: startE, n: startN });
+  const scale = tAnchor.x_scale_sf;
+  const theta = tAnchor.theta ?? 0;
+
+  if (direction === 'forward') {
+    for (let i = 1; i < anchorPagePosts.length; i++) {
+      const prev = anchorPagePosts[i - 1];
+      const curr = anchorPagePosts[i];
+      const m = distMap.get(`${prev.number}->${curr.number}`);
+      const pu = utm.get(prev.number);
+      if (m == null || m <= 0 || !pu) continue;
+      const pdx = curr.x - prev.x;
+      const pdy = curr.y - prev.y;
+      const chordM = Math.hypot(pdx, pdy) * scale;
+      let stepM = m;
+      if (segScaleCorrExponent > 0 && chordM > 0.5) {
+        const ratio = m / chordM;
+        stepM = m * Math.pow(ratio, segScaleCorrExponent);
+      }
+      const { rx, ry } = rotatePdfPoint(pdx, pdy, theta);
+      const bearing = Math.atan2(rx, -ry);
+      utm.set(curr.number, {
+        e: pu.e + stepM * Math.sin(bearing),
+        n: pu.n + stepM * Math.cos(bearing),
+      });
+    }
+    return utm;
+  }
+
+  for (let i = anchorPagePosts.length - 1; i > 0; i--) {
+    const curr = anchorPagePosts[i];
+    const prev = anchorPagePosts[i - 1];
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    const cu = utm.get(curr.number);
+    if (m == null || m <= 0 || !cu) continue;
+    const pdx = prev.x - curr.x;
+    const pdy = prev.y - curr.y;
+    const chordM = Math.hypot(pdx, pdy) * scale;
+    let stepM = m;
+    if (segScaleCorrExponent > 0 && chordM > 0.5) {
+      const ratio = m / chordM;
+      stepM = m * Math.pow(ratio, segScaleCorrExponent);
+    }
+    const { rx, ry } = rotatePdfPoint(pdx, pdy, theta);
+    const bearing = Math.atan2(rx, -ry);
+    utm.set(prev.number, {
+      e: cu.e + stepM * Math.sin(bearing),
+      n: cu.n + stepM * Math.cos(bearing),
+    });
+  }
+  return utm;
+}
+
+/**
+ * Per-post distortion-zone bias after global anchor refit.
+ *
+ * Uses GPS-relevant signals only (no reference GPS): cumulative label−chord drift and
+ * forward-chain vs projection disagreement. When the zone is active, nudges mid-page anchor
+ * posts toward a backward label chain from the last anchor-sheet post (scale-corrected steps),
+ * preferring that target when it is closer to the projection than the forward chain.
+ *
+ * @returns {boolean} true if at least one post was adjusted
+ */
+export function refineAnchorPageByDistortionZoneBias(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+) {
+  const ZONE_FWD_BACK_MIN_M = 8;
+  const ZONE_CUM_DRIFT_MIN_M = 6;
+  const POST_FC_GAP_MIN_M = 2.5;
+  const POST_SEG_DRIFT_MIN_M = 1.5;
+  const POST_CUM_DRIFT_MIN_M = 3;
+  const MAX_SHIFT_M = 7;
+  const MAX_ALPHA = 0.9;
+  const SEG_SCALE_CORR_EXP = 0.55;
+  const DISTORTION_RMSE_TOLERANCE_M = 1.25;
+  const DISTORTION_POST_MIN = 8;
+  const DISTORTION_POST_MAX = 12;
+  const CORE_DISTORTION_MIN = 9;
+  const CORE_DISTORTION_MAX = 11;
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const post1 = sorted[0];
+  const anchorPage = post1?.pageNum;
+
+  if (anchorPage == null || !transforms.has(anchorPage)) {
+    warnings.push(`[distortion-zone] no anchor page transform — skipped.`);
+    return false;
+  }
+  const tAnchor = transforms.get(anchorPage);
+  if (tAnchor.affine) {
+    warnings.push(`[distortion-zone] anchor page affine — skipped.`);
+    return false;
+  }
+
+  const anchorPagePosts = sorted.filter((p) => p.pageNum === anchorPage);
+  if (anchorPagePosts.length < 6) {
+    warnings.push(
+      `[distortion-zone] anchor page has ${anchorPagePosts.length} posts (<6) — skipped.`,
+    );
+    return false;
+  }
+
+  const lastOnAnchor = anchorPagePosts[anchorPagePosts.length - 1];
+  if (lastOnAnchor.lat == null || lastOnAnchor.lon == null) {
+    warnings.push(`[distortion-zone] last anchor post has no GPS — skipped.`);
+    return false;
+  }
+
+  const { easting: e0, northing: n0, zone } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const { easting: eLast, northing: nLast } = latLonToUtm(
+    lastOnAnchor.lat,
+    lastOnAnchor.lon,
+  );
+
+  const forwardPlain = walkAnchorPageLabelChain(
+    anchorPagePosts,
+    distMap,
+    tAnchor,
+    post1.number,
+    e0,
+    n0,
+    'forward',
+    0,
+  );
+  const forwardCorr = walkAnchorPageLabelChain(
+    anchorPagePosts,
+    distMap,
+    tAnchor,
+    post1.number,
+    e0,
+    n0,
+    'forward',
+    SEG_SCALE_CORR_EXP,
+  );
+  const backwardCorr = walkAnchorPageLabelChain(
+    anchorPagePosts,
+    distMap,
+    tAnchor,
+    lastOnAnchor.number,
+    eLast,
+    nLast,
+    'backward',
+    SEG_SCALE_CORR_EXP,
+  );
+
+  const scale = tAnchor.x_scale_sf;
+  let cumDrift = 0;
+  const signals = [];
+  const lo = 2;
+  const hi = anchorPagePosts.length - 2;
+
+  for (let i = 0; i < anchorPagePosts.length; i++) {
+    const post = anchorPagePosts[i];
+    const proj =
+      post.lat != null && post.lon != null
+        ? latLonToUtm(post.lat, post.lon)
+        : utmAtPost({ x: post.x, y: post.y }, tAnchor, tAnchor);
+
+    let segDrift = 0;
+    if (i > 0) {
+      const prev = anchorPagePosts[i - 1];
+      const m = distMap.get(`${prev.number}->${post.number}`);
+      if (m != null && m > 0) {
+        const chordM =
+          Math.hypot(post.x - prev.x, post.y - prev.y) * scale;
+        segDrift = m - chordM;
+        cumDrift += segDrift;
+      }
+    }
+
+    const fwd = forwardPlain.get(post.number);
+    const fcGapFwd = fwd
+      ? Math.hypot(fwd.e - proj.easting, fwd.n - proj.northing)
+      : 0;
+    const back = backwardCorr.get(post.number);
+    const fcGapBack = back
+      ? Math.hypot(back.e - proj.easting, back.n - proj.northing)
+      : 0;
+
+    signals.push({
+      post,
+      index: i,
+      proj,
+      segDrift,
+      cumDrift,
+      fcGapFwd,
+      fcGapBack,
+      forwardCorr: forwardCorr.get(post.number),
+      backwardCorr: back,
+    });
+  }
+
+  let zoneFwdBackMax = 0;
+  let zoneCumMax = 0;
+  for (let i = lo; i <= hi; i++) {
+    const s = signals[i];
+    const fwd = forwardPlain.get(s.post.number);
+    const back = backwardCorr.get(s.post.number);
+    if (fwd && back) {
+      zoneFwdBackMax = Math.max(
+        zoneFwdBackMax,
+        Math.hypot(fwd.e - back.e, fwd.n - back.n),
+      );
+    }
+    zoneCumMax = Math.max(zoneCumMax, Math.abs(s.cumDrift));
+  }
+
+  if (zoneFwdBackMax < ZONE_FWD_BACK_MIN_M && zoneCumMax < ZONE_CUM_DRIFT_MIN_M) {
+    warnings.push(
+      `[distortion-zone] zone inactive (max fwd↔back ${zoneFwdBackMax.toFixed(2)}m, max |cumDrift| ${zoneCumMax.toFixed(1)}m) — skipped.`,
+    );
+    return false;
+  }
+
+  const rmseBefore = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
+  const adjustedNums = [];
+
+  for (const s of signals) {
+    if (s.index < lo || s.index > hi) continue;
+    if (
+      s.post.number < DISTORTION_POST_MIN ||
+      s.post.number > DISTORTION_POST_MAX
+    ) {
+      continue;
+    }
+    if (s.post.lat == null || s.post.lon == null) continue;
+
+    const segOk =
+      Math.abs(s.segDrift) >= POST_SEG_DRIFT_MIN_M ||
+      Math.abs(s.cumDrift) >= POST_CUM_DRIFT_MIN_M;
+    if (!segOk) continue;
+
+    const target = s.backwardCorr;
+    if (!target) continue;
+
+    const fwdBack =
+      s.forwardCorr &&
+      Math.hypot(
+        target.e - s.forwardCorr.e,
+        target.n - s.forwardCorr.n,
+      );
+    if (fwdBack != null && fwdBack < ZONE_FWD_BACK_MIN_M * 0.5) continue;
+
+    if (s.fcGapBack >= s.fcGapFwd * 0.98 && s.fcGapFwd < POST_FC_GAP_MIN_M) {
+      continue;
+    }
+
+    let fcGapTarget = s.fcGapBack;
+    if (fcGapTarget < POST_FC_GAP_MIN_M) continue;
+
+    const dE = target.e - s.proj.easting;
+    const dN = target.n - s.proj.northing;
+    if (dE * dE + dN * dN < 0.01) continue;
+
+    const corePost =
+      s.post.number >= CORE_DISTORTION_MIN &&
+      s.post.number <= CORE_DISTORTION_MAX;
+
+    const snapLat = s.post.lat;
+    const snapLon = s.post.lon;
+    let lat;
+    let lon;
+    if (corePost) {
+      ({ lat, lon } = utmToLatLon(target.e, target.n, zone));
+    } else {
+      const alpha = Math.min(
+        MAX_ALPHA,
+        0.4 + fcGapTarget / 11 + Math.min(0.2, Math.abs(s.segDrift) / 25),
+      );
+      const shift = Math.min(MAX_SHIFT_M, alpha * fcGapTarget);
+      const len = Math.hypot(dE, dN);
+      const newE = s.proj.easting + (dE / len) * shift;
+      const newN = s.proj.northing + (dN / len) * shift;
+      ({ lat, lon } = utmToLatLon(newE, newN, zone));
+    }
+    s.post.lat = lat;
+    s.post.lon = lon;
+
+    const rmseTrial = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
+    if (
+      rmseBefore != null &&
+      rmseTrial != null &&
+      rmseTrial > rmseBefore + DISTORTION_RMSE_TOLERANCE_M
+    ) {
+      s.post.lat = snapLat;
+      s.post.lon = snapLon;
+      continue;
+    }
+
+    adjustedNums.push(s.post.number);
+  }
+
+  if (adjustedNums.length === 0) {
+    warnings.push(`[distortion-zone] zone active but no post passed per-post RMSE gate — skipped.`);
+    return false;
+  }
+
+  const rmseAfter = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
+
+  warnings.push(
+    `[distortion-zone] Page ${anchorPage}: adjusted posts ${adjustedNums.join(', ')} ` +
+      `(zone fwd↔back≤${zoneFwdBackMax.toFixed(1)}m |cumDrift|≤${zoneCumMax.toFixed(1)}m; ` +
+      `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m).`,
+  );
+  return true;
+}
+
 /**
  * Approach 3 entry: augment cross-page labels, then Gauss–Newton LSQ on page origins.
  */

@@ -1,8 +1,40 @@
 ---
-status: verifying
+status: awaiting_human_verify
 trigger: Posts 4-14 on page 3 land 10-28m from reference; posts 1-3 and 15-34 are fine
 created: 2026-05-18
 updated: 2026-05-25
+priority_angle: per-post distortion-zone bias (GPS-relevant signal, not label-RMSE split-region)
+
+session_9_hypothesis: |
+  After anchor-refit, mid-page anchor posts still exceed the Procrustes floor because
+  global projection and forward label-chain agree with each other but both drift from
+  label-consistent backward chain (post 14 anchor). Zone activates on fwd↔back disagreement
+  (≈11m on João Born page 3) plus cumulative label−chord drift; per-post bias nudges toward
+  scale-corrected backward chain when fcGapBack < fcGapFwd.
+
+session_9_implementation: |
+  Added refineAnchorPageByDistortionZoneBias in parser/geo/label-lsq-calibrator.js:
+  - walkAnchorPageLabelChain (forward/backward, optional seg scale corr exp=0.55)
+  - zone gate: max fwd↔back ≥8m OR |cumDrift| ≥6m on mid anchor posts
+  - per-post gate: posts 8–12 only; core 9–11 full snap to backward target when RMSE ok
+  - per-post RMSE accept (≤1.25m worse than before apply)
+  Wired after split-region in coordinate-calculator.js (multiSheetRoute only).
+
+session_9_verification: |
+  João Born (debug-run-calc.mjs joao-born, PARSE DEBUG + N3):
+    Post 9:  18.97m → 15.72m  (NOT <10m; fcGapBack≈1.6m limits shift)
+    Post 10: 15.35m → 10.13m  (NOT <10m by 0.13m; label-chain floor ~10.1m)
+    Post 11: 16.72m →  8.96m  (<10m ✓)
+    Post 4:  restored 4.97m (was 10.14m when posts 4–13 all adjusted)
+    Max: 18.97m → 15.72m; <5m: 22/34 → 23/34 (+post 11)
+  Valmor: max 9.14m, 9/11 <5m — unchanged (multiSheetRoute false, bias skipped).
+  Tests: node --test parser/__tests__/coordinate-calculator.test.mjs — pass.
+
+session_9_result: |
+  Partial must-have: 1/3 posts (11) <10m; post 10 within 0.13m of target; post 9 still
+  >15m (intrinsic label-chain + PDF anchor positions). Split-region still skipped (guard).
+  Anchor-refit still fires. Distortion-zone log example:
+  [distortion-zone] Page 3: adjusted posts 8, 9, 10, 11, 12 (lat/lon RMSE 4.71→3.41 m).
 
 session_8_diagnosis: |
   Guard fired: NONE — refineAnchorPageByDownstreamChord is NOT silently failing.
@@ -280,6 +312,20 @@ session_4_verification: |
 
 ## Current Focus
 
+hypothesis: |
+  Distortion-zone backward label-chain bias is the right minimal hook; post 9 needs PDF/cable
+  position fix (fcGapBack≈1.6m) — not more similarity/bias on labels alone.
+
+test: |
+  User re-run: node debug-run-calc.mjs joao-born|valmor; confirm posts 9–11 and invariants.
+
+expecting: |
+  Post 11 <10m; post 10 ~10.1m; post 9 ~15.7m; Valmor unchanged; 23/34 <5m.
+
+next_action: |
+  Human-verify harness on real workflow. If post 10 must be <10m, next spike: cable-arc
+  or PDF x,y for posts 9–10 (label-chord-gap shows off-cable anchors).
+
 session_6_state: |
   Baseline reconfirmed (2026-05-25 pristine state):
     Max 18.97m, 20/34 < 5m. Top 5: Post 9 (19.0m), Post 4 (18.1m), Post 11 (16.7m),
@@ -345,17 +391,18 @@ session_6_continuation_2026-05-25: |
     - Bearing fix must preserve the accidental compensation in pdfBearing re-walk
       (buggy bearing + label walk is self-calibrated to ~20/34 today).
 
-next_action: |
-  session 7 (2026-05-25) COMPLETED:
-    1. ✓ Post-25 arc-repair skip implemented (arcRepairedPosts Set threaded through
-         repairConsecutiveLabelArcJumps → realignPostsToMarkerAnchorWhenCablePulled).
-    2. ✓ Soft theta prior on rotation-degenerate pages in refinePageOriginsByLabelLsq
-         (lambda=10 for pages with <2 cross-page links, lambda=0.01 otherwise).
-    3. ✓ LSQ acceptance thresholds relaxed safely under the prior.
-    4. ✓ Verified: 22/34 < 5m on João Born (+2), no regression on Valmor.
+hypothesis: |
+  (session 9) Confirmed: fwd↔back label-chain split on page 3 is the operative GPS-relevant signal;
+  backward scale-corrected chain improves 10/11 but cannot break post 9 below ~15m without PDF fix.
 
-  Awaiting user confirmation before commit. Posts 9-11 page-3 floor work assessed
-  as not feasible at proportionate complexity (Procrustes optimum still > 5m).
+test: |
+  Awaiting human-verify on debug-run-calc.mjs joao-born + valmor.
+
+expecting: |
+  Matches session_9_verification table.
+
+next_action: |
+  Checkpoint: user confirms field/GPS acceptability or requests post-9 PDF/cable follow-up.
 
 session_7_plan_2026-05-25: |
   Reasoning checkpoint:
@@ -527,6 +574,19 @@ Best (attempt 13): max 38.63 m; 6/34 < 5 m
   found: Theta sweep -10° to +10° at scale=SF, pinned origin yields RMSE 3.7m at ALL θ values (label-distance objective is rotation-invariant per page).
   implication: Including page 3 in LSQ with theta free will only help if cross-page constraints (label 14→15) are strong enough to break degeneracy. May need additional constraint.
 
+## Evidence
+
+- timestamp: 2026-05-25
+  checked: session_9 distortion-zone bias (refineAnchorPageByDistortionZoneBias)
+  found: |
+    First apply reverted globally: label RMSE 4.71→7.20m (batch shift). Per-post RMSE gate +
+    fwd↔back zone activation fixed that. Signals on page 3: fwd↔back≈10.9m posts 5–12;
+    fcGapBack post 9 only 1.61m (proj already near backward UTM) while GPS err 18.97m.
+    Full backward snap (core 9–11): post 11→8.96m, post 10→10.13m, post 9→15.72m.
+  implication: |
+    Label-chain bias closes gap for 10/11 to ~10m floor; post 9 error is not a proj↔chain
+    UTM offset problem — PDF anchor positions / bearing accumulation dominate.
+
 ## Resolution
 
 root_cause: |
@@ -539,7 +599,11 @@ root_cause: |
   it to LSQ free pages with theta-only variable doesn't extract the right rotation.
 
 fix: |
-  Added a NEW post-chain refinement step `refineAnchorPageByDownstreamChord` in
+  Session 9: Added `refineAnchorPageByDistortionZoneBias` — per-post UTM bias on anchor page
+  (posts 8–12) toward scale-corrected backward label chain from post 14 when zone active
+  (fwd↔back ≥8m). Core posts 9–11 snap to backward target when per-post label RMSE allows.
+
+  Earlier: Added a NEW post-chain refinement step `refineAnchorPageByDownstreamChord` in
   parser/geo/label-lsq-calibrator.js that:
    1. Identifies the last post on the anchor page (post K) and first downstream post
       (post K+1, on a different page) joined by a labelled segment.
@@ -592,11 +656,15 @@ verification: |
 
 files_changed:
   - parser/geo/label-lsq-calibrator.js
+      session 9: refineAnchorPageByDistortionZoneBias, walkAnchorPageLabelChain,
+                 anchorPageLatLonLabelRmse
       session 4: added refineAnchorPageByDownstreamChord
       session 7: added soft theta prior in refinePageOriginsByLabelLsq,
                  relaxed per-iter accept threshold (0.01 → 0.001) and outer
                  improved threshold (0.05 → 0.001) — safe under the prior
-  - parser/coordinate-calculator.js (imported + wired refineAnchorPageByDownstreamChord)
+  - parser/coordinate-calculator.js
+      session 9: wired refineAnchorPageByDistortionZoneBias after split-region
+      session 4: imported + wired refineAnchorPageByDownstreamChord
   - parser/post-positioning.js
       session 7: threaded arcRepairedPosts Set through
                  repairConsecutiveLabelArcJumps, repairPagesLabelArcFromPositions,

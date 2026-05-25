@@ -33,6 +33,7 @@ import {
   fillAdjacentMissingDistances,
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
+  refineAnchorPageByDistortionZoneBias,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1388,6 +1389,25 @@ export function calculateCoordinates(
     augDistMapForSeams?.size
   ) {
     refineAnchorPageBySplitRegion(
+      pageTransforms,
+      sorted,
+      augDistMapForSeams,
+      { lat: startLat, lon: startLon },
+      warnings,
+    );
+  }
+
+  // ── Distortion-zone per-post bias (multi-sheet routes only) ───────────────
+  // After anchor refit (+ optional split-region), mid-page anchor posts can still
+  // sit above the Procrustes floor. Nudge toward label-chain targets when forward
+  // chain vs projection diverges and label−chord drift accumulates (GPS-relevant only).
+  if (
+    multiSheetRoute &&
+    pageTransforms.size > 0 &&
+    sorted[0]?.lat != null &&
+    augDistMapForSeams?.size
+  ) {
+    refineAnchorPageByDistortionZoneBias(
       pageTransforms,
       sorted,
       augDistMapForSeams,
