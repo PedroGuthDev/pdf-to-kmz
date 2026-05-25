@@ -32,6 +32,7 @@ import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
   refineAnchorPageByDownstreamChord,
+  refineAnchorPageBySplitRegion,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1372,6 +1373,27 @@ export function calculateCoordinates(
         }
       }
     }
+  }
+
+  // ── Split-region calibration (multi-sheet routes only; D-P911-07..12) ─────
+  // After the global anchor refit, post 9 on João Born page 3 still sits at its
+  // Procrustes floor (~12m). A split-region transform applies separate similarity
+  // fits to two sub-regions of the anchor page (post 1..K and K+1..last), where K is
+  // the break post detected by per-post residual spike. Self-contained: writes
+  // post.lat/post.lon directly, no caller reprojection needed.
+  if (
+    multiSheetRoute &&
+    pageTransforms.size > 0 &&
+    sorted[0]?.lat != null &&
+    augDistMapForSeams?.size
+  ) {
+    refineAnchorPageBySplitRegion(
+      pageTransforms,
+      sorted,
+      augDistMapForSeams,
+      { lat: startLat, lon: startLon },
+      warnings,
+    );
   }
 
   // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────

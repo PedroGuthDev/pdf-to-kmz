@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_execute
-stopped_at: Phase 02 context updated — N1+Viterbi decisions captured from 20260519 research
-last_updated: "2026-05-19T17:46:01.195Z"
-last_activity: "2026-05-19 - Completed quick task 20260519: web research on GPS accuracy solutions"
+stopped_at: Plan 02-07 executed — split-region wired; posts 9-11 still 18.97/15.35/16.72m (goal <10m not met)
+last_updated: "2026-05-25T18:00:00.000Z"
+last_activity: "2026-05-25 - Resumed Claude session eec02160; split-region tuning blocked by activation metric + Procrustes floor"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -47,15 +47,15 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Last Session
 
-- **Stopped at:** Phase 02 context updated — N1+Viterbi decisions captured from 20260519 research
-- **Next:** Phase 3 (KMZ export) or browser UAT on compare UI
+- **Stopped at:** Phase 02 iteration context captured — posts 9-11 under 10m strategy
+- **Next:** New iteration beyond 02-07 — posts 9-11 need approach that beats 12.34m Procrustes floor (split-region label-RMSE metric insufficient)
 
 ## Session Continuity
 
-Last session: 2026-05-19T17:46:01.045Z
-Stopped at: Poste-symbol positioning shipped; Palhoça max error 4.19 m (post 9)  
-Resume file: .planning/phases/02-coordinate-calculator/02-CONTEXT.md
-Accuracy: 11/11 posts < 5 m; 0 null GPS.
+Last session: 2026-05-25T00:00:00.000Z
+Stopped at: Discussion of posts 9-11 improvement; context written
+Resume file: .planning/phases/02-coordinate-calculator/02-POSTS9-11-CONTEXT.md
+Accuracy: João Born 22/34 < 5m, max 18.97m (posts 9-11 at 15-19m); Valmor 9/11 < 5m, max 9.14m.
 
 ## Active Decisions
 

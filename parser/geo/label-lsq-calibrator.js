@@ -824,40 +824,37 @@ export function refineAnchorPageBySplitRegion(
   }
 
   // ── Step 5: Break-post K detection (max residual with ≥3 posts each side) ──
+  // Pick the post with the highest forward-chain residual that:
+  //   (a) has residual > MID_THRESHOLD_M (same 8m threshold as midpoint activation), and
+  //   (b) satisfies ≥3 posts on each side (indices [3 .. length-4]).
+  // If no post in the constrained window satisfies (a), relax to the max-residual post
+  // in the window (any residual > 0) — the RMSE guard below will revert if unhelpful.
   const validResiduals = residuals.filter(r => r != null);
   const sortedRes = [...validResiduals].sort((a, b) => a - b);
   const medianRes = sortedRes[Math.floor(sortedRes.length / 2)] ?? 0;
 
+  const LO_K = 3;
+  const HI_K = anchorPagePosts.length - 1 - 3;
+
   let kIdx = -1;
   let kResidual = -Infinity;
-  for (let i = 0; i < anchorPagePosts.length; i++) {
+  // Primary: highest residual above MID_THRESHOLD_M in [LO_K, HI_K].
+  for (let i = LO_K; i <= HI_K; i++) {
     const r = residuals[i];
-    if (r == null) continue;
-    if (r > kResidual && r > 2 * medianRes && i >= 3 && (anchorPagePosts.length - 1 - i) >= 3) {
-      kResidual = r;
-      kIdx = i;
+    if (r == null || r < MID_THRESHOLD_M) continue;
+    if (r > kResidual) { kResidual = r; kIdx = i; }
+  }
+
+  if (kIdx < 0) {
+    // Fallback: highest residual in [LO_K, HI_K] regardless of threshold.
+    for (let i = LO_K; i <= HI_K; i++) {
+      const r = residuals[i];
+      if (r == null) continue;
+      if (r > kResidual) { kResidual = r; kIdx = i; }
     }
   }
 
   if (kIdx < 0) {
-    // No post satisfies both the 2×median spike and 3-posts-each-side constraints.
-    // Try relaxing the each-side constraint by shifting by ±1.
-    let bestCandidate = -1;
-    let bestR = -Infinity;
-    for (let i = 0; i < anchorPagePosts.length; i++) {
-      const r = residuals[i];
-      if (r == null || r <= 2 * medianRes) continue;
-      if (r > bestR) { bestR = r; bestCandidate = i; }
-    }
-    if (bestCandidate >= 0) {
-      // Shift to nearest position that satisfies ≥3 each side.
-      const lo = 3;
-      const hi = anchorPagePosts.length - 1 - 3;
-      kIdx = Math.max(lo, Math.min(hi, bestCandidate));
-    }
-  }
-
-  if (kIdx < 3 || (anchorPagePosts.length - 1 - kIdx) < 3) {
     warnings.push(`[split-region] residual spike not detected (max ${Math.max(...validResiduals).toFixed(2)}m / median ${medianRes.toFixed(2)}m) — skipped.`);
     return false;
   }

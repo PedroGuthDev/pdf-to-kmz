@@ -47,6 +47,35 @@ session_8_fix: |
   The [anchor-refit] Page 3: refined scale 0.354610→0.348182 success log remains
   in the function (4 [anchor-refit] Page strings in label-lsq-calibrator.js).
 
+session_8_split_region: |
+  Task 3+4 complete: `refineAnchorPageBySplitRegion` exported and wired in coordinate-calculator.js.
+  Break-post detection relaxed (max residual in [LO_K, HI_K] with 8m threshold + fallback).
+  
+  Harness (debug-run-calc.mjs joao-born) with PARSE DEBUG positions:
+  - `[anchor-refit] Page 3: refined scale 0.354610→0.348182` — fires (not silent).
+  - `[split-region] residual spike not detected (max 13.33m / median 8.99m) — skipped.` when
+    N3+cable-arc pipeline inflates forward-chain residuals at post 4; OR
+  - `[split-region] region1/region2 transform exceeded ±6°/±6% guard — skipped` when spike detected.
+  - With correct PARSE DEBUG x/y (post 9 x≈849): midpoint residual 2.48m < 8m — split-region does not activate.
+  
+  Tuning attempt (Cursor resume): lowering midpoint to 2m + 16% scale guard + region-2 chain anchors
+  caused split-region to apply (K=4) but WORSENED posts 9/10/11 to 24.79/20.37/20.68m — reverted.
+  
+  Root blocker for D-P911-01 (<10m on posts 9-11):
+  - Numerical Procrustes floor on page 3 with current PDF coords: post 9 = 12.34m (joao-born-coords-off.md).
+  - Forward-chain vs projection mismatch is ~2.5m at midpoint when PDF coords are consistent with labels;
+    split-region activation metric does not correlate with GPS error (post 9 GPS err 18.97m vs fc residual ~9m).
+  - Split-region label-RMSE guard optimizes label chord fit, not field GPS accuracy.
+
+session_8_result: |
+  João Born posts 9, 10, 11: 18.97m, 15.35m, 16.72m (UNCHANGED — goal <10m NOT MET).
+  João Born: max 18.97m, 22/34 < 5m (session-7 invariant preserved).
+  Valmor: max 9.14m, 9/11 < 5m (no regression; split-region gate never fires).
+  Tests: parser/__tests__/coordinate-calculator.test.mjs — 19/20 (pre-existing utm-calibrator import check fail).
+  
+  Plan 02-07 status: Tasks 1-4 implemented; verification FAILED on primary must-have (posts 9-11 < 10m).
+  Next: new iteration — e.g. distortion-zone per-post bias from label-length drift, or PDF position fix on page 3.
+
 session_7_addendum: 2026-05-25 — post-25 arc-repair skip + soft theta prior implemented
 session_7_result: |
   João Born: max 18.97m, 22/34 < 5m  (was 20/34 baseline; +2 posts under 5m)

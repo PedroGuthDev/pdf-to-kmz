@@ -46,7 +46,11 @@ assert(src.includes('export function calculateCoordinates'), 'calculateCoordinat
 
 // ── Test 2: UTM import present ─────────────────────────────────────────────
 console.log('\n[Test Group 2] UTM calibrator import');
-assert(src.includes("from './geo/utm-calibrator.js'"), 'utm-calibrator.js import present');
+assert(
+  src.includes("from './geo/utm-calibrator.js'") ||
+    src.includes('from "./geo/utm-calibrator.js"'),
+  'utm-calibrator.js import present',
+);
 
 // ── Test 3: Sequential chaining is gone ───────────────────────────────────
 console.log('\n[Test Group 3] Sequential chaining removed');

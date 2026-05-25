@@ -388,6 +388,7 @@ function realignPostsToMarkerAnchorWhenCablePulled(
   cablesByPage,
   warnings,
   usedSymbol = null,
+  skipPostNumbers = null,
 ) {
   // Track which symbol each post currently occupies so we can release it on move.
   /** @type {Map<number, number>} si occupied by post index */
@@ -410,6 +411,7 @@ function realignPostsToMarkerAnchorWhenCablePulled(
 
   for (let pi = 0; pi < posts.length; pi++) {
     const p = posts[pi];
+    if (skipPostNumbers && skipPostNumbers.has(p.number)) continue;
     const anchor = anchorOf(p);
     const split = Math.hypot(p.x - anchor.x, p.y - anchor.y);
     if (split < ANCHOR_POLE_SPLIT_REALIGN_PT) continue;
@@ -671,6 +673,7 @@ export function assignPostPositionsFromPosteSymbols(
     cablesByPage,
     warnings,
     usedSymbol,
+    opts.arcRepairedPosts ?? null,
   );
 
   warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
@@ -997,7 +1000,8 @@ export function repairConsecutiveLabelArcJumps(
   scale,
   cableDir,
   usedSymbol,
-  warnings
+  warnings,
+  arcRepairedPosts = null,
 ) {
   if (!routeOps?.length || scale <= 0 || routePosts.length < 2) return;
 
@@ -1054,6 +1058,7 @@ export function repairConsecutiveLabelArcJumps(
     };
     routePosts[i + 1].x = sym.x;
     routePosts[i + 1].y = sym.y;
+    if (arcRepairedPosts) arcRepairedPosts.add(currNum);
     warnings.push(
       `[post-positioning] post ${currNum}: relabeled arc jump ` +
         `(${arcM.toFixed(0)} m cable vs ${m} m label → nearest symbol at ${bestD.toFixed(0)} pt).`
@@ -1367,7 +1372,8 @@ function repairPagesLabelArcFromPositions(
   perPageScale,
   postByNum,
   usedSymbol,
-  warnings
+  warnings,
+  arcRepairedPosts = null,
 ) {
   for (const [pageNum, partitions] of partitionsByPage) {
     const scale = perPageScale(pageNum);
@@ -1425,7 +1431,8 @@ function repairPagesLabelArcFromPositions(
         scale,
         cableDir,
         usedSymbol,
-        warnings
+        warnings,
+        arcRepairedPosts,
       );
 
       for (let i = 0; i < routePosts.length; i++) {
@@ -1490,6 +1497,9 @@ export function assignPolesGloballyByLabels(
 
   const globallySnapped = new Set();
   const usedSymbol = new Set();
+  /** Post numbers moved by repairConsecutiveLabelArcJumps (label-driven), so the later
+   *  realign pass does not undo their position based on label-anchor proximity alone. */
+  const arcRepairedPosts = new Set();
 
   /** @type {Map<number, Array<{ posts: typeof posts, pathIndex: number }>>} */
   const partitionsByPage = new Map();
@@ -1726,7 +1736,8 @@ export function assignPolesGloballyByLabels(
         scale,
         cableDir,
         usedSymbol,
-        warnings
+        warnings,
+        arcRepairedPosts,
       );
 
       let residualSum = 0;
@@ -1764,6 +1775,7 @@ export function assignPolesGloballyByLabels(
     ...opts,
     postByNum,
     frozenPostIndices: globallySnapped,
+    arcRepairedPosts,
   });
   for (const pi of greedySnapped) globallySnapped.add(pi);
 
@@ -1776,7 +1788,8 @@ export function assignPolesGloballyByLabels(
     perPageScale,
     postByNum,
     usedSymbol,
-    warnings
+    warnings,
+    arcRepairedPosts,
   );
 
   const snappedPosts = globallySnapped;
@@ -1796,6 +1809,7 @@ export function assignPolesGloballyByLabels(
     cablesByPage,
     warnings,
     usedSymbol,
+    arcRepairedPosts,
   );
 
   warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
