@@ -34,7 +34,7 @@ import {
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
   refineAnchorPageByDistortionZoneBias,
-  refineAnchorPost9PdfFromBackwardUtm,
+  refineMidAnchorPostPdfByLabelBracket,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1110,18 +1110,8 @@ export function calculateCoordinates(
 
   const multiSheetRouteEarly =
     !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
-  if (
-    multiSheetRouteEarly &&
-    pageTransforms.size > 0 &&
-    augDistMapForSeams?.size
-  ) {
-    refineAnchorPost9PdfFromBackwardUtm(
-      pageTransforms,
-      sorted,
-      augDistMapForSeams,
-      { lat: startLat, lon: startLon },
-      warnings,
-    );
+  if (multiSheetRouteEarly && augDistMapForSeams?.size) {
+    refineMidAnchorPostPdfByLabelBracket(sorted, augDistMapForSeams, warnings);
   }
 
   // ── Project GPS for all posts (D-REV-01, D-REV-02) ───────────────────────
@@ -1223,7 +1213,9 @@ export function calculateCoordinates(
 
           const routeEnd = sorted[sorted.length - 1].number;
           const isTailAnchor =
-            anchorPostNum === routeEnd && multiSheetRoute && post1.pageNum != null;
+            anchorPostNum === routeEnd &&
+            multiSheetRoute &&
+            post1.pageNum != null;
           const anchorPage = post1.pageNum;
           let skippedAnchorPage = 0;
 

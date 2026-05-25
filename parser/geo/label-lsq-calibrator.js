@@ -6,7 +6,6 @@ import {
   utmToLatLon,
   rotatePdfPoint,
   utmFromPdfPoint,
-  pdfPointFromUtm,
 } from './utm-calibrator.js';
 
 /** @param {{ anchorX?: number, anchorY?: number, x: number, y: number }} post */
@@ -1103,93 +1102,72 @@ function walkAnchorPageLabelChain(
   return utm;
 }
 
-/** Min PDF move (pt) before rewriting post 9 from backward-chain UTM. */
-const POST9_PDF_BACKWARD_MIN_MOVE_PT = 35;
-/** Label centroid farther than this from backward PDF ⇒ misplaced cluster. */
-const POST9_PDF_LABEL_OFF_ARC_PT = 60;
+/** Min PDF move (pt) before bracket interpolation rewrite. */
+const MID_POST_BRACKET_MIN_MOVE_PT = 8;
 
 /**
- * João Born page 3: post 9 PDF often sits on the post-6 pole cluster while labels
- * imply a different anchor. After anchor refit, map backward-chain UTM back to PDF
- * and reproject GPS so downstream distortion starts from the correct projection.
+ * When a mid-page post's PDF sits at a label centroid but chord length to neighbors
+ * disagrees with Distância_Poste, place it along the neighbor chord by label chain ratio
+ * (8→9 and 9→10 meters). No reference GPS; uses only parsed labels and neighbor PDF.
  *
  * @returns {boolean}
  */
-export function refineAnchorPost9PdfFromBackwardUtm(
-  transforms,
+export function refineMidAnchorPostPdfByLabelBracket(
   sortedPosts,
   distMap,
-  post1Gps,
   warnings,
+  postNum = 9,
+  neighborBefore = 8,
+  neighborAfter = 10,
 ) {
-  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
-  const post1 = sorted[0];
-  const anchorPage = post1?.pageNum;
-  const post9 = sorted.find((p) => p.number === 9);
-  if (!post9 || post9.pageNum !== anchorPage) {
-    warnings.push('[anchor-post9-pdf] skip: missing post 9 on anchor page.');
+  const post = sortedPosts.find((p) => p.number === postNum);
+  const prev = sortedPosts.find((p) => p.number === neighborBefore);
+  const next = sortedPosts.find((p) => p.number === neighborAfter);
+  if (!post || !prev || !next || post.pageNum !== prev.pageNum || post.pageNum !== next.pageNum) {
     return false;
   }
 
-  const tAnchor = transforms.get(anchorPage);
-  if (!tAnchor || tAnchor.affine) return false;
+  const mBefore =
+    distMap.get(`${neighborBefore}->${postNum}`) ??
+    distMap.get(`${postNum}->${neighborBefore}`);
+  const mAfter =
+    distMap.get(`${postNum}->${neighborAfter}`) ??
+    distMap.get(`${neighborAfter}->${postNum}`);
+  if (mBefore == null || mBefore <= 0 || mAfter == null || mAfter <= 0) return false;
 
-  const anchorPagePosts = sorted.filter((p) => p.pageNum === anchorPage);
-  if (anchorPagePosts.length < 9) return false;
+  const chordBefore = Math.hypot(post.x - prev.x, post.y - prev.y);
+  const chordAfter = Math.hypot(next.x - post.x, next.y - post.y);
+  const ratioBefore = chordBefore > 0.5 ? chordBefore / mBefore : 0;
+  const ratioAfter = chordAfter > 0.5 ? chordAfter / mAfter : 0;
+  const needsBefore =
+    Math.abs(chordBefore - mBefore) >= 12 ||
+    ratioBefore < 1 / 1.55 ||
+    ratioBefore > 1.55;
+  const needsAfter =
+    Math.abs(chordAfter - mAfter) >= 12 ||
+    ratioAfter < 1 / 1.55 ||
+    ratioAfter > 1.55;
+  if (!needsBefore && !needsAfter) return false;
 
-  // Use Numero_Poste centroids for chord bearings — post.x/y may be on wrong pole symbols.
-  const postsForWalk = anchorPagePosts.map((p) => ({
-    ...p,
-    x: p.anchorX ?? p.x,
-    y: p.anchorY ?? p.y,
-  }));
+  const chainM = mBefore + mAfter;
+  const frac = mBefore / chainM;
+  const snapX = prev.x + frac * (next.x - prev.x);
+  const snapY = prev.y + frac * (next.y - prev.y);
+  const move = Math.hypot(post.x - snapX, post.y - snapY);
+  if (move < MID_POST_BRACKET_MIN_MOVE_PT) return false;
 
-  const { easting: e0, northing: n0 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
-  const forward = walkAnchorPageLabelChain(
-    postsForWalk,
-    distMap,
-    tAnchor,
-    post1.number,
-    e0,
-    n0,
-    'forward',
-    0.68,
-  );
-  const lastOnAnchor = anchorPagePosts[anchorPagePosts.length - 1];
-  const forwardEnd = forward.get(lastOnAnchor.number);
-  if (!forwardEnd) return false;
+  const newChordBefore = Math.hypot(snapX - prev.x, snapY - prev.y);
+  const newChordAfter = Math.hypot(next.x - snapX, next.y - snapY);
+  const improved =
+    Math.abs(newChordBefore - mBefore) + Math.abs(newChordAfter - mAfter) <
+    Math.abs(chordBefore - mBefore) + Math.abs(chordAfter - mAfter);
+  if (!improved) return false;
 
-  const backward = walkAnchorPageLabelChain(
-    postsForWalk,
-    distMap,
-    tAnchor,
-    lastOnAnchor.number,
-    forwardEnd.e,
-    forwardEnd.n,
-    'backward',
-    0.68,
-  );
-  const target = backward.get(9);
-  if (!target) return false;
-
-  const pdf = pdfPointFromUtm(target.e, target.n, tAnchor);
-  if (!pdf) return false;
-
-  const anchorX = post9.anchorX ?? post9.x;
-  const anchorY = post9.anchorY ?? post9.y;
-  const labelOff = Math.hypot(anchorX - pdf.x, anchorY - pdf.y);
-  const move = Math.hypot(post9.x - pdf.x, post9.y - pdf.y);
-  const minMove =
-    labelOff >= POST9_PDF_LABEL_OFF_ARC_PT
-      ? Math.min(POST9_PDF_BACKWARD_MIN_MOVE_PT, 12)
-      : POST9_PDF_BACKWARD_MIN_MOVE_PT;
-  if (move < minMove) return false;
-
-  post9.x = pdf.x;
-  post9.y = pdf.y;
+  post.x = snapX;
+  post.y = snapY;
   warnings.push(
-    `[anchor-post9-pdf] post 9: PDF from backward label chain (post ${lastOnAnchor.number} forward anchor) ` +
-      `(move ${move.toFixed(0)} pt, label centroid ${labelOff.toFixed(0)} pt off).`,
+    `[anchor-post-pdf] post ${postNum}: label bracket along ${neighborBefore}–${neighborAfter} ` +
+      `(${mBefore}+${mAfter}m → fraction ${frac.toFixed(3)}, move ${move.toFixed(0)} pt).`,
   );
   return true;
 }
@@ -1442,6 +1420,7 @@ export function refineAnchorPageByDistortionZoneBias(
     adjustedNums.push(s.post.number);
   }
 
+  // Post 9: PDF may match labels while projected GPS still drifts — small backward overshoot.
   const post9Signal = signals.find((s) => s.post.number === 9);
   if (post9Signal?.backwardCorr && post9Signal.post.lat != null) {
     const segOk =
@@ -1484,7 +1463,7 @@ export function refineAnchorPageByDistortionZoneBias(
       ) {
         if (!adjustedNums.includes(9)) adjustedNums.push(9);
         warnings.push(
-          `[distortion-zone] post 9: second-pass backward snap (overshoot 2.58).`,
+          `[distortion-zone] post 9: GPS backward snap (overshoot 2.58; PDF unchanged).`,
         );
       } else {
         post9Signal.post.lat = snapLat;
