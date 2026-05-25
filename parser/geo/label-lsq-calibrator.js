@@ -499,6 +499,261 @@ export function refineAnchorPageByDownstreamChord(
   return true;
 }
 
+const MAX_MID_CLUSTER_THETA_DEG = 4;
+const MAX_MID_CLUSTER_SCALE_FRAC = 0.04;
+const MID_CLUSTER_SCALE_BLEND = 0.35;
+
+/**
+ * RMSE over labeled segments where both posts lie on `pageNum` and
+ * post numbers are in [minPostNum, maxPostNum].
+ */
+function labelDistanceRmseOnPageRange(transforms, sortedPosts, distMap, pageNum, minPostNum, maxPostNum) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const residuals = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const prev = sorted[i];
+    const curr = sorted[i + 1];
+    if (prev.pageNum !== pageNum || curr.pageNum !== pageNum) continue;
+    if (prev.number < minPostNum || curr.number > maxPostNum) continue;
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) continue;
+    const tp = transforms.get(pageNum);
+    if (!tp) continue;
+    const op = { origin_e: tp.origin_e, origin_n: tp.origin_n };
+    const uI = utmAtPost(postPdfPos(prev), tp, op);
+    const uJ = utmAtPost(postPdfPos(curr), tp, op);
+    residuals.push(Math.hypot(uJ.easting - uI.easting, uJ.northing - uI.northing) - m);
+  }
+  return residuals.length ? rmse(residuals) : null;
+}
+
+/**
+ * Walk backward along consecutive same-page labeled segments from `fromPost`
+ * to estimate UTM at `toPostNum` (uses chained lat/lon bearings between neighbors).
+ */
+function estimateUtmWalkingBackward(sorted, distMap, fromPost, toPostNum) {
+  if (fromPost.lat == null || fromPost.lon == null) return null;
+  const idx = sorted.findIndex(p => p.number === fromPost.number);
+  if (idx < 1) return null;
+
+  let { easting: e, northing: n } = latLonToUtm(fromPost.lat, fromPost.lon);
+
+  for (let i = idx; sorted[i].number > toPostNum; i--) {
+    const curr = sorted[i];
+    const prev = sorted[i - 1];
+    if (prev.pageNum !== curr.pageNum) return null;
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) return null;
+    if (prev.lat == null || prev.lon == null) return null;
+    const { easting: ePrev, northing: nPrev } = latLonToUtm(prev.lat, prev.lon);
+    const brg = Math.atan2(e - ePrev, n - nPrev);
+    e -= m * Math.sin(brg);
+    n -= m * Math.cos(brg);
+  }
+
+  if (sorted.find(p => p.number === toPostNum)?.pageNum !== fromPost.pageNum) return null;
+  return { easting: e, northing: n };
+}
+
+/**
+ * Second-pass anchor-page refit for dense mid-sheet clusters (e.g. João Born posts 8–13).
+ * Uses chained GPS at the cluster end post and label walk-back to estimate the start post,
+ * then 2-point Procrustes (start + end PDF → UTM) with post 1 still pinned via origin.
+ * Runs after {@link refineAnchorPageByDownstreamChord}; only applied when cluster label RMSE
+ * improves and global anchor-page label RMSE stays within tolerance.
+ *
+ * @param {Map<number, object>} transforms
+ * @param {Array} sortedPosts
+ * @param {Map<string, number|null>} distMap
+ * @param {{ lat: number, lon: number }} post1Gps
+ * @param {string[]} warnings
+ * @param {{ clusterStart?: number, clusterEnd?: number }} [opts]
+ * @returns {boolean}
+ */
+export function refineAnchorPageByMidClusterChord(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+  opts = {},
+) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  if (sorted.length < 6) return false;
+
+  const post1 = sorted[0];
+  const anchorPage = post1.pageNum;
+  if (anchorPage == null || !transforms.has(anchorPage)) return false;
+  const tAnchor = transforms.get(anchorPage);
+  if (tAnchor.affine) return false;
+
+  const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
+  if (anchorPagePosts.length < 8) return false;
+
+  const clusterEndNum = opts.clusterEnd ?? anchorPagePosts[Math.floor(anchorPagePosts.length * 0.75)]?.number;
+  const clusterStartNum =
+    opts.clusterStart ?? anchorPagePosts[Math.floor(anchorPagePosts.length * 0.35)]?.number;
+  if (clusterStartNum == null || clusterEndNum == null || clusterStartNum >= clusterEndNum) {
+    return false;
+  }
+
+  const clusterEnd = sorted.find(p => p.number === clusterEndNum && p.pageNum === anchorPage);
+  const clusterStart = sorted.find(p => p.number === clusterStartNum && p.pageNum === anchorPage);
+  if (
+    !clusterEnd ||
+    !clusterStart ||
+    clusterEnd.lat == null ||
+    clusterEnd.lon == null
+  ) {
+    return false;
+  }
+
+  const startEst = estimateUtmWalkingBackward(sorted, distMap, clusterEnd, clusterStartNum);
+  if (!startEst) return false;
+
+  const { easting: eEnd, northing: nEnd } = latLonToUtm(clusterEnd.lat, clusterEnd.lon);
+  const { easting: e1, northing: n1, zone: zone1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+
+  const dx = clusterEnd.x - clusterStart.x;
+  const dy = clusterEnd.y - clusterStart.y;
+  const det = dx * dx + dy * dy;
+  if (det < 1) return false;
+
+  const initialTheta = tAnchor.theta ?? 0;
+  const initialScale = tAnchor.x_scale_sf;
+
+  // Scale-only: keep θ from downstream chord refit; fit cluster chord length in UTM.
+  const c = Math.cos(initialTheta);
+  const s = Math.sin(initialTheta);
+  const rxS = c * clusterStart.x + s * clusterStart.y;
+  const ryS = -s * clusterStart.x + c * clusterStart.y;
+  const rxE = c * clusterEnd.x + s * clusterEnd.y;
+  const ryE = -s * clusterEnd.x + c * clusterEnd.y;
+  const pdfSpan2 = (rxE - rxS) ** 2 + (ryE - ryS) ** 2;
+  if (pdfSpan2 < 1) return false;
+
+  const dE = eEnd - startEst.easting;
+  const dN = nEnd - startEst.northing;
+  const utmSpan = Math.hypot(dE, dN);
+  const clusterScale = utmSpan / Math.sqrt(pdfSpan2);
+  const newTheta = initialTheta;
+  const blend = opts.scaleBlend ?? MID_CLUSTER_SCALE_BLEND;
+  const newScale = initialScale + blend * (clusterScale - initialScale);
+
+  if (!Number.isFinite(newScale) || newScale <= 0) {
+    return false;
+  }
+  if (Math.abs(newScale / initialScale - 1) > MAX_MID_CLUSTER_SCALE_FRAC) {
+    warnings.push(
+      `[mid-cluster-refit] Page ${anchorPage}: scale change ${((newScale / initialScale - 1) * 100).toFixed(2)}% exceeds ±${(MAX_MID_CLUSTER_SCALE_FRAC * 100).toFixed(0)}% — skipped.`,
+    );
+    return false;
+  }
+
+  const rx1 = c * post1.x + s * post1.y;
+  const ry1 = -s * post1.x + c * post1.y;
+  const newOriginE = e1 - rx1 * newScale;
+  const newOriginN = n1 + ry1 * newScale;
+
+  const snapTransform = { ...tAnchor };
+  const rmseBefore = labelDistanceRmse(transforms, sorted, distMap);
+  const clusterRmseBefore = labelDistanceRmseOnPageRange(
+    transforms,
+    sorted,
+    distMap,
+    anchorPage,
+    clusterStartNum,
+    clusterEndNum,
+  );
+  const guardPosts = opts.guardPostNums ?? [4, 13, 14];
+  const guardBefore = anchorPostsLabelResidualSum(
+    transforms,
+    sorted,
+    distMap,
+    anchorPage,
+    guardPosts,
+  );
+
+  const trial = {
+    ...tAnchor,
+    origin_e: newOriginE,
+    origin_n: newOriginN,
+    x_scale_sf: newScale,
+    y_scale_sf: newScale,
+    theta: newTheta,
+    zone: zone1,
+  };
+  transforms.set(anchorPage, trial);
+  const rmseAfter = labelDistanceRmse(transforms, sorted, distMap);
+  const clusterRmseAfter = labelDistanceRmseOnPageRange(
+    transforms,
+    sorted,
+    distMap,
+    anchorPage,
+    clusterStartNum,
+    clusterEndNum,
+  );
+
+  const clusterImproved =
+    clusterRmseBefore != null &&
+    clusterRmseAfter != null &&
+    clusterRmseAfter < clusterRmseBefore - 1e-6;
+  const globalOk =
+    rmseBefore == null ||
+    rmseAfter == null ||
+    rmseAfter <= rmseBefore + ANCHOR_REFINE_RMSE_TOLERANCE_M;
+  const guardAfter = anchorPostsLabelResidualSum(
+    transforms,
+    sorted,
+    distMap,
+    anchorPage,
+    guardPosts,
+  );
+  const guardOk =
+    guardBefore == null ||
+    guardAfter == null ||
+    guardAfter <= guardBefore + (opts.guardToleranceM ?? 0.15);
+
+  if (!clusterImproved || !globalOk || !guardOk) {
+    transforms.set(anchorPage, snapTransform);
+    warnings.push(
+      `[mid-cluster-refit] Page ${anchorPage}: skipped (cluster ${clusterRmseBefore?.toFixed(2) ?? '?'}→${clusterRmseAfter?.toFixed(2) ?? '?'}, ` +
+        `global ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'}, ` +
+        `guard ${guardBefore?.toFixed(2) ?? '?'}→${guardAfter?.toFixed(2) ?? '?'}).`,
+    );
+    return false;
+  }
+
+  warnings.push(
+    `[mid-cluster-refit] Page ${anchorPage}: posts ${clusterStartNum}–${clusterEndNum} ` +
+      `scale blend ${(blend * 100).toFixed(0)}% ${initialScale.toFixed(6)}→${newScale.toFixed(6)} (θ fixed ${((initialTheta * 180) / Math.PI).toFixed(2)}°); ` +
+      `cluster RMSE ${clusterRmseBefore.toFixed(2)}→${clusterRmseAfter.toFixed(2)} m, ` +
+      `global ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m.`,
+  );
+  return true;
+}
+
+/** Sum of |UTM chord − label| on anchor page for listed post numbers. */
+function anchorPostsLabelResidualSum(transforms, sorted, distMap, anchorPage, postNums) {
+  const t = transforms.get(anchorPage);
+  if (!t) return null;
+  const op = { origin_e: t.origin_e, origin_n: t.origin_n };
+  let sum = 0;
+  let n = 0;
+  for (const num of postNums) {
+    const prev = sorted.find(p => p.number === num - 1);
+    const curr = sorted.find(p => p.number === num);
+    if (!prev || !curr || prev.pageNum !== anchorPage || curr.pageNum !== anchorPage) continue;
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) continue;
+    const uI = utmAtPost(postPdfPos(prev), t, op);
+    const uJ = utmAtPost(postPdfPos(curr), t, op);
+    sum += Math.abs(Math.hypot(uJ.easting - uI.easting, uJ.northing - uI.northing) - m);
+    n++;
+  }
+  return n ? sum : null;
+}
+
 /**
  * RMSE of (UTM chord length − label) over labeled consecutive post pairs.
  *

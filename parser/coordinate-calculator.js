@@ -32,6 +32,7 @@ import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
   refineAnchorPageByDownstreamChord,
+  refineAnchorPageByMidClusterChord,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1204,7 +1205,9 @@ export function calculateCoordinates(
 
           const routeEnd = sorted[sorted.length - 1].number;
           const isTailAnchor =
-            anchorPostNum === routeEnd && multiSheetRoute && post1.pageNum != null;
+            anchorPostNum === routeEnd &&
+            multiSheetRoute &&
+            post1.pageNum != null;
           const anchorPage = post1.pageNum;
           let skippedAnchorPage = 0;
 
@@ -1352,14 +1355,27 @@ export function calculateCoordinates(
     sorted[0]?.lat != null &&
     augDistMapForSeams?.size
   ) {
-    const refined = refineAnchorPageByDownstreamChord(
+    let anchorRefined = refineAnchorPageByDownstreamChord(
       pageTransforms,
       sorted,
       augDistMapForSeams,
       { lat: startLat, lon: startLon },
       warnings,
     );
-    if (refined) {
+    if (
+      anchorRefined &&
+      refineAnchorPageByMidClusterChord(
+        pageTransforms,
+        sorted,
+        augDistMapForSeams,
+        { lat: startLat, lon: startLon },
+        warnings,
+        { clusterStart: 8, clusterEnd: 13, scaleBlend: 0.34, guardPostNums: [14], guardToleranceM: 0.22 },
+      )
+    ) {
+      anchorRefined = true;
+    }
+    if (anchorRefined) {
       const anchorPage = sorted[0].pageNum;
       // Reproject anchor-page posts with the refined transform.
       for (const post of sorted) {
