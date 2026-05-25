@@ -1,8 +1,129 @@
 ---
-status: investigating
+status: verifying
 trigger: Posts 4-14 on page 3 land 10-28m from reference; posts 1-3 and 15-34 are fine
 created: 2026-05-18
 updated: 2026-05-25
+
+session_8_diagnosis: |
+  Guard fired: NONE — refineAnchorPageByDownstreamChord is NOT silently failing.
+  
+  The plan premise (function emits zero [anchor-refit] lines) was based on the harness
+  truncating warnings to "first 8". The function IS firing and succeeds:
+  
+  [anchor-refit-gate] multiSheetRoute=true pageTransforms.size=3 sorted[0].lat=-27.641966... augDistMapForSeams.size=66
+  [anchor-refit] Page 3: refined scale 0.354610→0.348182 (×0.9819), θ 0.00°→-3.25° using post 1 + post 15 chord (354.9m); label RMSE 4.04→4.07 m.
+  
+  Both lines are present in warnings[] but appear at index ~16-17 (beyond the first 8
+  shown by the harness). The diagnosis confirms: the current 18.97m max error on post 9
+  IS the post-refit result. The anchor-refit applies scale ×0.9819 and θ=-3.25° (close
+  to but not identical to the Procrustes optimum scale=0.9581/θ=-3.696°).
+  
+  Conclusion for Task 2: No fix needed — the function already works. The remaining error
+  gap is due to:
+  1. Procrustes global-transform floor for post 9 = 12.34m (inherent to page-3 distortion)
+  2. The refit chord (post 1 → post 15) gives a slightly different θ/scale than the full
+     14-post Procrustes optimum because it uses only 2 anchor points.
+  Task 2 is SKIPPED. Split-region (Tasks 3+4) is the necessary next step.
+
+session_7_addendum: 2026-05-25 — post-25 arc-repair skip + soft theta prior implemented
+session_7_result: |
+  João Born: max 18.97m, 22/34 < 5m  (was 20/34 baseline; +2 posts under 5m)
+  Valmor:    max  9.14m,  9/11 < 5m  (unchanged, no regression)
+
+  Per-post deltas (joao-born, baseline → after fix):
+    Post 21: 5.56m → 4.83m  (now < 5m)
+    Post 22: 5.74m → 5.03m  (still > 5m but improved)
+    Post 25: 14.77m → 7.29m (-7.48m biggest single-post gain)
+    Posts 26-34 (page 5): no regression, several improved (post 26: 2.27→0.41,
+                          post 28: 1.72→0.66, post 27: 1.20→1.85 ~flat, etc.)
+    Posts 5-12 (page 3): unchanged (intrinsic Procrustes floor ~12-15m on
+                         posts 9-11 — would need split-region per-page calibration)
+    Two-anchor variant: 17/34 < 5m (same as baseline two-anchor — no regression).
+
+session_7_changes: |
+  1. parser/post-positioning.js:
+     - repairConsecutiveLabelArcJumps accepts optional arcRepairedPosts Set (default null);
+       when set, records each post number it relocates by label-arc distance walk.
+     - realignPostsToMarkerAnchorWhenCablePulled accepts optional skipPostNumbers Set
+       (default null); when set, skips those post numbers entirely so the label-driven
+       arc-repair is not undone by nearest-anchor proximity.
+     - repairPagesLabelArcFromPositions threads arcRepairedPosts through.
+     - assignPolesGloballyByLabels creates one arcRepairedPosts Set, threads it to both
+       Viterbi+arc-repair AND the final realign pass AND the greedy fallback realign
+       (via opts.arcRepairedPosts).
+     - assignPostPositionsFromPosteSymbols accepts opts.arcRepairedPosts and threads
+       it to its realign call.
+
+  2. parser/geo/label-lsq-calibrator.js (refinePageOriginsByLabelLsq):
+     - Added soft theta prior per free page:
+         priorPenalty = lambda_p * (theta_curr - theta_initial)^2
+       contributing lambda_p to JtJ[theta_var, theta_var] and
+       -lambda_p * (theta_curr - theta_initial) to Jtr[theta_var].
+     - lambda_p is selected per page by cross-page label-link count:
+         < 2 cross-page links (rotation-degenerate) → lambda = 10
+         >= 2 cross-page links                      → lambda = 0.01
+     - Per-iter accept threshold relaxed: trialRmse < bestRmse - 0.001 (was - 0.01).
+     - Outer "improved" threshold relaxed: rmseBefore - rmseAfter > 0.001 (was > 0.05).
+     - Acceptance metric (RMSE on label residuals) is unchanged — prior only steers
+       gradient steps, not the accept/reject decision.
+
+session_7_why_it_works: |
+  Before fix, post 25 was at the wrong PDF symbol (1098.14, 46.38), giving
+  pdfBearing(24->25) ~= 97.5°. The boundary-lock used this bearing to walk from
+  page-4-projected post 25 to determine page-5's origin. The 97.5° bearing
+  happened to align with the true seam crossing direction (coincidence — the
+  underlying pdfBearing formula has a y-axis convention bug, but it was
+  self-calibrated with the label walk because of where the wrong symbol was).
+
+  The arc-repair fix moves post 25 to the correct symbol (1133.90, 51.84),
+  changing pdfBearing(24->25) to 88.5° — a 9° shift. The boundary-lock now
+  walks page 5 in a different direction. Without LSQ correction, this shift
+  destroys page 5 (posts 26-34 land 16-20m off, max 19.6m).
+
+  With the LSQ relaxed enough to accept the tiny RMSE improvement (4.01->4.00m,
+  ~0.004m gain), pages 4 and 5 get a small theta refinement:
+    page 4: theta=-0.20° (refined from cross-page links via 14->15 and 25->26)
+    page 5: theta=-0.47° (refined from 1 cross-page link via 25->26)
+  These refinements correct the boundary-lock walk direction enough to keep
+  page 5 posts within 0-5m of reference.
+
+  The soft theta prior is what allows the relaxed threshold to be safe:
+  without it, the optimizer at small gain regime overfits page-5 theta to
+  arbitrary directions (label-distance objective is rotation-invariant per
+  page when all that page's segments are on the same page). With the prior,
+  page-5 theta stays anchored near the cross-page-link-driven minimum
+  rather than drifting along the degenerate direction.
+
+  Net effect: post 25 14.77->7.29m, post 21 5.56->4.83m (now <5m), and
+  page-5 posts stay at baseline accuracy (no regression). Total <5m count
+  20/34 -> 22/34.
+
+session_7_remaining_work: |
+  Posts 9-11 page 3 floor remains:
+    Post 9:  18.97m (Procrustes floor ~12.34m, gap 6.6m to optimum)
+    Post 11: 16.72m (Procrustes floor ~8.88m, gap 7.8m)
+    Post 10: 15.35m (Procrustes floor ~8.01m, gap 7.3m)
+
+  Split-region page-3 calibration assessed but NOT pursued:
+    - Even if we hit Procrustes optimum, posts 9-11 stay at 8-12m (still > 5m).
+    - Requires substantial refactor (piecewise affine per region, region detection
+      from post density, segment splitting at break points).
+    - Disproportionate complexity for diminishing return (~4m residual at best,
+      still > 5m threshold).
+    - The intrinsic page-3 drawing distortion in the post 4-11 region is the cap.
+
+  Posts 5-8 (page 3 midsection, 10-14m errors): similar story — they are within
+  the page-3 distortion region. Anchor-page Procrustes already handles the
+  global page-3 rotation/scale via refineAnchorPageByDownstreamChord; the
+  remaining residuals are localized drawing distortions inside page 3.
+
+  RECOMMENDED future work (low priority):
+    1. Investigate page-3 PDF source: if the drawing has known per-region
+       distortion (e.g., zoom callout boxes), fix at the PDF authoring stage.
+    2. If multiple datasets show similar mid-page distortion patterns, design
+       a per-region calibration heuristic (e.g., detect bend points in label
+       distances and refit each region independently).
+    3. Neither of these is justified by the current dataset alone.
 
 session_5_addendum: 2026-05-25 — post 25 root cause confirmed; LSQ overfitting blocks adoption
 session_5_finding: |
@@ -174,10 +295,51 @@ session_6_continuation_2026-05-25: |
       (buggy bearing + label walk is self-calibrated to ~20/34 today).
 
 next_action: |
-  1. Post-25: try arc-repair skip + constrain page-5 theta in label-lsq (soft prior).
-  2. Do NOT replace pdfBearing in lockSheetBreaksFromChainedGps with utm-projected or
-     chained-GPS pin without full A/B — both caused regressions in session 6.
-  3. Posts 9-11: intrinsic Procrustes floor (~12m); optional split-region page-3 cal.
+  session 7 (2026-05-25) COMPLETED:
+    1. ✓ Post-25 arc-repair skip implemented (arcRepairedPosts Set threaded through
+         repairConsecutiveLabelArcJumps → realignPostsToMarkerAnchorWhenCablePulled).
+    2. ✓ Soft theta prior on rotation-degenerate pages in refinePageOriginsByLabelLsq
+         (lambda=10 for pages with <2 cross-page links, lambda=0.01 otherwise).
+    3. ✓ LSQ acceptance thresholds relaxed safely under the prior.
+    4. ✓ Verified: 22/34 < 5m on João Born (+2), no regression on Valmor.
+
+  Awaiting user confirmation before commit. Posts 9-11 page-3 floor work assessed
+  as not feasible at proportionate complexity (Procrustes optimum still > 5m).
+
+session_7_plan_2026-05-25: |
+  Reasoning checkpoint:
+    hypothesis: |
+      Post-25 N3 fix (arc-repair skip set passed to realignPostsToMarkerAnchorWhenCablePulled)
+      is correct at N3 level (post 25 → 1133.90, 51.84). Downstream regression is caused by
+      page-5 being rotation-degenerate (only 1 cross-page link 25→26) in refinePageOriginsByLabelLsq,
+      which makes the LSQ jacobian theta column near-zero for page-5 segments — letting LSQ
+      either reject all changes (per-iter gain < 0.01m → revert ALL transforms) or overfit
+      theta (relaxed threshold → arbitrary 1° rotation worsens posts 29-34 by 3-5m).
+    confirming_evidence:
+      - Session 5 LSQ guard logs: rmseBefore 3.676m, trial 3.6714m → improvement 0.0045m → REJECTED
+      - Session 5 sweep: page-5 has only 1 cross-page label (25→26), all other page-5 segments
+        are same-page so LSQ moves them only by translating page-5 origin; theta is unconstrained
+      - Procrustes floor evidence: with correct post 25, page-5 should be ~1m max, but LSQ revert
+        makes boundary-lock walk from a different bearing (97.5°→88.5° pdfBearing)
+    falsification_test: |
+      Add a soft theta prior to LSQ: lambda * (theta - theta_initial)^2 with lambda chosen so
+      that the prior dominates when label-derived theta gradient is small. If hypothesis is
+      correct: page-5 theta stays near 0, page-5 GPS errors stay at baseline (~5m max), AND
+      post 25 drops from 14.77m to ~6m. If hypothesis is wrong: page-5 still regresses or LSQ
+      gives up altogether.
+    fix_rationale: |
+      Soft prior is preferable to hard zero (proven to hurt page 4 by 1.35°). Lambda should
+      be small enough not to fight strong label evidence, but large enough to act when the
+      jacobian's theta column is near-zero (degenerate). Anchoring to theta_initial preserves
+      whatever rotation buildPageTransforms found while preventing LSQ from making it worse.
+    blind_spots:
+      - Page-4 also adjusts theta (-0.50° per logs). Soft prior must not interfere with page-4's
+        legitimate refinement when it has multiple cross-page links.
+      - The "improved" guard (rmseBefore - rmseAfter > 0.05) might still cause revert even
+        with the prior in place if the prior penalty cost is added to the residual sum.
+        Solution: keep RMSE measurement unchanged (only label residuals), apply prior only
+        to the normal equations (JtJ and Jtr) for the gradient step.
+      - Lambda value is a hyperparameter; will tune empirically using A/B against baseline.
 
 ## Symptoms (from 2026-05-23 user report)
 
@@ -349,19 +511,23 @@ fix: |
   theta change ≤ ±6°, scale change ≤ ±6%, anchor page must have ≥ 4 posts.
 
 verification: |
-  João Born single-anchor:    28.41m → **18.97m** max  (17/34 → **20/34** < 5m)
-  João Born tail-anchor (1+34): 28.41m → **18.97m** max  (15/34 → **18/34** < 5m)
-  Valmor (2-sheet, unguarded): 9.14m → **9.14m** max     (9/11 → **9/11** < 5m, unchanged)
+  Through session 4 fix (post 4 = post 5 dedupe):
+    João Born single-anchor:    28.41m → **18.97m** max  (17/34 → **20/34** < 5m)
+    João Born tail-anchor (1+34): 28.41m → **18.97m** max  (15/34 → **18/34** < 5m)
+    Valmor (2-sheet, unguarded): 9.14m → **9.14m** max     (9/11 → **9/11** < 5m, unchanged)
 
-  Post-by-post improvement on page 3 (João Born single-anchor):
-    Post 14: 19.80m → 3.12m  (-16.7m, page-3 last post — most direct beneficiary)
-    Post 13: 21.20m → 3.91m  (-17.3m)
-    Post  6:  10.94m → 3.88m  (-7.1m, now < 5m)
-    Post  3:  4.08m → 2.10m   (already < 5m, slight improvement)
-    Post  5: 13.34m → 8.18m   (-5.2m)
-    Post  7: 19.31m → 10.26m  (-9.1m)
-    Post  9: 28.41m → 18.97m  (-9.4m, was max, still highest residual)
-    Post 11: 28.39m → 16.72m  (-11.7m)
+  Through session 7 fix (post-25 arc-repair skip + soft theta prior):
+    João Born single-anchor:    18.97m → **18.97m** max  (20/34 → **22/34** < 5m)
+    João Born tail-anchor (1+34): 18.97m → 18.97m max    (17/34 → 17/34 < 5m, unchanged)
+    Valmor (2-sheet, unguarded): 9.14m → 9.14m max       (9/11 → 9/11 < 5m, unchanged)
+
+  Session 7 post-by-post improvements (João Born single-anchor):
+    Post 21: 5.56m → 4.83m   (now < 5m)
+    Post 22: 5.74m → 5.03m   (improved, still > 5m)
+    Post 25: 14.77m → 7.29m  (-7.48m, biggest single-post gain)
+    Posts 26-34 (page 5): no regression; several improved (post 26: 2.27→0.41,
+                          post 28: 1.72→0.66, post 30: 2.83→2.80, etc.)
+    Posts 5-12 (page 3 midsection): unchanged (intrinsic Procrustes floor).
 
   The remaining ~19m max on posts 9-11 is bounded by:
    (a) Intrinsic PDF page-3 drawing distortion (Procrustes-optimal anchored fit
@@ -370,8 +536,19 @@ verification: |
    (b) Post 4 N3 mis-positioning at post 5's symbol (PDF x,y for post 4 ≡ post 5),
        which caps post 4 error at ~10m on the ground.
   Further improvement would require per-detail-sheet ground-truth digitizing or
-  fixing Phase 02-06 N3 post-positioning for post 4.
+  per-region piecewise affine calibration (assessed as disproportionate complexity
+  for diminishing return — Procrustes floor still > 5m for posts 9-11).
 
 files_changed:
-  - parser/geo/label-lsq-calibrator.js (added refineAnchorPageByDownstreamChord)
-  - parser/coordinate-calculator.js (imported + wired the new step after label chain)
+  - parser/geo/label-lsq-calibrator.js
+      session 4: added refineAnchorPageByDownstreamChord
+      session 7: added soft theta prior in refinePageOriginsByLabelLsq,
+                 relaxed per-iter accept threshold (0.01 → 0.001) and outer
+                 improved threshold (0.05 → 0.001) — safe under the prior
+  - parser/coordinate-calculator.js (imported + wired refineAnchorPageByDownstreamChord)
+  - parser/post-positioning.js
+      session 7: threaded arcRepairedPosts Set through
+                 repairConsecutiveLabelArcJumps, repairPagesLabelArcFromPositions,
+                 realignPostsToMarkerAnchorWhenCablePulled,
+                 assignPostPositionsFromPosteSymbols (via opts), and
+                 assignPolesGloballyByLabels (owns the Set).

@@ -1346,6 +1346,9 @@ export function calculateCoordinates(
   // first-downstream-post's GPS reflects the cross-sheet refinement.
   // Also runs after the 2nd-anchor similarity (when used) since that refines pages
   // AFTER the anchor sheet, leaving the anchor sheet on raw per-page UTM.
+  warnings.push(
+    `[anchor-refit-gate] multiSheetRoute=${multiSheetRoute} pageTransforms.size=${pageTransforms.size} sorted[0].lat=${sorted[0]?.lat ?? 'null'} augDistMapForSeams.size=${augDistMapForSeams?.size ?? 0}`
+  );
   if (
     multiSheetRoute &&
     pageTransforms.size > 0 &&

@@ -217,6 +217,42 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
     });
   }
 
+  // Soft theta prior for rotation-degenerate pages.
+  // A page is rotation-degenerate when it has very few cross-page label links
+  // (i.e. the only constraint on its theta is the one or two seam-crossing segments).
+  // For such pages, the theta jacobian column has near-zero "energy" (sum of squares),
+  // letting LSQ either reject the trial (gain < 0.01m) or overfit theta to noise.
+  //
+  // The prior is: penalty = lambda_theta_per_page * (theta - theta_initial)^2,
+  // which contributes lambda_theta_per_page to JtJ[theta_var, theta_var] and
+  // -lambda_theta_per_page * (theta_curr - theta_initial) to Jtr[theta_var].
+  // Notably, the RMSE (acceptance metric) is computed from label residuals ONLY,
+  // not the prior — so the prior steers the gradient step without affecting accept/reject.
+  //
+  // Lambda is set adaptively per page: pages with strong theta evidence (cross-page links
+  // contributing to the theta column J²) get a small prior; rotation-degenerate pages
+  // get a large prior that anchors theta near theta_initial.
+  /** @type {Map<number, number>} pageNum → cross-page label count */
+  const crossPageLabelCount = new Map();
+  for (const p of freePages) crossPageLabelCount.set(p, 0);
+  for (const { prev, curr } of segments) {
+    if (prev.pageNum !== curr.pageNum) {
+      if (crossPageLabelCount.has(prev.pageNum)) {
+        crossPageLabelCount.set(prev.pageNum, crossPageLabelCount.get(prev.pageNum) + 1);
+      }
+      if (crossPageLabelCount.has(curr.pageNum)) {
+        crossPageLabelCount.set(curr.pageNum, crossPageLabelCount.get(curr.pageNum) + 1);
+      }
+    }
+  }
+  // Pages with < 2 cross-page links are rotation-degenerate.
+  // Use a strong prior (lambda=10) for degenerate pages; weak (lambda=0.01) otherwise.
+  /** @type {number[]} per-free-page theta prior weight, indexed like freePages */
+  const thetaPriorLambda = freePages.map(p => {
+    const links = crossPageLabelCount.get(p) ?? 0;
+    return links < 2 ? 10.0 : 0.01;
+  });
+
   let lambda = 1e-3;
   const maxIter = 50;
 
@@ -239,6 +275,21 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
     }
     for (let a = 0; a < nVar; a++) JtJ[a][a] += lambda;
 
+    // Apply soft theta prior. For each free page, add lambda_theta to JtJ[theta_var, theta_var]
+    // and -lambda_theta * (current_theta - initial_theta) to Jtr[theta_var]. This nudges the
+    // gradient step toward theta_initial proportionally to the page's degeneracy.
+    for (let vi = 0; vi < freePages.length; vi++) {
+      const p = freePages[vi];
+      const t = transforms.get(p);
+      if (!t || t.affine) continue;
+      const thetaVar = vi * varsPerPage + 2;
+      const lamTheta = thetaPriorLambda[vi];
+      const thetaCurr = t.theta ?? 0;
+      const thetaInit = initialState.get(p)?.theta ?? 0;
+      JtJ[thetaVar][thetaVar] += lamTheta;
+      Jtr[thetaVar] += -lamTheta * (thetaCurr - thetaInit);
+    }
+
     const delta = solveLinear(JtJ, Jtr);
     if (!delta) {
       lambda *= 10;
@@ -258,7 +309,7 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
 
     const trialRmse = rmse(evalResiduals());
 
-    if (trialRmse < bestRmse - 0.01) {
+    if (trialRmse < bestRmse - 0.001) {
       bestRmse = trialRmse;
       lambda = Math.max(lambda * 0.5, 1e-6);
       if (bestRmse < 0.5) break;
@@ -278,7 +329,13 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
   }
 
   const rmseAfter = bestRmse;
-  const improved = rmseBefore - rmseAfter > 0.05;
+  // Lowered from 0.05 to 0.001: with the soft theta prior in place, even very small
+  // RMSE improvements indicate the gradient found a usable direction. The prior
+  // prevents the destabilization that previously came with relaxed thresholds —
+  // pages with < 2 cross-page links (rotation-degenerate) are anchored to their
+  // initial theta with a strong prior (lambda=10); pages with multiple cross-page
+  // links are allowed to refine theta freely (lambda=0.01).
+  const improved = rmseBefore - rmseAfter > 0.001;
 
   const maxLsqThetaRad = (3 * Math.PI) / 180;
 
@@ -374,16 +431,28 @@ export function refineAnchorPageByDownstreamChord(
   warnings,
 ) {
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
-  if (sorted.length < 4) return false;
+  if (sorted.length < 4) {
+    warnings.push(`[anchor-refit-diag] sorted.length ${sorted.length} < 4 — abort`);
+    return false;
+  }
 
   const post1 = sorted[0];
   const anchorPage = post1.pageNum;
-  if (anchorPage == null || !transforms.has(anchorPage)) return false;
+  if (anchorPage == null || !transforms.has(anchorPage)) {
+    warnings.push(`[anchor-refit-diag] post1.pageNum=${anchorPage} transforms.has=${transforms.has(anchorPage)} — abort`);
+    return false;
+  }
   const tAnchor = transforms.get(anchorPage);
-  if (tAnchor.affine) return false;
+  if (tAnchor.affine) {
+    warnings.push(`[anchor-refit-diag] anchor page ${anchorPage} tAnchor.affine=true — abort`);
+    return false;
+  }
 
   const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
-  if (anchorPagePosts.length < 4) return false;
+  if (anchorPagePosts.length < 4) {
+    warnings.push(`[anchor-refit-diag] anchorPagePosts.length ${anchorPagePosts.length} < 4 on page ${anchorPage} — abort`);
+    return false;
+  }
 
   // Find the last post on the anchor page and the first post on the next page.
   // They MUST be consecutive in the route (post number K and K+1) to use the label.
@@ -396,10 +465,14 @@ export function refineAnchorPageByDownstreamChord(
     firstDownstream.lat == null ||
     firstDownstream.lon == null
   ) {
+    warnings.push(`[anchor-refit-diag] firstDownstream=${firstDownstream?.number ?? 'null'} pageNum=${firstDownstream?.pageNum ?? 'null'} anchorPage=${anchorPage} lat=${firstDownstream?.lat ?? 'null'} lon=${firstDownstream?.lon ?? 'null'} — abort`);
     return false;
   }
   const labelKtoK1 = distMap.get(`${lastOnAnchor.number}->${firstDownstream.number}`);
-  if (labelKtoK1 == null || labelKtoK1 <= 0) return false;
+  if (labelKtoK1 == null || labelKtoK1 <= 0) {
+    warnings.push(`[anchor-refit-diag] labelKtoK1 (${lastOnAnchor.number}->${firstDownstream.number})=${labelKtoK1} — abort (distMap.size=${distMap.size})`);
+    return false;
+  }
 
   // True UTM for post 1 (exact) and projected UTM for first-downstream (post-chain).
   const { easting: e1, northing: n1, zone: zone1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
@@ -410,7 +483,10 @@ export function refineAnchorPageByDownstreamChord(
   const chordE = eK1 - e1;
   const chordN = nK1 - n1;
   const chordLen = Math.hypot(chordE, chordN);
-  if (chordLen < labelKtoK1) return false;  // sanity: chord must be longer than the last segment
+  if (chordLen < labelKtoK1) {
+    warnings.push(`[anchor-refit-diag] chordLen=${chordLen.toFixed(2)} < labelKtoK1=${labelKtoK1.toFixed(2)} (post1=${post1.number} -> postK1=${firstDownstream.number}) — abort`);
+    return false;  // sanity: chord must be longer than the last segment
+  }
   const utmBrgRad = Math.atan2(chordE, chordN);
 
   // Walk back from first-downstream's UTM by label distance to estimate post K's UTM.
@@ -424,7 +500,10 @@ export function refineAnchorPageByDownstreamChord(
   const dx = lastOnAnchor.x - post1.x;
   const dy = lastOnAnchor.y - post1.y;
   const det = dx * dx + dy * dy;
-  if (det < 1) return false;
+  if (det < 1) {
+    warnings.push(`[anchor-refit-diag] det=${det.toFixed(4)} < 1 (dx=${dx.toFixed(3)} dy=${dy.toFixed(3)}) — abort`);
+    return false;
+  }
   const dE = eKest - e1;
   const dN = nKest - n1;
   const u = (dx * dE - dy * dN) / det;
@@ -440,6 +519,7 @@ export function refineAnchorPageByDownstreamChord(
     !Number.isFinite(newTheta) ||
     newScale <= 0
   ) {
+    warnings.push(`[anchor-refit-diag] newScale=${newScale} newTheta=${newTheta} — abort (non-finite or non-positive scale)`);
     return false;
   }
   if (Math.abs(newTheta - initialTheta) > (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180) {
