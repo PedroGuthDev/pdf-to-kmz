@@ -1,7 +1,7 @@
 // parser/geo/label-lsq-calibrator.js
 // Approach 3: global least-squares fit of per-page UTM origins to Distância_Poste labels.
 
-import { latLonToUtm, rotatePdfPoint, utmFromPdfPoint } from './utm-calibrator.js';
+import { latLonToUtm, utmToLatLon, rotatePdfPoint, utmFromPdfPoint } from './utm-calibrator.js';
 
 /** @param {{ anchorX?: number, anchorY?: number, x: number, y: number }} post */
 function postPdfPos(post) {
@@ -713,6 +713,303 @@ export function augmentCrossPageDistances(sorted, distMap) {
     filled++;
   }
   return { map, filled };
+}
+
+/**
+ * Split-region calibration for the anchor page.
+ *
+ * Applies separate 2-point similarity transforms to two sub-regions of the anchor page
+ * to correct localized mid-page drawing distortions that a single global similarity
+ * transform cannot capture. Writes post.lat/post.lon directly on anchor-page posts
+ * (self-contained — caller does not need to reproject).
+ *
+ * Algorithm (D-P911-07 through D-P911-12):
+ * 1. Validate activation guards (≥6 anchor posts, non-affine, anchor transform present).
+ * 2. Build "forward-chain GPS" for each anchor-page post by walking from post 1 GPS
+ *    using distMap label distances and the current page transform bearing.
+ * 3. Compute per-post residuals (forward-chain vs current projected UTM).
+ * 4. Activate only if midpoint residual > 8 m (fires on distorted pages, skips clean ones).
+ * 5. Detect break post K (maximum residual post with ≥3 posts on each side).
+ * 6. Fit region-1 (posts 1..K) and region-2 (posts K..last) via 2-point similarity.
+ * 7. Guard: reject if either region's θ or scale change exceeds ±6°/±6%.
+ * 8. Apply transforms, writing lat/lon directly on each anchor-page post.
+ * 9. RMSE guard: if label-distance RMSE (from post lat/lon) worsens by > 0.5 m, revert.
+ * 10. On success, log [split-region] Page N: K=... and return true.
+ *
+ * @param {Map<number, { origin_e: number, origin_n: number, x_scale_sf: number, y_scale_sf: number, theta?: number, affine?: boolean, zone: number|string }>} transforms
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, lat?: number|null, lon?: number|null }>} sortedPosts
+ * @param {Map<string, number|null>} distMap
+ * @param {{ lat: number, lon: number }} post1Gps
+ * @param {string[]} warnings
+ * @returns {boolean}  true = split-region applied successfully; false = guards blocked or RMSE revert fired
+ */
+export function refineAnchorPageBySplitRegion(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const post1 = sorted[0];
+  const anchorPage = post1?.pageNum;
+
+  // ── Activation guard 1: anchor page transform must exist and be non-affine ──
+  if (anchorPage == null || !transforms.has(anchorPage)) {
+    warnings.push(`[split-region] no anchor page transform — skipped.`);
+    return false;
+  }
+  const tAnchor = transforms.get(anchorPage);
+  if (tAnchor.affine) {
+    warnings.push(`[split-region] anchor page affine — skipped.`);
+    return false;
+  }
+
+  const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
+
+  // ── Activation guard 2: need at least 6 posts to split meaningfully ──
+  if (anchorPagePosts.length < 6) {
+    warnings.push(`[split-region] anchor page has ${anchorPagePosts.length} posts (<6) — skipped.`);
+    return false;
+  }
+
+  // ── Step 2: Forward-chain GPS from post 1 using label distances + bearing ──
+  const { easting: e0, northing: n0 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const zone = tAnchor.zone;
+
+  /** @type {Map<number, { e: number, n: number }>} forward-chain UTM per post number */
+  const forwardUtm = new Map();
+  forwardUtm.set(post1.number, { e: e0, n: n0 });
+
+  for (let i = 1; i < anchorPagePosts.length; i++) {
+    const prev = anchorPagePosts[i - 1];
+    const curr = anchorPagePosts[i];
+    const m = distMap.get(`${prev.number}->${curr.number}`);
+    if (m == null || m <= 0) continue; // unchained — skip
+
+    const prevUtm = forwardUtm.get(prev.number);
+    if (!prevUtm) continue;
+
+    // Derive UTM bearing from PDF direction using tAnchor.theta (current page transform).
+    // rotatePdfPoint applies the PDF→UTM rotation so the direction vector is in UTM frame.
+    const pdx = curr.x - prev.x;
+    const pdy = curr.y - prev.y;
+    const { rx, ry } = rotatePdfPoint(pdx, pdy, tAnchor.theta ?? 0);
+    // UTM compass bearing: atan2(dE, dN). In UTM, +E is east, +N is north.
+    // rotatePdfPoint: rx = east component, ry = north component (PDF +y = south = -ry).
+    const bearing = Math.atan2(rx, -ry);
+
+    forwardUtm.set(curr.number, {
+      e: prevUtm.e + m * Math.sin(bearing),
+      n: prevUtm.n + m * Math.cos(bearing),
+    });
+  }
+
+  // ── Step 3: Per-post residuals (forward-chain vs current projected UTM) ──
+  const residuals = [];
+  for (const post of anchorPagePosts) {
+    const fc = forwardUtm.get(post.number);
+    if (!fc) { residuals.push(null); continue; }
+    const proj = utmAtPost({ x: post.x, y: post.y }, tAnchor, tAnchor);
+    residuals.push(Math.hypot(fc.e - proj.easting, fc.n - proj.northing));
+  }
+
+  // ── Step 4: Activation check at midpoint ──
+  const midIdx = Math.floor(anchorPagePosts.length / 2);
+  const midResidual = residuals[midIdx];
+  const MID_THRESHOLD_M = 8;
+  if (midResidual == null || midResidual < MID_THRESHOLD_M) {
+    warnings.push(`[split-region] midpoint residual ${midResidual?.toFixed(2) ?? 'null'}m < ${MID_THRESHOLD_M}m threshold — skipped.`);
+    return false;
+  }
+
+  // ── Step 5: Break-post K detection (max residual with ≥3 posts each side) ──
+  const validResiduals = residuals.filter(r => r != null);
+  const sortedRes = [...validResiduals].sort((a, b) => a - b);
+  const medianRes = sortedRes[Math.floor(sortedRes.length / 2)] ?? 0;
+
+  let kIdx = -1;
+  let kResidual = -Infinity;
+  for (let i = 0; i < anchorPagePosts.length; i++) {
+    const r = residuals[i];
+    if (r == null) continue;
+    if (r > kResidual && r > 2 * medianRes && i >= 3 && (anchorPagePosts.length - 1 - i) >= 3) {
+      kResidual = r;
+      kIdx = i;
+    }
+  }
+
+  if (kIdx < 0) {
+    // No post satisfies both the 2×median spike and 3-posts-each-side constraints.
+    // Try relaxing the each-side constraint by shifting by ±1.
+    let bestCandidate = -1;
+    let bestR = -Infinity;
+    for (let i = 0; i < anchorPagePosts.length; i++) {
+      const r = residuals[i];
+      if (r == null || r <= 2 * medianRes) continue;
+      if (r > bestR) { bestR = r; bestCandidate = i; }
+    }
+    if (bestCandidate >= 0) {
+      // Shift to nearest position that satisfies ≥3 each side.
+      const lo = 3;
+      const hi = anchorPagePosts.length - 1 - 3;
+      kIdx = Math.max(lo, Math.min(hi, bestCandidate));
+    }
+  }
+
+  if (kIdx < 3 || (anchorPagePosts.length - 1 - kIdx) < 3) {
+    warnings.push(`[split-region] residual spike not detected (max ${Math.max(...validResiduals).toFixed(2)}m / median ${medianRes.toFixed(2)}m) — skipped.`);
+    return false;
+  }
+
+  const K = anchorPagePosts[kIdx];
+  const fcK = forwardUtm.get(K.number);
+  if (!fcK) {
+    warnings.push(`[split-region] cannot satisfy ≥3 posts/region (length ${anchorPagePosts.length}) — skipped.`);
+    return false;
+  }
+
+  // ── Step 6: Region 1 (posts 1..K): 2-point similarity fit ──
+  // Anchor A = post1, Anchor B = K
+  const applyTwoPointSimilarity = (postA, eA, nA, postB, eB, nB) => {
+    const dx = postB.x - postA.x;
+    const dy = postB.y - postA.y;
+    const det = dx * dx + dy * dy;
+    if (det < 1) return null;
+    const dE = eB - eA;
+    const dN = nB - nA;
+    const u = (dx * dE - dy * dN) / det;
+    const v = (dy * dE + dx * dN) / det;
+    const newScale = Math.hypot(u, v);
+    const newTheta = Math.atan2(v, u);
+    if (!Number.isFinite(newScale) || !Number.isFinite(newTheta) || newScale <= 0) return null;
+    const c = Math.cos(newTheta);
+    const s = Math.sin(newTheta);
+    const rxA = c * postA.x + s * postA.y;
+    const ryA = -s * postA.x + c * postA.y;
+    return {
+      scale: newScale,
+      theta: newTheta,
+      origin_e: eA - rxA * newScale,
+      origin_n: nA + ryA * newScale,
+    };
+  };
+
+  const r1 = applyTwoPointSimilarity(post1, e0, n0, K, fcK.e, fcK.n);
+  if (!r1) {
+    warnings.push(`[split-region] region1 transform computation failed (det < 1) — skipped.`);
+    return false;
+  }
+
+  // ── Step 7: Region 2 (posts K..last): 2-point similarity fit ──
+  // Anchor A = K (continuity constraint), Anchor B = last anchor-page post
+  const lastPost = anchorPagePosts[anchorPagePosts.length - 1];
+  const fcLast = forwardUtm.get(lastPost.number);
+  if (!fcLast) {
+    warnings.push(`[split-region] cannot reach last anchor post via forward chain — skipped.`);
+    return false;
+  }
+
+  const r2 = applyTwoPointSimilarity(K, fcK.e, fcK.n, lastPost, fcLast.e, fcLast.n);
+  if (!r2) {
+    warnings.push(`[split-region] region2 transform computation failed (det < 1) — skipped.`);
+    return false;
+  }
+
+  // ── Guard: ±6°/±6% bounds on both region transforms ──
+  const initialTheta = tAnchor.theta ?? 0;
+  const initialScale = tAnchor.x_scale_sf;
+  const MAX_THETA = (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180;
+  const MAX_SCALE = MAX_ANCHOR_REFINE_SCALE_FRAC;
+
+  const r1ThetaOk = Math.abs(r1.theta - initialTheta) <= MAX_THETA;
+  const r1ScaleOk = Math.abs(r1.scale / initialScale - 1) <= MAX_SCALE;
+  const r2ThetaOk = Math.abs(r2.theta - initialTheta) <= MAX_THETA;
+  const r2ScaleOk = Math.abs(r2.scale / initialScale - 1) <= MAX_SCALE;
+
+  if (!r1ThetaOk || !r1ScaleOk || !r2ThetaOk || !r2ScaleOk) {
+    warnings.push(
+      `[split-region] region1/region2 transform exceeded ±${MAX_ANCHOR_REFINE_THETA_DEG}°/±${(MAX_ANCHOR_REFINE_SCALE_FRAC * 100).toFixed(0)}% guard — skipped. ` +
+      `r1: scale=${r1.scale.toFixed(4)}(${((r1.scale/initialScale-1)*100).toFixed(1)}%) θ=${((r1.theta-initialTheta)*180/Math.PI).toFixed(2)}°; ` +
+      `r2: scale=${r2.scale.toFixed(4)}(${((r2.scale/initialScale-1)*100).toFixed(1)}%) θ=${((r2.theta-initialTheta)*180/Math.PI).toFixed(2)}°`
+    );
+    return false;
+  }
+
+  // ── Step 10 (part 1): RMSE before — computed from current lat/lon on anchor posts ──
+  // Use a local lat/lon RMSE helper since refineAnchorPageBySplitRegion writes lat/lon
+  // directly (not via transforms map), so labelDistanceRmse won't reflect the change.
+  const latLonRmse = (posts, dMap) => {
+    const residualsLL = [];
+    const postsByNum = new Map(posts.map(p => [p.number, p]));
+    for (let i = 0; i < posts.length - 1; i++) {
+      const prev = posts[i];
+      const curr = posts[i + 1];
+      if (prev.lat == null || curr.lat == null) continue;
+      const m = dMap.get(`${prev.number}->${curr.number}`);
+      if (m == null || m <= 0) continue;
+      const { easting: ep, northing: np } = latLonToUtm(prev.lat, prev.lon);
+      const { easting: ec, northing: nc } = latLonToUtm(curr.lat, curr.lon);
+      residualsLL.push(Math.hypot(ec - ep, nc - np) - m);
+    }
+    return residualsLL.length ? rmse(residualsLL) : null;
+  };
+
+  const rmseBefore = latLonRmse(anchorPagePosts, distMap);
+
+  // ── Snapshot for revert ──
+  const snapshot = anchorPagePosts.map(p => ({ post: p, lat: p.lat, lon: p.lon }));
+
+  // ── Step 9: Apply transforms — write lat/lon directly ──
+  const makeTransform = (r) => ({
+    ...tAnchor,
+    origin_e: r.origin_e,
+    origin_n: r.origin_n,
+    x_scale_sf: r.scale,
+    y_scale_sf: r.scale,
+    theta: r.theta,
+  });
+  const t1 = makeTransform(r1);
+  const t2 = makeTransform(r2);
+
+  for (let i = 0; i < anchorPagePosts.length; i++) {
+    const post = anchorPagePosts[i];
+    const t = i <= kIdx ? t1 : t2;
+    const { easting, northing } = utmAtPost({ x: post.x, y: post.y }, t, t);
+    const { lat, lon } = utmToLatLon(easting, northing, zone);
+    post.lat = lat;
+    post.lon = lon;
+  }
+
+  // ── Step 10 (part 2): RMSE after — revert if worsened > ANCHOR_REFINE_RMSE_TOLERANCE_M ──
+  const rmseAfter = latLonRmse(anchorPagePosts, distMap);
+
+  if (
+    rmseBefore != null &&
+    rmseAfter != null &&
+    rmseAfter > rmseBefore + ANCHOR_REFINE_RMSE_TOLERANCE_M
+  ) {
+    // Revert: restore saved lat/lon on anchor-page posts.
+    for (const { post, lat, lon } of snapshot) {
+      post.lat = lat;
+      post.lon = lon;
+    }
+    warnings.push(
+      `[split-region] label RMSE worsened ${rmseBefore.toFixed(2)}→${rmseAfter.toFixed(2)}m (>${ANCHOR_REFINE_RMSE_TOLERANCE_M}m tolerance) — reverted.`
+    );
+    return false;
+  }
+
+  // ── Step 11: Success log ──
+  const r1ThetaDeg = (r1.theta * 180) / Math.PI;
+  const r2ThetaDeg = (r2.theta * 180) / Math.PI;
+  warnings.push(
+    `[split-region] Page ${anchorPage}: K=${K.number} (index ${kIdx}/${anchorPagePosts.length - 1}), ` +
+    `region1 scale ${r1.scale.toFixed(4)} θ ${r1ThetaDeg.toFixed(2)}°, ` +
+    `region2 scale ${r2.scale.toFixed(4)} θ ${r2ThetaDeg.toFixed(2)}°; ` +
+    `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m.`
+  );
+  return true;
 }
 
 /**
