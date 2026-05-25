@@ -591,6 +591,7 @@ export async function parsePdf(arrayBuffer) {
 
     const { distances, warnings: dw } = associateDistances(posts, allDistItems, [], {
       scaleFactor: overviewScale ?? undefined,
+      perPageScale,
     });
     warnings.push(...dw);
 

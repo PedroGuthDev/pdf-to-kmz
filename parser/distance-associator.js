@@ -41,7 +41,7 @@ function distPointToSegment(px, py, ax, ay, bx, by) {
  *   Text items from Distância_Poste layer (flipY applied). Optional `width` improves
  *   association when the label anchor is the glyph box left edge.
  * @param {string[]} warnings  Mutable warning accumulator (D-07).
- * @param {{ scaleFactor?: number }} [opts]
+ * @param {{ scaleFactor?: number, detailScaleFactor?: number, perPageScale?: (pageNum: number) => number|null }} [opts]
  * @returns {{ distances: Array<{ from: number, to: number, meters: number|null }>, warnings: string[] }}
  */
 export function associateDistances(posts, distItems, warnings = [], opts = {}) {
@@ -92,7 +92,12 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
 
       const meters = parseFloat(normalized);
       let ratioPenalty = 0;
+      const pageSf =
+        !crossPage && from.pageNum != null && opts.perPageScale
+          ? opts.perPageScale(from.pageNum)
+          : null;
       const detailSf =
+        pageSf ??
         opts.detailScaleFactor ??
         (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
       if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {

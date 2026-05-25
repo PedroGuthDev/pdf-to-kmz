@@ -189,10 +189,27 @@ if (useBrowserPositions) {
 const start = REFERENCE[0];
 let distances = parsed.distances ?? [];
 if (browserPosts && parsed.distanceLabelItems?.length) {
+  let overviewScaleForAssoc = null;
+  for (const pn of [2, 3, 4, 5]) {
+    const paths = parsed.utmGridPathsPerPage?.get(pn);
+    if (paths?.length) {
+      overviewScaleForAssoc = computeScaleFactor(paths, []);
+      if (overviewScaleForAssoc != null) break;
+    }
+  }
+  const perPageScaleForAssoc = (pageNum) => {
+    const paths = parsed.utmGridPathsPerPage?.get(pageNum);
+    if (paths?.length) {
+      const sf = computeScaleFactor(paths, []);
+      if (sf != null) return sf;
+    }
+    return overviewScaleForAssoc;
+  };
   const { distances: assoc } = associateDistances(
     parserPosts,
     parsed.distanceLabelItems,
     [],
+    { perPageScale: perPageScaleForAssoc },
   );
   const labeled = assoc.filter((d) => d.meters != null && d.meters > 0).length;
   if (labeled >= 3) {

@@ -262,6 +262,42 @@ export function buildCablesByPage(cablePaths) {
   return cablesByPage;
 }
 
+/**
+ * One consolidated route polyline per page for Distância_Poste GPS chaining on fragmented cables.
+ *
+ * @param {Array<{ ops: Array, pageNum?: number }>} cablePaths
+ * @param {Array<{ x: number, y: number, pageNum?: number }>} [sortedPosts]
+ * @returns {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>}
+ */
+export function buildPreparedRouteCablesByPage(cablePaths, sortedPosts = []) {
+  const raw = buildCablesByPage(cablePaths);
+  /** @type {Map<number, Array<Array<import('./construct-path-parser.js').PathOp>>>} */
+  const out = new Map();
+  for (const [pageNum, paths] of raw) {
+    if (!paths.length) continue;
+    const onPage = sortedPosts.filter((p) => (p.pageNum ?? 1) === pageNum);
+    const ref = onPage[0];
+    if (!ref) {
+      out.set(pageNum, paths);
+      continue;
+    }
+    let bestOps = paths[0];
+    let bestScore = -Infinity;
+    for (const ops of paths) {
+      const hit = nearestPointOnPathOps(ref.x, ref.y, ops);
+      const score = hit.t - hit.d * 2;
+      if (score > bestScore) {
+        bestScore = score;
+        bestOps = ops;
+      }
+    }
+    out.set(pageNum, [
+      prepareRouteCableOps(bestOps, ref.x, ref.y, onPage.length ? onPage : null),
+    ]);
+  }
+  return out;
+}
+
 /** Dashed-ribbon cables (many M sub-paths) need stitching before arc-length Viterbi. */
 export const FRAGMENTED_CABLE_MIN_SUBPATHS = 5;
 
@@ -456,12 +492,25 @@ export function cableSegmentBearingDeg(from, to, cablesByPage) {
 
   const hitA = nearestCableHitOnPage(from.x, from.y, pg, cablesByPage);
   const hitB = nearestCableHitOnPage(to.x, to.y, pg, cablesByPage);
-  if (hitA.pathIndex < 0 || hitA.pathIndex !== hitB.pathIndex) return null;
   if (hitA.d > 80 || hitB.d > 80) return null;
 
-  const ops = paths[hitA.pathIndex];
-  const dir = hitB.t >= hitA.t ? 1 : -1;
-  return cableTangentBearingDeg(ops, hitA.t, dir);
+  const pathIdx =
+    paths.length === 1
+      ? 0
+      : hitA.pathIndex >= 0 && hitA.pathIndex === hitB.pathIndex
+        ? hitA.pathIndex
+        : -1;
+  if (pathIdx < 0) return null;
+
+  let ops = paths[pathIdx];
+  if (isFragmentedCableOps(ops)) {
+    ops = prepareRouteCableOps(ops, from.x, from.y);
+  }
+  const tA = nearestPointOnPathOps(from.x, from.y, ops).t;
+  const tB = nearestPointOnPathOps(to.x, to.y, ops).t;
+  const dir = tB >= tA ? 1 : -1;
+  const midT = (tA + tB) / 2;
+  return cableTangentBearingDeg(ops, midT, dir);
 }
 
 export function bearingForDistanceLabelChain(from, to, postByNum, cablesByPage) {
