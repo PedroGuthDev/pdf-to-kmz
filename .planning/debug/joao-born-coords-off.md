@@ -1,88 +1,377 @@
 ---
-status: awaiting_human_verify
+status: investigating
 trigger: Posts 4-14 on page 3 land 10-28m from reference; posts 1-3 and 15-34 are fine
 created: 2026-05-18
 updated: 2026-05-25
-focus: posts-9-11-page3-mid-calibration
----
+
+session_5_addendum: 2026-05-25 — post 25 root cause confirmed; LSQ overfitting blocks adoption
+session_5_finding: |
+  Post 25 (14.77m error) and posts 9-11 (15-19m errors) investigated.
+
+  POST 25 ROOT CAUSE: PDF position is wrong.
+    - Browser parser snaps post 25 to symbol (1098.14, 46.38) at 61.5pt from post 24
+      (~22m via scale=0.3546), but label 24→25 says 35.2m.
+    - Correct symbol is (1133.90, 51.84) at 96.8pt from post 24 (~34.3m, matches label).
+    - The "25" Numero_Poste label text is drawn 50pt to the LEFT of the actual symbol,
+      so nearest-to-anchor search picks the wrong symbol (13.9pt to anchor vs 50pt).
+    - assignPolesGloballyByLabels DOES detect this (repairConsecutiveLabelArcJumps walks
+      forward 99pt along cable, finds (1133.90, 51.84) at 14pt of target, moves post 25).
+    - But realignPostsToMarkerAnchorWhenCablePulled (line 668 and 1793 in
+      parser/post-positioning.js) UNDOES the repair: it sees post 25 50pt from anchor,
+      finds (1098.14) is 14pt from anchor (much closer), reverts to it.
+    - Order of operations: Viterbi → greedy realign (undoes Viterbi) → arc-jump-repair
+      (fixes back) → final realign (undoes again). The realign function has no awareness
+      of the strong label-distance evidence from arc-jump-repair.
+
+  POST 25 PROPOSED FIX (NOT COMMITTED — see "rejected" section below):
+    Track post NUMBERS moved by repairConsecutiveLabelArcJumps in a Set, pass to
+    realignPostsToMarkerAnchorWhenCablePulled, skip those posts. Tested and verified
+    to leave post 25 at (1133.90, 51.84) end-to-end.
+
+  WHY NOT ADOPTED — LSQ overfitting downstream regression:
+    With post 25 at correct PDF position, refinePageOriginsByLabelLsq sees rmseBefore=3.67m
+    (down from 4.94m). LSQ tries to improve but the per-iteration gain is < 0.01m → trial
+    rejected → no progress → improved=false → ALL LSQ adjustments REVERTED to initial
+    (raw UTM-grid transforms). Then boundary-lock fallback fires and uses pdfBearing(24→25)
+    to extrapolate page-5 origin — but the bearing is now different (88.5° vs 97.5°),
+    leading to a 20° walk error and 16-20m page-5 errors (posts 26-34 all blow up).
+
+    Lowering LSQ thresholds (per-iter from 0.01 to 0.001, outer from 0.05 to 0.001)
+    lets LSQ accept the marginal improvement (rmse 3.68→3.67) but it OVERFITS page-5
+    theta to -1.02° (an arbitrary 1° rotation that minimizes label-distance residual
+    by a fraction of a meter while moving page-5 GPS errors UP by 3-5m on posts 29-34).
+    Page-5 is rotation-degenerate (only 1 cross-page label link via 25→26), so theta
+    is not well-constrained from labels alone.
+
+    Net production-equivalent results when applying the fix:
+      Status quo:        max 18.97m, 21/34 < 5m   (post 25 at 14.77m, page 5 all OK)
+      Fix + LSQ-strict:  max 19.57m, 13/34 < 5m   (post 25 at 6.12m, page 5 16-20m off)
+      Fix + LSQ-relaxed: max 18.97m, 14/34 < 5m   (post 25 at 9.10m, page 5 5-8m)
+    Net loss of 7 posts under 5m. Not worth committing the post-25 fix without
+    addressing the LSQ degeneracy.
+
+  POSTS 9-11 ANALYSIS (CONFIRMED INTRINSIC FLOOR):
+    Free Procrustes on page 3 (best possible similarity transform with current PDF coords):
+      Post 9:  12.34m
+      Post 10:  8.01m
+      Post 11:  8.88m
+    Current pipeline:
+      Post 9:  18.97m  (gap +6.6m from Procrustes optimum)
+      Post 10: 15.35m  (gap +7.3m)
+      Post 11: 16.72m  (gap +7.8m)
+    The gap from Procrustes-optimum to current is ~7m for these mid-page-3 posts.
+    refineAnchorPageByDownstreamChord already optimises page-3 scale + theta using
+    post1 + post14 chord, but posts 9-11 are in the MIDDLE — the page-3 drawing has
+    localized distortion there that can't be captured by a global page-wide transform.
+    Further improvement would require: piecewise affine transforms per region,
+    per-post calibration anchors, or fixing the page-3 PDF source (out of scope).
+
+  RECOMMENDED FOLLOWUPS (next session):
+    1. Constrain LSQ theta for rotation-degenerate pages (those with < 2 cross-page
+       label links). Initial attempt (commenting out theta jacobian) caused page-4 to
+       compensate by shifting its own theta by +1.35°, hurting baseline; needs more
+       care (perhaps a soft prior penalty instead of hard zero).
+    2. Replace pdfBearing-based boundary-lock with UTM-projected-bearing (apply page
+       transform to the bearing reference vector before computing compass).
+    3. Then commit the post-25 N3 fix (skip arc-repaired in realign).
+    4. For posts 9-11: explore split-region calibration for page 3.
+
+session_4_addendum: 2026-05-23 — post 4 = post 5 PDF coordinate duplicate fixed
+session_4_root_cause: |
+  realignPostsToMarkerAnchorWhenCablePulled (parser/post-positioning.js) picked the
+  nearest pole symbol to each post's label anchor without checking usedSymbol.
+  When post 4 had been placed on symbol (528.38, 321.90) by
+  repositionOffRoutePostsBetweenNeighbors (which DOES check usedSymbol), the later
+  realign pass would scan all symbols and again pick (528.38, 321.90) as nearest
+  to post 5's anchor (508.94, 301.74), at 28 pt — overriding post 5's earlier
+  (correct) cable-snap or anchor position. Result: posts 4 and 5 ended up with
+  identical (x, y).
+session_4_fix: |
+  Added optional usedSymbol parameter to realignPostsToMarkerAnchorWhenCablePulled.
+  When provided, the function (1) skips symbols already taken by another post
+  during nearest-to-anchor search, (2) builds a map of which post currently owns
+  which symbol so the owning post can re-pick the same symbol if it remains best,
+  and (3) releases its symbol when falling back to label anchor (the non-symbol
+  branch). Both call sites in assignPostPositionsFromPosteSymbols and
+  assignPolesGloballyByLabels now pass their local usedSymbol set.
+session_4_verification: |
+  Verification script (debug-verify-dupes.mjs): assignPolesGloballyByLabels run
+  on the buggy snapshot (posts 4&5 at 528.38, 321.90) → produces unique positions:
+    Post 4: (500.42, 356.94) — the actual pole symbol between posts 3 and 5
+    Post 5: (508.94, 301.74) — label anchor (no closer symbol available)
+  End-to-end João Born (debug-run-calc.mjs joao-born):
+    Post 4:  18.08m → 4.97m  (-13.1m, now < 5m)
+    Post 6:  same (3.88m)
+    Post 9:  18.97m max (unchanged — page-3 distortion floor)
+    Total:   20/34 < 5m → 21/34 < 5m
+  Valmor:  9.14m max, 9/11 < 5m — unchanged, no regression.
 
 ## Current Focus
 
-hypothesis: |
-  Page-3 dense cluster (posts 8–13) has non-uniform label/PDF scale distortion; a partial
-  scale nudge toward the 8→13 chord (after downstream 1→15 refit) can shrink 9–11 errors
-  without a second full similarity replace.
+session_6_state: |
+  Baseline reconfirmed (2026-05-25 pristine state):
+    Max 18.97m, 20/34 < 5m. Top 5: Post 9 (19.0m), Post 4 (18.1m), Post 11 (16.7m),
+    Post 10 (15.3m), Post 25 (14.8m).
+  Valmor baseline: max 9.14m, 9/11 < 5m.
 
-test: |
-  node debug-run-calc.mjs joao-born — posts 9–11; post 4/13/14; Valmor unchanged.
+  ATTEMPTED FIX 1 — UTM-projected bearing in lockPageOriginsAtSheetBreaksFromPriorProjection
+    (and the two related lock-at-sheet-break helpers):
+      Added utmProjectedBearing helper that projects (from, to) → GPS via projectPost
+      and uses gpsBearing. Replaced all four pdfBearing call sites in the three lock
+      functions in coordinate-calculator.js.
 
-expecting: |
-  Posts 9–11 drop vs 18.97/15.35/16.72 baseline; post 4 stays ~5m; post 14 not >5m if possible.
+    RESULT: REGRESSION (REVERTED).
+      João Born: 20/34 → 2/34 < 5m. Every post shifted by ~15-20m.
+      Valmor: unchanged (no boundary-lock active there).
+
+  ROOT CAUSE OF REGRESSION:
+    `lockPageOriginsAtSheetBreaksFromPriorProjection` is gated by `labelLsqImproved || n6 > 0 ? 0 : ...`
+    and DOES NOT FIRE on the current João Born baseline (LSQ improves; n6=0).
+    Likewise `lockSheetBreaksFromChainedGps` only fires when applyDistanceLabelGpsChain
+    returned chained=true, which (per current baseline warnings) does NOT happen here.
+    Thus the lock functions are dormant on baseline — changing the bearing inside them
+    should have ZERO effect on baseline numbers.
+
+    Yet swapping pdfBearing → utmProjectedBearing changed RMSE (4.44→3.98 became
+    4.44→3.98 with my change, was 4.94→4.52 before stash; but a clean revert restored
+    baseline behavior consistently). Multiple stash/pop cycles produced inconsistent
+    numbers, suggesting a stale-state interaction or a side-effect path I haven't
+    yet identified.
+
+    Evidence: with clean checkout, `cable-arc-placer Repositioned 22` matches the
+    pristine baseline. After a stash/pop cycle it changed to `Repositioned 21`,
+    suggesting either: (a) stash/pop corrupted a transient state, or (b) one of my
+    apparently-dormant lock functions IS being called by an upstream path I haven't
+    found, and projection through page transforms with non-zero theta produces a
+    materially different bearing (~31° difference measured: page-3 13→14 PDF bearing
+    104.969° vs UTM-projected 73.865°).
+
+    The 31° gap is the smoking gun. The pdfBearing formula uses atan2(dx, dy) where
+    dy = to.y - from.y. utmFromPdfPoint subtracts ry*y_sf from origin_n (PDF +y → UTM
+    south). So pdfBearing is correct only after flipping the y delta. Yet the function
+    in cable-boundary-calibrator.js (line 333-339) DOES flip y (`const dy = a.y - b.y`)
+    — proving the boundary-lock helpers in coordinate-calculator.js have a long-standing
+    bug that nonetheless happens to be self-consistent within their downstream usage.
+
+session_6_continuation_2026-05-25: |
+  Cursor resumed Claude session a5f57cb8 (rate-limited mid-debugger).
+
+  CONFIRMED (subagent abdc6444, before limit):
+    - `[boundary-locked] 2 page origin(s)` fires on baseline — lockSheetBreaksFromChainedGps
+      is active (warning was beyond harness first-8 filter).
+    - pdfBearing in lock helpers is ~31° off true UTM (13→14: 104.97° vs chain 74.17°).
+    - Naive utmProjectedBearing swap: REGRESSION (documented earlier).
+    - Pinning lock to chained curr.lat/lon directly: REGRESSION (max 27m, reverted).
+
+  HARNESS FIX (committed separately):
+    debug-run-calc.mjs now runs N3 on PARSE DEBUG path (!useBrowserFixture).
+    Post 4: 18.08m → 4.97m without needing --reassign-poles.
+
+  STILL OPEN:
+    - Post-25 realign skip (arc-repair Set) blocked by LSQ/page-5 degeneracy.
+    - Soft theta prior for rotation-degenerate pages.
+    - Bearing fix must preserve the accidental compensation in pdfBearing re-walk
+      (buggy bearing + label walk is self-calibrated to ~20/34 today).
 
 next_action: |
-  Human-verify harness on real PDF workflow; tune scaleBlend/guard if post 14 regression unacceptable.
+  1. Post-25: try arc-repair skip + constrain page-5 theta in label-lsq (soft prior).
+  2. Do NOT replace pdfBearing in lockSheetBreaksFromChainedGps with utm-projected or
+     chained-GPS pin without full A/B — both caused regressions in session 6.
+  3. Posts 9-11: intrinsic Procrustes floor (~12m); optional split-region page-3 cal.
 
-## Symptoms (posts 9-11 push — 2026-05-25)
+## Symptoms (from 2026-05-23 user report)
 
-- **Expected:** Posts 9, 10, 11 within ~5 m of reference (dense cluster on R. João Born page 3).
-- **Actual (before mid-cluster):** Post 9 ~19 m, Post 10 ~15 m, Post 11 ~17 m.
-- **Reproduction:** `node debug-run-calc.mjs joao-born`
-- **Procrustes floor:** 9: 12.3 m, 10: 8.0 m, 11: 8.9 m
+- **Expected:** All 34 posts within ~5m of reference
+- **Actual baseline:** posts 1-3 ✓, posts 4-14 23.30/13.34/10.94/19.31/20.99/28.41/26.35/28.39/22.49/21.20/19.80m (~10-28m off, all on page 3)
+- **Posts 15-34:** mostly fine after current LSQ on pages 4-5 (max 14.77m on post 25)
+- **Reproduction:** `node debug-run-calc.mjs joao-born` (uses PARSE DEBUG positions)
+- **Max error:** 28.41 m (post 9), 17/34 posts < 5m
+
+## Recent Investigation Sessions
+
+(See appended sessions 1-3 below for prior context.)
+
+## Sessions Archive (sessions 1-3 from earlier debugging)
+
+### Session 3 (2026-05-20, resumed in Cursor): Node Viterbi cable consolidation
+
+**Context:** Claude CLI session `65f8fa48-25ee-4b1c-92a2-d46abcd7ae55` stopped at rate limit while implementing cable consolidation + subset-Viterbi (tasks 7–8).
+
+**Changes:**
+- `parser/cable-builder.js`: `consolidateFragmentedCableOps` stitches dashed-ribbon dashes (≥5 M sub-paths) into one route polyline ordered along posts-regression axis.
+- `parser/post-positioning.js`: `prepareRouteCableOps` before candidate build; `viterbiAssignAlongCableCore` + segment fallback when some posts lack candidates.
+
+### Session 2 (2026-05-20): Viterbi retuning attempt — NEGATIVE RESULT
+
+**User directive:** "try to retune viterbi and see if it drops to ~15m"
+
+**Finding:** Viterbi σ/β tuning has **zero effect** on the João Born harness output. The harness reads post positions from `debug_results.txt` PARSE DEBUG block — these are **static**, already-Viterbi-assigned positions captured from the browser parser.
+
+### Session 1 (2026-05-18): Initial baseline
+
+Baseline: max 46.07 m; 4/34 < 5 m
+Best (attempt 13): max 38.63 m; 6/34 < 5 m
 
 ## Eliminated
 
-- hypothesis: Full 2-point mid-cluster similarity (posts 8+13) replaces page-3 transform
-  evidence: Improves cluster label RMSE but global label RMSE worsens (5.14→5.49 m); reverted by guards.
-  timestamp: 2026-05-25
+- hypothesis: cable-arc-placer page 3 misbehavior
+  evidence: Page 3 consistency is 8/12 = 67% (median ratio 1.037); placer correctly walks but doesn't reposition near-cable posts. Disabling placer doesn't help page 3.
+  timestamp: 2026-05-23
 
-- hypothesis: Label-chain GPS re-walk for posts 9–11 overrides projection
-  evidence: Improved label residuals but post 10 GPS error 15.3→20.3 m; removed from pipeline.
-  timestamp: 2026-05-25
+- hypothesis: page-3 PDF positions are wildly wrong upstream
+  evidence: PDF chord post1→post14 = 920pt × 0.3548 = 326m on ground; reference straight line = 309m. Ratio 1.056. Drawing is internally ~consistent, just rotated+scaled differently than UTM grid.
+  timestamp: 2026-05-23
 
-- hypothesis: Scale-only replace (100% cluster scale) without blend
-  evidence: Same global RMSE regression as full 2-point; needs partial blend.
+- hypothesis: label LSQ on free origin would fix page 3 alone
+  evidence: Label-only LSQ is rotation-degenerate. θ sweep -10°..+10° at fixed origin/scale gives identical RMSE (3.7m on labels) at all θ. Need cross-page label to break degeneracy.
+  timestamp: 2026-05-23
+
+- hypothesis: simple fix to skip arc-repaired posts in realign solves post 25
+  evidence: Fix works at the N3 level (post 25 ends at 1133.90, 51.84 after parsePdf),
+    but downstream LSQ overfits page-5 theta (1° rotation worsens GPS by 3-5m on posts 29-34)
+    or LSQ guard reverts entirely and boundary-lock destroys page 5. Net result is a 7-post
+    regression in posts-under-5m count. The fix is technically correct but needs to be
+    paired with LSQ degeneracy guards (next-session work).
   timestamp: 2026-05-25
 
 ## Evidence
 
 - timestamp: 2026-05-25
-  checked: Per-segment label/UTM ratios on page 3 after downstream refit
+  checked: Post 25 PDF position candidates on João Born page 4
   found: |
-    9→10 ratio 1.41 (UTM too short), 10→11 ratio 0.70 (UTM too long), 11→12 ratio 0.66 —
-    non-uniform; single extra scale cannot fit all segments.
-  implication: Partial scale blend toward 8→13 chord is the safe lever; not a full replace.
+    Two pole-symbol candidates near post 25's label anchor (1084.82, 42.54):
+      (1098.14, 46.38): dToAnchor=13.9pt, dTo24=61.5pt (~22m via scale, label 24→25=35.2m INCONSISTENT)
+      (1133.90, 51.84): dToAnchor=50.0pt, dTo24=96.8pt (~34.3m, MATCHES label 35.2m).
+       Three raw centroids at that position → genuine pole symbol.
+    PDF walk from post 24 by label 35.2m along bearing(23→24) lands at (1134.55, 35.13)
+       — 16.7pt from (1133.90, 51.84) but 38.1pt from (1098.14, 46.38).
+    Page-4 Procrustes max error: 12.64m with wrong symbol → 7.95m with right symbol.
+  implication: |
+    (1133.90, 51.84) is the correct symbol. The browser/parser picks the wrong one
+    because realignPostsToMarkerAnchorWhenCablePulled uses label-anchor proximity
+    only, without considering distância_poste label consistency. This is the SOURCE
+    of post 25's 14.77m error.
 
 - timestamp: 2026-05-25
-  checked: Sweep scaleBlend 0.2–0.35 with guard on post 14 label residuals
+  checked: Sequence of N3 operations on post 25
   found: |
-    blend 0.34 + guardPostNums [14] tolerance 0.22 m:
-      Post 9: 18.97→17.68 m, Post 10: 15.35→14.03 m, Post 11: 16.72→15.26 m
-      Max error: 18.97→17.68 m
-      Post 4: 4.97→5.08 m, Post 14: 3.12→5.06 m
-      <5m count: 20→18/34
-    Valmor: unchanged (9.14 m max).
-  implication: Meaningful 9–11 improvement with trade-off on post 14 and <5m count.
+    Order of post-25 modifications during assignPolesGloballyByLabels:
+      1. Viterbi assigns post 25 to (1133.90, 51.84) [correct, RMSE 0.3m on edges]
+      2. assignPostPositionsFromPosteSymbols → realignPostsToMarkerAnchorWhenCablePulled
+         moves post 25 BACK to (1098.14, 46.38) [reverts Viterbi: 50pt to anchor → 14pt]
+      3. repairPagesLabelArcFromPositions → repairConsecutiveLabelArcJumps walks forward
+         on cable by label 35.2m, finds (1133.90, 51.84), moves post 25 there
+      4. Final realignPostsToMarkerAnchorWhenCablePulled (line 1793) sees split=50pt,
+         finds (1098.14) closer to anchor, reverts AGAIN to (1098.14, 46.38)
+  implication: |
+    The realign function is too aggressive — it undoes valid arc-jump repairs.
+    Fix candidate: track arc-repaired post numbers, skip them in realign (TESTED,
+    works at N3 level but causes downstream LSQ regression — see "rejected" hypothesis).
+
+- timestamp: 2026-05-25
+  checked: LSQ guard behavior when post 25 is at correct position
+  found: |
+    With post 25 forced to (1133.90, 51.84):
+      rmseBefore = 3.676m (down from 4.94m when post 25 was wrong)
+      LSQ first iter trial = 3.6714m (improvement 0.0045m) → REJECTED (threshold 0.01m)
+      Subsequent iters: no further improvement, all rolled back
+      improved = false → ALL transforms REVERTED to initial buildPageTransforms output
+    Boundary-lock fires next, walks page-5 from PDF bearing(post24→post25)=88.5° (new)
+    instead of 97.5° (old wrong post 25). Net change in bearing: 9°.
+    Result: page-5 posts 26-34 land 16-20m off (vs 1-5m when bearing was 97.5°).
+    Lowering thresholds (per-iter 0.001, outer 0.001) lets LSQ accept the marginal
+    improvement, but it then sets page-5 theta to -1.02° (overfit to label noise),
+    causing page-5 posts 29-34 to drift 3-5m from previous good positions.
+  implication: |
+    The LSQ guard is brittle: when post 25 is correct, RMSE is already near optimum,
+    so the LSQ cannot improve further AND the small per-iter gain triggers full revert.
+    The underlying issue is that page-5 is rotation-degenerate (only 1 cross-page label
+    via 25→26), so any LSQ theta adjustment overfits to noise. Need either:
+    (a) prior-penalty on theta for rotation-degenerate pages
+    (b) UTM-projected bearing in boundary-lock (not raw PDF bearing)
+    (c) accept partial LSQ improvements without all-or-nothing revert
+    Without one of these, the post-25 fix cannot be committed without regressing
+    overall < 5m post count.
+
+- timestamp: 2026-05-23
+  checked: Page 3 transform parameters
+  found: |
+    [utm-calibrator] page 3 transform: origin_e=730468.812 origin_n=6940433.057
+    x_sf=0.354610 y_sf=0.354610 theta=0.0000
+    LSQ warnings show only p4 and p5 adjusted: "θ: p4=-0.50°, p5=0.00°"
+  implication: Page 3 (the anchor page) is excluded from LSQ rotation refinement.
+
+- timestamp: 2026-05-23
+  checked: Optimal similarity fit on page 3 (numerical Procrustes on 14 posts)
+  found: |
+    Free-origin optimal:        scale=0.339767, θ=-3.696°, max=12.70m, RMSE=7.93m
+    Anchor-pinned optimal:      scale=0.339767, θ=-3.696°, max=15.79m, RMSE=8.70m
+    Current pipeline:           scale=0.354610, θ=0,       max=28.39m, RMSE=19.54m
+  implication: Page-3 drawing scale is ~4.2% smaller and rotated ~3.7° relative to UTM grid. Fixing both gets max from 28m to ~16m.
+
+- timestamp: 2026-05-23
+  checked: Label LSQ theta sensitivity on anchor page
+  found: Theta sweep -10° to +10° at scale=SF, pinned origin yields RMSE 3.7m at ALL θ values (label-distance objective is rotation-invariant per page).
+  implication: Including page 3 in LSQ with theta free will only help if cross-page constraints (label 14→15) are strong enough to break degeneracy. May need additional constraint.
 
 ## Resolution
 
 root_cause: |
-  After refineAnchorPageByDownstreamChord (post 1 + post 15 chord), page-3 scale is globally
-  correct for sheet ends but locally wrong in the dense posts 8–13 cluster where PDF chord
-  lengths disagree with Distância_Poste by varying amounts per segment (non-uniform distortion).
+  refinePageOriginsByLabelLsq excludes the anchor page from optimization variables.
+  Page 3 (anchor) was stuck at theta=0 from UTM grid orientation, but the page-3
+  drawing is actually rotated ~-3.25° and scaled ~1.8% smaller relative to the UTM
+  grid. Cross-page label LSQ fixes pages 4-5 but left page 3 systematically
+  miscalibrated. The label LSQ is rotation-degenerate on the anchor page alone
+  (labels constrain pairwise distances, not absolute orientation), so even adding
+  it to LSQ free pages with theta-only variable doesn't extract the right rotation.
 
 fix: |
-  Added refineAnchorPageByMidClusterChord: second-pass partial scale blend (default 35%,
-  production 34%) toward posts 8→13 chord length while keeping θ from downstream refit and
-  post 1 pinned. Guards: cluster label RMSE must improve, global RMSE within 0.5 m,
-  tail-post label residual sum (post 14) within tolerance.
+  Added a NEW post-chain refinement step `refineAnchorPageByDownstreamChord` in
+  parser/geo/label-lsq-calibrator.js that:
+   1. Identifies the last post on the anchor page (post K) and first downstream post
+      (post K+1, on a different page) joined by a labelled segment.
+   2. Reads post 1's true GPS (anchor) and post K+1's projected GPS (refined by
+      the global LSQ + cross-page label chain).
+   3. Estimates the UTM bearing of post 1 → post K+1 chord (approximates the
+      post 1 → post K chord on the anchor sheet — assumes the route doesn't sharply
+      turn at the sheet boundary).
+   4. Walks back from post K+1's UTM by `label_{K,K+1}` along the chord bearing to
+      get an estimate of post K's true UTM (3m residual in João Born sample).
+   5. Performs 2-point similarity fit on the anchor page: PDF (post 1, post K) →
+      UTM (post 1 truth, post K estimate). Computes scale + theta + origin (origin
+      derived to keep post 1 exactly pinned).
+   6. Applies the refined transform; reverts if anchor-sheet label RMSE worsens
+      by > 0.5 m (safety guard for Valmor-like cases where labels and PDF positions
+      are already well-aligned).
+  Wired into parser/coordinate-calculator.js AFTER the label chain + sheet-break
+  re-lock, before connections build. Guarded by `multiSheetRoute` (>= 3 detail
+  sheets) so the 2-sheet Valmor pipeline is unaffected. Additional sanity guards:
+  theta change ≤ ±6°, scale change ≤ ±6%, anchor page must have ≥ 4 posts.
 
 verification: |
-  João Born harness (PARSE DEBUG + N3):
-    Post 9: 18.97→17.68 m, Post 10: 15.35→14.03 m, Post 11: 16.72→15.26 m
-    Max error: 18.97→17.68 m
-    Post 4: 4.97 m (holds), Post 13: 3.50 m, Post 14: 5.06 m (regression vs 3.12)
-    Valmor: 9.14 m max unchanged
+  João Born single-anchor:    28.41m → **18.97m** max  (17/34 → **20/34** < 5m)
+  João Born tail-anchor (1+34): 28.41m → **18.97m** max  (15/34 → **18/34** < 5m)
+  Valmor (2-sheet, unguarded): 9.14m → **9.14m** max     (9/11 → **9/11** < 5m, unchanged)
+
+  Post-by-post improvement on page 3 (João Born single-anchor):
+    Post 14: 19.80m → 3.12m  (-16.7m, page-3 last post — most direct beneficiary)
+    Post 13: 21.20m → 3.91m  (-17.3m)
+    Post  6:  10.94m → 3.88m  (-7.1m, now < 5m)
+    Post  3:  4.08m → 2.10m   (already < 5m, slight improvement)
+    Post  5: 13.34m → 8.18m   (-5.2m)
+    Post  7: 19.31m → 10.26m  (-9.1m)
+    Post  9: 28.41m → 18.97m  (-9.4m, was max, still highest residual)
+    Post 11: 28.39m → 16.72m  (-11.7m)
+
+  The remaining ~19m max on posts 9-11 is bounded by:
+   (a) Intrinsic PDF page-3 drawing distortion (Procrustes-optimal anchored fit
+       has max 15.79m and RMSE 8.70m — this is the theoretical floor for any
+       page-wide similarity transform).
+   (b) Post 4 N3 mis-positioning at post 5's symbol (PDF x,y for post 4 ≡ post 5),
+       which caps post 4 error at ~10m on the ground.
+  Further improvement would require per-detail-sheet ground-truth digitizing or
+  fixing Phase 02-06 N3 post-positioning for post 4.
 
 files_changed:
-  - parser/geo/label-lsq-calibrator.js
-  - parser/coordinate-calculator.js
+  - parser/geo/label-lsq-calibrator.js (added refineAnchorPageByDownstreamChord)
+  - parser/coordinate-calculator.js (imported + wired the new step after label chain)
