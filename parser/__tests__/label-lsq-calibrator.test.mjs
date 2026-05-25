@@ -3,7 +3,10 @@
  * Run: node parser/__tests__/label-lsq-calibrator.test.mjs
  */
 import assert from 'node:assert/strict';
-import { refinePageOriginsByLabelLsq } from '../geo/label-lsq-calibrator.js';
+import {
+  refinePageOriginsByLabelLsq,
+  inferMissingSegmentMeters,
+} from '../geo/label-lsq-calibrator.js';
 import { projectPost, haversineMeters } from '../geo/utm-calibrator.js';
 
 const zone = 22;
@@ -43,5 +46,22 @@ assert.ok(result.improved, 'RMSE should improve');
 assert.ok(Math.abs(transforms.get(4).origin_e - before) > 0.1, 'page 4 origin moved');
 
 assert.ok(result.rmseAfter < result.rmseBefore, 'label RMSE decreased');
+
+// Compressed PDF chord between neighbors: prefer blend over outbound-only scale.
+const route = [
+  { number: 3, x: 0, y: 0, pageNum: 3 },
+  { number: 4, x: 10, y: 0, pageNum: 3 },
+  { number: 5, x: 12, y: 0, pageNum: 3 },
+  { number: 6, x: 100, y: 0, pageNum: 3 },
+];
+const gapMap = new Map([
+  ['3->4', 40],
+  ['4->3', 40],
+  ['5->6', 40],
+  ['6->5', 40],
+]);
+const inferred = inferMissingSegmentMeters(route, gapMap, 4, 5, null);
+assert.ok(inferred > 20, `expected blended inference, got ${inferred}`);
+assert.ok(inferred < 45, `expected blended inference, got ${inferred}`);
 
 console.log('label-lsq-calibrator.test.mjs: all assertions passed');

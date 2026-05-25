@@ -1,12 +1,22 @@
 // parser/geo/label-lsq-calibrator.js
 // Approach 3: global least-squares fit of per-page UTM origins to Distância_Poste labels.
 
+import { cableArcLengthPt } from '../cable-builder.js';
 import {
   latLonToUtm,
   utmToLatLon,
   rotatePdfPoint,
   utmFromPdfPoint,
 } from './utm-calibrator.js';
+
+/** PDF span for a post pair: cable arc when it exceeds straight chord (pole-between-neighbors). */
+function pdfSpanPt(prev, curr, cablesByPage) {
+  const euc = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+  if (!cablesByPage || euc < 1e-6) return euc;
+  const arc = cableArcLengthPt(prev, curr, cablesByPage);
+  if (arc != null && arc > euc * 1.1) return arc;
+  return euc;
+}
 
 /** @param {{ anchorX?: number, anchorY?: number, x: number, y: number }} post */
 function postPdfPos(post) {
@@ -609,7 +619,11 @@ export function labelDistanceRmse(transforms, sortedPosts, distMap) {
  * Infer one missing consecutive segment from PDF chord × neighbor label scale.
  * @returns {number|null}
  */
-export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum) {
+/**
+ * @param {Map<string, number>} distMap
+ * @param {Map<number, Array>} [cablesByPage]
+ */
+export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum, cablesByPage = null) {
   const list = [...sorted].sort((a, b) => a.number - b.number);
   const i = list.findIndex(p => p.number === toNum);
   if (i < 1 || list[i - 1].number !== fromNum) return null;
@@ -620,29 +634,58 @@ export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum) {
   const existing = distMap.get(key);
   if (existing > 0) return existing;
 
-  const pdfM = Math.hypot(curr.x - prev.x, prev.y - curr.y);
-  if (pdfM < 1e-6) return null;
+  const pdfEuc = Math.hypot(curr.x - prev.x, prev.y - curr.y);
+  const pdfMid = pdfSpanPt(prev, curr, cablesByPage);
+  if (pdfMid < 1e-6) return null;
 
   const next = list[i + 1];
-  if (next) {
+  const prevPrev = i >= 2 ? list[i - 2] : null;
+  let estIn = null;
+  let estOut = null;
+  let pdfIn = null;
+  let pdfOut = null;
+
+  if (next && (next.pageNum ?? null) === (curr.pageNum ?? null)) {
     const mOut = distMap.get(`${curr.number}->${next.number}`);
     if (mOut > 0) {
-      const pdfOut = Math.hypot(next.x - curr.x, curr.y - next.y);
-      if (pdfOut > 1e-6) return mOut * (pdfM / pdfOut);
+      pdfOut = pdfSpanPt(curr, next, cablesByPage);
+      if (pdfOut > 1e-6) estOut = mOut * (pdfMid / pdfOut);
     }
   }
-  const prevPrev = list[i - 2];
-  if (prevPrev) {
+  if (prevPrev && (prevPrev.pageNum ?? null) === (prev.pageNum ?? null)) {
     const mIn = distMap.get(`${prevPrev.number}->${prev.number}`);
     if (mIn > 0) {
-      const pdfIn = Math.hypot(prev.x - prevPrev.x, prevPrev.y - prev.y);
-      if (pdfIn > 1e-6) return mIn * (pdfM / pdfIn);
+      pdfIn = pdfSpanPt(prevPrev, prev, cablesByPage);
+      if (pdfIn > 1e-6) estIn = mIn * (pdfMid / pdfIn);
     }
   }
+
+  const neighborPdf = [pdfIn, pdfOut].filter((p) => p != null && p > 0);
+  const minNeighborPdf = neighborPdf.length ? Math.min(...neighborPdf) : null;
+  const arcHeavy = pdfEuc > 1e-6 && pdfMid / pdfEuc > 1.25;
+  const chordCompressed =
+    minNeighborPdf != null && pdfEuc / minNeighborPdf < 0.55;
+
+  if (estIn != null && estOut != null && (arcHeavy || chordCompressed)) {
+    const mIn = prevPrev
+      ? distMap.get(`${prevPrev.number}->${prev.number}`)
+      : null;
+    const mOut = next ? distMap.get(`${curr.number}->${next.number}`) : null;
+    const neighborAvg =
+      mIn > 0 && mOut > 0 ? (mIn + mOut) / 2 : null;
+    return Math.max(
+      estIn,
+      estOut,
+      (estIn + estOut) / 2,
+      neighborAvg ?? 0,
+    );
+  }
+  if (estOut != null) return estOut;
+  if (estIn != null) return estIn;
   return null;
 }
 
-export function fillAdjacentMissingDistances(sorted, distMap) {
+export function fillAdjacentMissingDistances(sorted, distMap, cablesByPage = null) {
   const map = new Map(distMap);
   let filled = 0;
   const list = [...sorted].sort((a, b) => a.number - b.number);
@@ -658,28 +701,13 @@ export function fillAdjacentMissingDistances(sorted, distMap) {
     const key = `${prev.number}->${curr.number}`;
     if (map.get(key) > 0) continue;
 
-    const pdfM = Math.hypot(curr.x - prev.x, prev.y - curr.y);
-    if (pdfM < 1e-6) continue;
-
-    let inferred = null;
-    const next = list[i + 1];
-    if (next && next.pageNum === curr.pageNum) {
-      const mOut = map.get(`${curr.number}->${next.number}`);
-      if (mOut > 0) {
-        const pdfOut = Math.hypot(next.x - curr.x, curr.y - next.y);
-        if (pdfOut > 1e-6) inferred = mOut * (pdfM / pdfOut);
-      }
-    }
-    if (inferred == null && i >= 2) {
-      const prevPrev = list[i - 2];
-      if (prevPrev.pageNum === prev.pageNum) {
-        const mIn = map.get(`${prevPrev.number}->${prev.number}`);
-        if (mIn > 0) {
-          const pdfIn = Math.hypot(prev.x - prevPrev.x, prevPrev.y - prev.y);
-          if (pdfIn > 1e-6) inferred = mIn * (pdfM / pdfIn);
-        }
-      }
-    }
+    const inferred = inferMissingSegmentMeters(
+      list,
+      map,
+      prev.number,
+      curr.number,
+      cablesByPage,
+    );
     if (inferred == null || inferred <= 0) continue;
 
     map.set(key, inferred);

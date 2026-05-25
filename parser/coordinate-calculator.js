@@ -984,8 +984,11 @@ export function calculateCoordinates(
       // Global label LSQ + boundary lock on 3+ detail sheets (João Born, Siriu).
       // Valmor (2 sheets) stays on thumbnail + per-page UTM scale only (G-1).
       if (!overviewComposite && viewportBoxes.length >= 3) {
+        const gapCablesByPage = cableSegments?.length
+          ? buildCablesByPage(cableSegments)
+          : null;
         const { map: distWithGaps, filled: gapFilled } =
-          fillAdjacentMissingDistances(sorted, distMap);
+          fillAdjacentMissingDistances(sorted, distMap, gapCablesByPage);
         if (gapFilled > 0) {
           warnings.push(
             `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`,
