@@ -25,6 +25,28 @@ session_8_diagnosis: |
      14-post Procrustes optimum because it uses only 2 anchor points.
   Task 2 is SKIPPED. Split-region (Tasks 3+4) is the necessary next step.
 
+session_8_fix: |
+  Guard culprit: NONE (function was already working).
+  
+  Minimal change applied in Task 2: Removed all 9 [anchor-refit-diag] pushes from
+  refineAnchorPageByDownstreamChord and the [anchor-refit-gate] push from
+  coordinate-calculator.js. No behavioral change.
+  
+  Per-post errors for posts 9, 10, 11 before Task 2 (= baseline, Task 1 was diagnostic only):
+    Post 9:  18.97m
+    Post 10: 15.35m
+    Post 11: 16.72m
+  After Task 2 (diagnostics removed, no behavioral change):
+    Post 9:  18.97m (unchanged)
+    Post 10: 15.35m (unchanged)
+    Post 11: 16.72m (unchanged)
+  
+  Valmor: max 9.14m, 9/11 < 5m — unchanged (multiSheetRoute=false, anchor-refit never fires).
+  João Born posts 15-34: 22/34 < 5m — unchanged (session-7 invariant preserved).
+  
+  The [anchor-refit] Page 3: refined scale 0.354610→0.348182 success log remains
+  in the function (4 [anchor-refit] Page strings in label-lsq-calibrator.js).
+
 session_7_addendum: 2026-05-25 — post-25 arc-repair skip + soft theta prior implemented
 session_7_result: |
   João Born: max 18.97m, 22/34 < 5m  (was 20/34 baseline; +2 posts under 5m)

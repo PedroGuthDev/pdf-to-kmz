@@ -431,28 +431,16 @@ export function refineAnchorPageByDownstreamChord(
   warnings,
 ) {
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
-  if (sorted.length < 4) {
-    warnings.push(`[anchor-refit-diag] sorted.length ${sorted.length} < 4 — abort`);
-    return false;
-  }
+  if (sorted.length < 4) return false;
 
   const post1 = sorted[0];
   const anchorPage = post1.pageNum;
-  if (anchorPage == null || !transforms.has(anchorPage)) {
-    warnings.push(`[anchor-refit-diag] post1.pageNum=${anchorPage} transforms.has=${transforms.has(anchorPage)} — abort`);
-    return false;
-  }
+  if (anchorPage == null || !transforms.has(anchorPage)) return false;
   const tAnchor = transforms.get(anchorPage);
-  if (tAnchor.affine) {
-    warnings.push(`[anchor-refit-diag] anchor page ${anchorPage} tAnchor.affine=true — abort`);
-    return false;
-  }
+  if (tAnchor.affine) return false;
 
   const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
-  if (anchorPagePosts.length < 4) {
-    warnings.push(`[anchor-refit-diag] anchorPagePosts.length ${anchorPagePosts.length} < 4 on page ${anchorPage} — abort`);
-    return false;
-  }
+  if (anchorPagePosts.length < 4) return false;
 
   // Find the last post on the anchor page and the first post on the next page.
   // They MUST be consecutive in the route (post number K and K+1) to use the label.
@@ -465,14 +453,10 @@ export function refineAnchorPageByDownstreamChord(
     firstDownstream.lat == null ||
     firstDownstream.lon == null
   ) {
-    warnings.push(`[anchor-refit-diag] firstDownstream=${firstDownstream?.number ?? 'null'} pageNum=${firstDownstream?.pageNum ?? 'null'} anchorPage=${anchorPage} lat=${firstDownstream?.lat ?? 'null'} lon=${firstDownstream?.lon ?? 'null'} — abort`);
     return false;
   }
   const labelKtoK1 = distMap.get(`${lastOnAnchor.number}->${firstDownstream.number}`);
-  if (labelKtoK1 == null || labelKtoK1 <= 0) {
-    warnings.push(`[anchor-refit-diag] labelKtoK1 (${lastOnAnchor.number}->${firstDownstream.number})=${labelKtoK1} — abort (distMap.size=${distMap.size})`);
-    return false;
-  }
+  if (labelKtoK1 == null || labelKtoK1 <= 0) return false;
 
   // True UTM for post 1 (exact) and projected UTM for first-downstream (post-chain).
   const { easting: e1, northing: n1, zone: zone1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
@@ -483,10 +467,7 @@ export function refineAnchorPageByDownstreamChord(
   const chordE = eK1 - e1;
   const chordN = nK1 - n1;
   const chordLen = Math.hypot(chordE, chordN);
-  if (chordLen < labelKtoK1) {
-    warnings.push(`[anchor-refit-diag] chordLen=${chordLen.toFixed(2)} < labelKtoK1=${labelKtoK1.toFixed(2)} (post1=${post1.number} -> postK1=${firstDownstream.number}) — abort`);
-    return false;  // sanity: chord must be longer than the last segment
-  }
+  if (chordLen < labelKtoK1) return false;  // sanity: chord must be longer than the last segment
   const utmBrgRad = Math.atan2(chordE, chordN);
 
   // Walk back from first-downstream's UTM by label distance to estimate post K's UTM.
@@ -500,10 +481,7 @@ export function refineAnchorPageByDownstreamChord(
   const dx = lastOnAnchor.x - post1.x;
   const dy = lastOnAnchor.y - post1.y;
   const det = dx * dx + dy * dy;
-  if (det < 1) {
-    warnings.push(`[anchor-refit-diag] det=${det.toFixed(4)} < 1 (dx=${dx.toFixed(3)} dy=${dy.toFixed(3)}) — abort`);
-    return false;
-  }
+  if (det < 1) return false;
   const dE = eKest - e1;
   const dN = nKest - n1;
   const u = (dx * dE - dy * dN) / det;
@@ -519,7 +497,6 @@ export function refineAnchorPageByDownstreamChord(
     !Number.isFinite(newTheta) ||
     newScale <= 0
   ) {
-    warnings.push(`[anchor-refit-diag] newScale=${newScale} newTheta=${newTheta} — abort (non-finite or non-positive scale)`);
     return false;
   }
   if (Math.abs(newTheta - initialTheta) > (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180) {
