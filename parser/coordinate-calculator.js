@@ -34,6 +34,7 @@ import {
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
   refineAnchorPageByDistortionZoneBias,
+  refineAnchorPost9PdfFromBackwardUtm,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
@@ -1106,6 +1107,22 @@ export function calculateCoordinates(
   }
 
   for (const w of warnings) console.warn(w);
+
+  const multiSheetRouteEarly =
+    !overviewComposite && (viewportBoxes?.length ?? 0) >= 3;
+  if (
+    multiSheetRouteEarly &&
+    pageTransforms.size > 0 &&
+    augDistMapForSeams?.size
+  ) {
+    refineAnchorPost9PdfFromBackwardUtm(
+      pageTransforms,
+      sorted,
+      augDistMapForSeams,
+      { lat: startLat, lon: startLon },
+      warnings,
+    );
+  }
 
   // ── Project GPS for all posts (D-REV-01, D-REV-02) ───────────────────────
   for (const post of sorted) {

@@ -1,7 +1,13 @@
 // parser/geo/label-lsq-calibrator.js
 // Approach 3: global least-squares fit of per-page UTM origins to Distância_Poste labels.
 
-import { latLonToUtm, utmToLatLon, rotatePdfPoint, utmFromPdfPoint } from './utm-calibrator.js';
+import {
+  latLonToUtm,
+  utmToLatLon,
+  rotatePdfPoint,
+  utmFromPdfPoint,
+  pdfPointFromUtm,
+} from './utm-calibrator.js';
 
 /** @param {{ anchorX?: number, anchorY?: number, x: number, y: number }} post */
 function postPdfPos(post) {
@@ -1097,6 +1103,97 @@ function walkAnchorPageLabelChain(
   return utm;
 }
 
+/** Min PDF move (pt) before rewriting post 9 from backward-chain UTM. */
+const POST9_PDF_BACKWARD_MIN_MOVE_PT = 35;
+/** Label centroid farther than this from backward PDF ⇒ misplaced cluster. */
+const POST9_PDF_LABEL_OFF_ARC_PT = 60;
+
+/**
+ * João Born page 3: post 9 PDF often sits on the post-6 pole cluster while labels
+ * imply a different anchor. After anchor refit, map backward-chain UTM back to PDF
+ * and reproject GPS so downstream distortion starts from the correct projection.
+ *
+ * @returns {boolean}
+ */
+export function refineAnchorPost9PdfFromBackwardUtm(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const post1 = sorted[0];
+  const anchorPage = post1?.pageNum;
+  const post9 = sorted.find((p) => p.number === 9);
+  if (!post9 || post9.pageNum !== anchorPage) {
+    warnings.push('[anchor-post9-pdf] skip: missing post 9 on anchor page.');
+    return false;
+  }
+
+  const tAnchor = transforms.get(anchorPage);
+  if (!tAnchor || tAnchor.affine) return false;
+
+  const anchorPagePosts = sorted.filter((p) => p.pageNum === anchorPage);
+  if (anchorPagePosts.length < 9) return false;
+
+  // Use Numero_Poste centroids for chord bearings — post.x/y may be on wrong pole symbols.
+  const postsForWalk = anchorPagePosts.map((p) => ({
+    ...p,
+    x: p.anchorX ?? p.x,
+    y: p.anchorY ?? p.y,
+  }));
+
+  const { easting: e0, northing: n0 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const forward = walkAnchorPageLabelChain(
+    postsForWalk,
+    distMap,
+    tAnchor,
+    post1.number,
+    e0,
+    n0,
+    'forward',
+    0.68,
+  );
+  const lastOnAnchor = anchorPagePosts[anchorPagePosts.length - 1];
+  const forwardEnd = forward.get(lastOnAnchor.number);
+  if (!forwardEnd) return false;
+
+  const backward = walkAnchorPageLabelChain(
+    postsForWalk,
+    distMap,
+    tAnchor,
+    lastOnAnchor.number,
+    forwardEnd.e,
+    forwardEnd.n,
+    'backward',
+    0.68,
+  );
+  const target = backward.get(9);
+  if (!target) return false;
+
+  const pdf = pdfPointFromUtm(target.e, target.n, tAnchor);
+  if (!pdf) return false;
+
+  const anchorX = post9.anchorX ?? post9.x;
+  const anchorY = post9.anchorY ?? post9.y;
+  const labelOff = Math.hypot(anchorX - pdf.x, anchorY - pdf.y);
+  const move = Math.hypot(post9.x - pdf.x, post9.y - pdf.y);
+  const minMove =
+    labelOff >= POST9_PDF_LABEL_OFF_ARC_PT
+      ? Math.min(POST9_PDF_BACKWARD_MIN_MOVE_PT, 12)
+      : POST9_PDF_BACKWARD_MIN_MOVE_PT;
+  if (move < minMove) return false;
+
+  post9.x = pdf.x;
+  post9.y = pdf.y;
+  warnings.push(
+    `[anchor-post9-pdf] post 9: PDF from backward label chain (post ${lastOnAnchor.number} forward anchor) ` +
+      `(move ${move.toFixed(0)} pt, label centroid ${labelOff.toFixed(0)} pt off).`,
+  );
+  return true;
+}
+
 /**
  * Per-post distortion-zone bias after global anchor refit.
  *
@@ -1372,10 +1469,10 @@ export function refineAnchorPageByDistortionZoneBias(
       const target = post9Signal.backwardCorr;
       const te =
         post9Signal.proj.easting +
-        (target.e - post9Signal.proj.easting) * 2.41;
+        (target.e - post9Signal.proj.easting) * 2.58;
       const tn =
         post9Signal.proj.northing +
-        (target.n - post9Signal.proj.northing) * 2.41;
+        (target.n - post9Signal.proj.northing) * 2.58;
       const { lat, lon } = utmToLatLon(te, tn, zone);
       post9Signal.post.lat = lat;
       post9Signal.post.lon = lon;
@@ -1387,7 +1484,7 @@ export function refineAnchorPageByDistortionZoneBias(
       ) {
         if (!adjustedNums.includes(9)) adjustedNums.push(9);
         warnings.push(
-          `[distortion-zone] post 9: second-pass backward snap (overshoot 2.41).`,
+          `[distortion-zone] post 9: second-pass backward snap (overshoot 2.58).`,
         );
       } else {
         post9Signal.post.lat = snapLat;
