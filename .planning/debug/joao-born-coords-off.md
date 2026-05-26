@@ -580,43 +580,37 @@ Valmor: 9.14m max, 9/11 < 5m — unchanged, no regression.
 ## Current Focus
 
 hypothesis: |
-Browser path (no PARSE DEBUG, no harness-side N3 manipulation) is hitting
-lockSheetBreaksFromChainedGps with a wrong-bearing pdfBearing on the page 4→5 seam.
-Harness path runs label-lsq successfully (RMSE 3.86→3.86), skips lock revert, and gets
-posts 26-34 to 0.4-8.7m. Browser path runs identical labelDistanceGpsChain but lock
-helpers fire and walk page 5 origin to ~17m off — bearing source is suspect.
+Session 13 (D-N3-PASS2, commit b2d2f65) fixed the browser-vs-harness divergence: second N3
+pass re-associates distances after post relocation so label-lsq sees ~3.3m RMSE (not 27m),
+gates off lockSheetBreaksFromChainedGps, and posts 26–34 drop to 0–9m. Remaining error on
+page 3 is intrinsic drawing distortion + mid-page posts (6 at 13.8m, 2–5 and 7–11 at 6–10m),
+not stale distance maps or sheet-break bearing.
 
 test: |
-Log inside lockSheetBreaksFromChainedGps: print prev/curr nums, prevPrev page, computed
-bearing (degrees), gpsCurr lat/lon. Compare with reference seam bearing (74.17° per
-session_6_continuation), pdfBearing returns ~104.97° on page 4→5 chord (~30° off).
+node debug-browser-path.mjs && node debug-refresh-results.mjs && node debug-run-calc.mjs joao-born
 
 expecting: |
-If bearing is ~30° off and the lock fires on prev=25, curr=26 with prevPrev=24, then
-walking 33.7m from prev's chained GPS along wrong bearing lands page 5 origin 17m off
-the correct seam. All page 5 posts inherit the same shift.
+Browser: max ~14m, 20/34 <5m, posts 26–34 <9m, label-lsq RMSE ~3.34m. Harness unchanged
+(max ~16m). debug_results.txt matches browser path (not pre-session-13 28m snapshot).
 
 next_action: |
-Step 1: Add temporary console.log to lockSheetBreaksFromChainedGps printing the
-bearing, the chosen prev/curr/prevPrev posts, and the resulting gpsCurr. Re-run
-debug-browser-path.mjs. Compare bearing with utmProjectedBearing equivalent.
+Human-verify in index.html (upload João Born → Calculate → KMZ). Optional follow-up: page-3
+posts 6 and 9–10 PDF/cable position (Procrustes floor ~10–14m for mid-page band).
 
 current_state_2026-05-26: |
-New symptom (multi-sheet seam): João Born posts ~24–34 drift laterally (street side / centerline),
-especially after post 26. Implemented corridor corrections:
+Session 13 VERIFIED (b2d2f65): D-N3-PASS2 in parser/pdf-parser.js after first multi-sheet N3.
 
-- Kept: seam reflection gate (fb61201) and OCR-fallback marker entry orientation (5e177ab).
-- Added: lateral corridor clamp (5b51798): clamps post GPS toward Cabo Projetado / chord corridor
-  when lateral offset exceeds a threshold, RMSE-gated per post.
-- Added: sheet-break page nudge + detail clamp (b1536a9): attempts RMSE-gated origin shift on
-  incoming pages at sheet breaks, and uses a stricter 4m clamp on detail pages while keeping
-  8m elsewhere. In current João Born dataset, sheet-break nudge does not trigger; detail clamp
-  triggers (e.g. posts 23/32/33).
+Browser path AFTER session 13 (2026-05-26):
+  Max 13.80m (post 6), 20/34 <5m. Page 3: posts 4–5 ~5m, 9–11 ~7–10m (was 23–28m).
+  Posts 26–34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69, 1.16m (was 15–24m).
+  Warnings: label-lsq RMSE 3.34→3.34m; boundary-locked at sheet breaks; no erroneous
+  lockSheetBreaksFromChainedGps 17m page-5 shift.
 
-Benchmark snapshot (debug-browser-path.mjs, 2026-05-26):
+Also shipped (earlier 2026-05-26): corridor clamp (5b51798), sheet-break nudge + detail
+clamp (b1536a9), UI polish (32fbdc5).
 
-- posts 24–34 vs reference still ~6–24m, suggesting dominant error is along-route / transform bias,
-  not purely lateral-to-corridor; clamp improves visual corridor adherence where it triggers.
+Harness (debug-run-calc.mjs joao-born): unchanged at max 16.19m, 20/34 <5m — uses PARSE
+DEBUG positions from debug_results.txt; refresh via node debug-refresh-results.mjs.
 
 session_6_state: |
 Baseline reconfirmed (2026-05-25 pristine state):
