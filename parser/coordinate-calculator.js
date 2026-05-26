@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-tap-prefill-n3";
+export const CALC_PIPELINE_ID = "2026-05-route-corridor";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -43,6 +43,7 @@ import {
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
 import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
+import { refineGpsToPdfRouteCorridor } from "./geo/route-corridor.js";
 import {
   buildOverviewCompositeTransform,
   remapPostsToOverviewViaUtm,
@@ -1521,6 +1522,25 @@ export function calculateCoordinates(
       { lat: startLat, lon: startLon },
       warnings,
     );
+  }
+
+  // ── Route corridor (multi-sheet): PDF pole side vs GPS chord side ─────────
+  if (multiSheetRoute && sorted.some((p) => p.lat != null)) {
+    const auxCablesForCorridor = cableSegments?.length
+      ? buildCablesByPage(cableSegments)
+      : null;
+    const corridorFixed = refineGpsToPdfRouteCorridor(
+      sorted,
+      (post) =>
+        auxCablesForCorridor != null &&
+        isOffRouteCablePost(post, postMap, auxCablesForCorridor),
+      warnings,
+    );
+    if (corridorFixed > 0) {
+      warnings.push(
+        `[route-corridor] Adjusted ${corridorFixed} post(s) to match plan corridor (neighbor chord).`,
+      );
+    }
   }
 
   // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
