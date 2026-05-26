@@ -370,12 +370,7 @@
       <p>Preview of calculated posts (up to first 10):</p>
       <pre id="outputPreview"></pre>
       <div style="margin-top: var(--space-md)">
-        <button
-          type="button"
-          id="downloadKmzBtn"
-          class="btn-primary"
-          disabled
-        >
+        <button type="button" id="downloadKmzBtn" class="btn-primary" disabled>
           Download KMZ
         </button>
         <p class="hint" id="downloadKmzHint">
@@ -1054,10 +1049,11 @@
         }
 
         const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-        const utmCalibrationData = {
+        const calcOpts = {
           utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
           viewportBoxes: currentParseData.viewportBoxes,
           pageDimensions: currentParseData.pageDimensions,
+          distanceLabelItems: currentParseData.distanceLabelItems,
           posteRawCentroids: currentParseData.posteRawCentroids,
           ...(lastPostGps ? { lastPostGps } : {}),
         };
@@ -1067,7 +1063,7 @@
           ref1.lat,
           ref1.lon,
           currentParseData.cableSegments,
-          utmCalibrationData,
+          calcOpts,
         );
         const calcPosts = calcResult.posts;
         const calcWarnings = calcResult.warnings ?? [];
