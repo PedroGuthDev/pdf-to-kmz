@@ -87,6 +87,19 @@ Plans:
 **Goal:** Build the single-page web interface that ties PDF upload, coordinate input, customization, and KMZ download into a polished user experience
 **Mode:** mvp
 **UI hint**: yes
+**Plans:** 0/3 complete (planned 2026-05-26)
+
+Plans:
+
+**Wave 1**
+- [ ] 04-01-PLAN.md — Upload zone, drag-and-drop, staged parse progress, session reset (UI-01, UI-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 04-02-PLAN.md — Appearance panel, second-anchor expander, mergeOptions wiring (UI-03, UI-04, CUST-01–03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 04-03-PLAN.md — KMZ filename, copy pass, developer-tools toggle, human UAT (UI-02)
+
 **Success Criteria**:
 
 1. User can upload a PDF file via drag-and-drop or file picker
