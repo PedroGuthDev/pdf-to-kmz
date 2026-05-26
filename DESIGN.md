@@ -93,8 +93,6 @@ components:
 
 # Design System: PDF to KMZ
 
-<!-- SEED: derived from teach + index.html scan; refresh via /impeccable document when tokens move to shared CSS -->
-
 ## Overview
 
 **Creative North Star: "The Field Notebook"**
