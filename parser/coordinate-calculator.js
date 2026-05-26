@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-tail-anchor-utm";
+export const CALC_PIPELINE_ID = "2026-05-auxiliary-post";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -31,6 +31,8 @@ import { attachMarkerAnchors } from "./post-positioning.js";
 import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
+  refineAuxiliaryPostsPdfByLabelBracket,
+  refineGpsPastAuxiliaryPostsOnAnchorPage,
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
   refineAnchorPageByDistortionZoneBias,
@@ -987,12 +989,26 @@ export function calculateCoordinates(
         const gapCablesByPage = cableSegments?.length
           ? buildCablesByPage(cableSegments)
           : null;
-        const { map: distWithGaps, filled: gapFilled } =
+        const { map: distWithGaps, filled: gapFilled, filledKeys: gapFilledKeys } =
           fillAdjacentMissingDistances(sorted, distMap, gapCablesByPage);
         if (gapFilled > 0) {
           warnings.push(
             `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`,
           );
+        }
+        if (gapCablesByPage) {
+          const auxPdf = refineAuxiliaryPostsPdfByLabelBracket(
+            sorted,
+            distWithGaps,
+            gapCablesByPage,
+            warnings,
+            gapFilledKeys,
+          );
+          if (auxPdf) {
+            warnings.push(
+              '[label-lsq] Auxiliary off-cable post(s) repositioned along neighbor label brackets.',
+            );
+          }
         }
         const crossAug = augmentCrossPageDistances(sorted, distWithGaps);
         augDistMap = crossAug.map;
@@ -1373,9 +1389,8 @@ export function calculateCoordinates(
       { lat: startLat, lon: startLon },
       warnings,
     );
+    const anchorPage = sorted[0].pageNum;
     if (refined) {
-      const anchorPage = sorted[0].pageNum;
-      // Reproject anchor-page posts with the refined transform.
       for (const post of sorted) {
         if (post.pageNum !== anchorPage) continue;
         const transform = pageTransforms.get(post.pageNum);
@@ -1385,6 +1400,19 @@ export function calculateCoordinates(
           post.lon = lon;
         }
       }
+    }
+    const auxCablesEarly =
+      cableSegments?.length ? buildCablesByPage(cableSegments) : null;
+    if (auxCablesEarly?.size && augDistMapForSeams?.size) {
+      refineGpsPastAuxiliaryPostsOnAnchorPage(
+        pageTransforms,
+        sorted,
+        augDistMapForSeams,
+        { lat: startLat, lon: startLon },
+        auxCablesEarly,
+        postMap,
+        warnings,
+      );
     }
   }
 

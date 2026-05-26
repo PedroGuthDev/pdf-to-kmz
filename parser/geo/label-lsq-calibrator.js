@@ -1,7 +1,7 @@
 // parser/geo/label-lsq-calibrator.js
 // Approach 3: global least-squares fit of per-page UTM origins to Distância_Poste labels.
 
-import { cableArcLengthPt } from '../cable-builder.js';
+import { cableArcLengthPt, isOffRouteCablePost } from '../cable-builder.js';
 import {
   latLonToUtm,
   utmToLatLon,
@@ -623,7 +623,14 @@ export function labelDistanceRmse(transforms, sortedPosts, distMap) {
  * @param {Map<string, number>} distMap
  * @param {Map<number, Array>} [cablesByPage]
  */
-export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum, cablesByPage = null) {
+export function inferMissingSegmentMeters(
+  sorted,
+  distMap,
+  fromNum,
+  toNum,
+  cablesByPage = null,
+  postByNum = null,
+) {
   const list = [...sorted].sort((a, b) => a.number - b.number);
   const i = list.findIndex(p => p.number === toNum);
   if (i < 1 || list[i - 1].number !== fromNum) return null;
@@ -673,12 +680,20 @@ export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum, cable
     const mOut = next ? distMap.get(`${curr.number}->${next.number}`) : null;
     const neighborAvg =
       mIn > 0 && mOut > 0 ? (mIn + mOut) / 2 : null;
-    return Math.max(
+    let blended = Math.max(
       estIn,
       estOut,
       (estIn + estOut) / 2,
       neighborAvg ?? 0,
     );
+    const prevOff =
+      postByNum && isOffRouteCablePost(prev, postByNum, cablesByPage);
+    const currOff =
+      postByNum && isOffRouteCablePost(curr, postByNum, cablesByPage);
+    if (prevOff || currOff) {
+      blended = Math.max(blended, neighborAvg ?? 0);
+    }
+    return blended;
   }
   if (estOut != null) return estOut;
   if (estIn != null) return estIn;
@@ -688,7 +703,10 @@ export function inferMissingSegmentMeters(sorted, distMap, fromNum, toNum, cable
 export function fillAdjacentMissingDistances(sorted, distMap, cablesByPage = null) {
   const map = new Map(distMap);
   let filled = 0;
+  /** @type {Set<string>} */
+  const filledKeys = new Set();
   const list = [...sorted].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(list.map((p) => [p.number, p]));
 
   for (let i = 1; i < list.length; i++) {
     const prev = list[i - 1];
@@ -707,15 +725,17 @@ export function fillAdjacentMissingDistances(sorted, distMap, cablesByPage = nul
       prev.number,
       curr.number,
       cablesByPage,
+      postByNum,
     );
     if (inferred == null || inferred <= 0) continue;
 
     map.set(key, inferred);
     map.set(`${curr.number}->${prev.number}`, inferred);
+    filledKeys.add(key);
     filled++;
   }
 
-  return { map, filled };
+  return { map, filled, filledKeys };
 }
 
 export function augmentCrossPageDistances(sorted, distMap) {
@@ -1143,7 +1163,10 @@ const LABEL_BRACKET_CHORD_RATIO = 1.55;
  * @param {string[]} warnings
  * @returns {boolean}
  */
-function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings) {
+/**
+ * @param {{ relaxForAuxiliary?: boolean }} [opts]
+ */
+function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, opts = {}) {
   const mBefore =
     distMap.get(`${prev.number}->${post.number}`) ??
     distMap.get(`${post.number}->${prev.number}`);
@@ -1164,7 +1187,7 @@ function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings) {
     Math.abs(chordAfter - mAfter) >= LABEL_BRACKET_CHORD_DELTA_M ||
     ratioAfter < 1 / LABEL_BRACKET_CHORD_RATIO ||
     ratioAfter > LABEL_BRACKET_CHORD_RATIO;
-  if (!needsBefore && !needsAfter) return false;
+  if (!needsBefore && !needsAfter && !opts.relaxForAuxiliary) return false;
 
   const chainM = mBefore + mAfter;
   const frac = mBefore / chainM;
@@ -1183,8 +1206,172 @@ function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings) {
   post.x = snapX;
   post.y = snapY;
   warnings.push(
-    `[anchor-post-pdf] post ${post.number}: label bracket along ${prev.number}–${next.number} ` +
+    `[auxiliary-post-pdf] post ${post.number}: label bracket along ${prev.number}–${next.number} ` +
       `(${mBefore}+${mAfter}m → fraction ${frac.toFixed(3)}, move ${move.toFixed(0)} pt).`,
+  );
+  return true;
+}
+
+/** True when a pole sits off the main cable between numbered neighbors (tap / street branch). */
+function isAuxiliaryRoutePost(post, postByNum, cablesByPage) {
+  if (!post || !postByNum || !cablesByPage?.size) return false;
+  return isOffRouteCablePost(post, postByNum, cablesByPage);
+}
+
+/**
+ * Snap auxiliary (off-cable) poles along the label-implied fraction between route neighbors.
+ * Runs on every detail page — no hardcoded post numbers.
+ *
+ * @param {Map<number, Array>} cablesByPage
+ * @returns {boolean}
+ */
+export function refineAuxiliaryPostsPdfByLabelBracket(
+  sortedPosts,
+  distMap,
+  cablesByPage,
+  warnings,
+  filledKeys = null,
+) {
+  if (!cablesByPage?.size) return false;
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(sorted.map((p) => [p.number, p]));
+  let adjusted = false;
+
+  const byPage = new Map();
+  for (const p of sorted) {
+    if (p.pageNum == null) continue;
+    if (!byPage.has(p.pageNum)) byPage.set(p.pageNum, []);
+    byPage.get(p.pageNum).push(p);
+  }
+
+  for (const postsOnPage of byPage.values()) {
+    postsOnPage.sort((a, b) => a.number - b.number);
+    for (let i = 1; i < postsOnPage.length - 1; i++) {
+      const prev = postsOnPage[i - 1];
+      const post = postsOnPage[i];
+      const next = postsOnPage[i + 1];
+      if (post.number !== prev.number + 1 || next.number !== post.number + 1) continue;
+
+      const keyIn = `${prev.number}->${post.number}`;
+      const keyOut = `${post.number}->${next.number}`;
+      const gapFilled =
+        filledKeys?.has(keyIn) || filledKeys?.has(keyOut);
+      if (!gapFilled) continue;
+
+      if (!isAuxiliaryRoutePost(post, postByNum, cablesByPage)) continue;
+
+      if (
+        tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, {
+          relaxForAuxiliary: true,
+        })
+      ) {
+        adjusted = true;
+      }
+    }
+  }
+
+  return adjusted;
+}
+
+const GPS_PAST_AUX_MAX_DOWNSTREAM = 5;
+const GPS_PAST_AUX_MIN_GAP_M = 5;
+const GPS_PAST_AUX_PER_POST_RMSE_M = 1.25;
+
+/**
+ * After anchor refit, nudge route posts downstream of the first off-cable pole on the
+ * anchor sheet toward the label-distance forward chain (posts 5+ when post 4 is auxiliary).
+ *
+ * @param {Map<number, Array>} cablesByPage
+ * @param {Map<number, object>} postByNum
+ * @returns {boolean}
+ */
+export function refineGpsPastAuxiliaryPostsOnAnchorPage(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  cablesByPage,
+  postByNum,
+  warnings,
+) {
+  if (!cablesByPage?.size || !postByNum?.size) return false;
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const post1 = sorted[0];
+  const anchorPage = post1?.pageNum;
+  if (anchorPage == null || !transforms.has(anchorPage)) return false;
+  const tAnchor = transforms.get(anchorPage);
+  if (tAnchor.affine) return false;
+
+  const onPage = sorted.filter((p) => p.pageNum === anchorPage);
+  let firstAuxNum = null;
+  for (const p of onPage) {
+    if (isAuxiliaryRoutePost(p, postByNum, cablesByPage)) {
+      firstAuxNum = p.number;
+      break;
+    }
+  }
+  if (firstAuxNum == null) return false;
+
+  const { easting: e0, northing: n0, zone } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const forward = walkAnchorPageLabelChain(
+    onPage,
+    distMap,
+    tAnchor,
+    post1.number,
+    e0,
+    n0,
+    'forward',
+    0.68,
+  );
+  const rmseBefore = anchorPageLatLonLabelRmse(onPage, distMap);
+  const adjusted = [];
+  let downstreamNudged = 0;
+
+  for (const post of onPage) {
+    if (post.number <= firstAuxNum || post.lat == null || post.lon == null) continue;
+    if (isAuxiliaryRoutePost(post, postByNum, cablesByPage)) continue;
+    if (downstreamNudged >= GPS_PAST_AUX_MAX_DOWNSTREAM) break;
+
+    const target = forward.get(post.number);
+    if (!target) continue;
+
+    const proj = latLonToUtm(post.lat, post.lon);
+    const gap = Math.hypot(target.e - proj.easting, target.n - proj.northing);
+    if (gap < GPS_PAST_AUX_MIN_GAP_M) continue;
+
+    const snapLat = post.lat;
+    const snapLon = post.lon;
+    const alpha = Math.min(0.92, 0.55 + gap / 18);
+    const te = proj.easting + (target.e - proj.easting) * alpha;
+    const tn = proj.northing + (target.n - proj.northing) * alpha;
+    const { lat, lon } = utmToLatLon(te, tn, zone);
+    post.lat = lat;
+    post.lon = lon;
+
+    const rmseTrial = anchorPageLatLonLabelRmse(onPage, distMap);
+    if (
+      rmseBefore != null &&
+      rmseTrial != null &&
+      rmseTrial > rmseBefore + GPS_PAST_AUX_PER_POST_RMSE_M
+    ) {
+      post.lat = snapLat;
+      post.lon = snapLon;
+      continue;
+    }
+    adjusted.push(post.number);
+    downstreamNudged++;
+  }
+
+  if (adjusted.length === 0) {
+    warnings.push(
+      `[auxiliary-post-gps] Page ${anchorPage}: auxiliary #${firstAuxNum} detected but no downstream post passed RMSE/gap gate.`,
+    );
+    return false;
+  }
+  const rmseAfter = anchorPageLatLonLabelRmse(onPage, distMap);
+  warnings.push(
+    `[auxiliary-post-gps] Page ${anchorPage}: posts ${adjusted.join(', ')} nudged past auxiliary ` +
+      `#${firstAuxNum} (lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m).`,
   );
   return true;
 }
@@ -1389,9 +1576,9 @@ export function refineAnchorPageByDistortionZoneBias(
   const rmseBefore = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
   const adjustedNums = [];
   const pageLen = anchorPagePosts.length;
-  const innerLo = Math.floor(pageLen * 0.5);
+  const innerLo = Math.floor(pageLen * 0.32);
   const innerHi = Math.min(pageLen - 1, Math.floor(pageLen * 0.78));
-  const leadingCoreIdx = innerLo + 1;
+  const leadingCoreIdx = Math.floor(pageLen * 0.5) + 1;
 
   for (const s of signals) {
     if (s.index < lo || s.index > hi) continue;
