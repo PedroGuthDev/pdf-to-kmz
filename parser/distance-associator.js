@@ -4,7 +4,7 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
-import { isOffRouteCablePost } from './cable-builder.js';
+import { isOffRouteCablePost } from "./cable-builder.js";
 
 /**
  * Shortest distance from point (px,py) to segment A–B (clamped).
@@ -66,31 +66,31 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     const a = pdfPos(from);
     const b = pdfPos(to);
     const samePage =
-      from.pageNum != null &&
-      to.pageNum != null &&
-      from.pageNum === to.pageNum;
+      from.pageNum != null && to.pageNum != null && from.pageNum === to.pageNum;
     const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
     const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
 
     for (let li = 0; li < distItems.length; li++) {
       const dt = distItems[li];
-      const normalized = dt.str.trim().replace(/\s+/g, '').replace(',', '.');
+      const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
       if (!/^\d+(\.\d+)?$/.test(normalized)) continue;
 
       const labelPage = dt.pageNum ?? null;
       if (samePage && labelPage != null && labelPage !== from.pageNum) continue;
       if (crossPage && labelPage != null && labelPage !== to.pageNum) continue;
 
-      const w = typeof dt.width === 'number' && dt.width > 0 ? dt.width : 0;
+      const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
       const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
       const ly = dt.y;
 
-      let gap;
-      if (crossPage) {
-        gap = Math.hypot(lx - b.x, ly - b.y);
-      } else {
-        gap = distPointToSegment(lx, ly, a.x, a.y, b.x, b.y);
-      }
+      const gap = labelGapToSegment(
+        lx,
+        ly,
+        from,
+        to,
+        crossPage,
+        sortedPosts,
+      );
 
       const meters = parseFloat(normalized);
       let ratioPenalty = 0;
@@ -142,7 +142,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     const pair = pairs[i];
     if (pair.meters == null) {
       warnings.push(
-        `No distance label found between posts ${pair.from} and ${pair.to}`
+        `No distance label found between posts ${pair.from} and ${pair.to}`,
       );
     }
     distances.push(pair);
@@ -156,22 +156,38 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
  * @returns {number|null}
  */
 function parseDistanceMeters(str) {
-  const normalized = str.trim().replace(/\s+/g, '').replace(',', '.');
+  const normalized = str.trim().replace(/\s+/g, "").replace(",", ".");
   if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
   const meters = parseFloat(normalized);
   return Number.isFinite(meters) && meters > 0 ? meters : null;
 }
 
 /**
- * Gap from label anchor to segment (same-page); cross-page uses distance to "to" post.
+ * Gap from label anchor to segment. Same-page: distance to chord A–B.
+ * Cross-page: label is on the incoming sheet (to.pageNum) but "to" may be far along
+ * the route (wrong pole assignment); score by nearest post on that sheet.
+ *
+ * @param {Array} [allPosts] Sorted posts (for cross-page nearest-on-sheet).
  */
-function labelGapToSegment(lx, ly, from, to, crossPage) {
+function labelGapToSegment(lx, ly, from, to, crossPage, allPosts = []) {
   const ax = from.anchorX ?? from.x;
   const ay = from.anchorY ?? from.y;
   const bx = to.anchorX ?? to.x;
   const by = to.anchorY ?? to.y;
-  if (crossPage) return Math.hypot(lx - bx, ly - by);
-  return distPointToSegment(lx, ly, ax, ay, bx, by);
+  if (!crossPage) return distPointToSegment(lx, ly, ax, ay, bx, by);
+
+  const incomingPage = to.pageNum;
+  if (incomingPage == null || !allPosts?.length) {
+    return Math.hypot(lx - bx, ly - by);
+  }
+  let gap = Infinity;
+  for (const p of allPosts) {
+    if ((p.pageNum ?? 1) !== incomingPage) continue;
+    const px = p.anchorX ?? p.x;
+    const py = p.anchorY ?? p.y;
+    gap = Math.min(gap, Math.hypot(lx - px, ly - py));
+  }
+  return gap === Infinity ? Math.hypot(lx - bx, ly - by) : gap;
 }
 
 /**
@@ -213,7 +229,7 @@ export function supplementDistancesBesideAuxiliaryPosts(
     if (meters == null) continue;
 
     const labelPage = dt.pageNum ?? null;
-    const w = typeof dt.width === 'number' && dt.width > 0 ? dt.width : 0;
+    const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
     const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
     const ly = dt.y;
 
@@ -230,7 +246,7 @@ export function supplementDistancesBesideAuxiliaryPosts(
       if (samePage && labelPage != null && labelPage !== from.pageNum) continue;
       if (crossPage && labelPage != null && labelPage !== to.pageNum) continue;
 
-      const gap = labelGapToSegment(lx, ly, from, to, crossPage);
+      const gap = labelGapToSegment(lx, ly, from, to, crossPage, sorted);
       if (gap < bestGap) {
         bestGap = gap;
         bestIdx = i;
@@ -248,7 +264,11 @@ export function supplementDistancesBesideAuxiliaryPosts(
     const to = sorted[i + 1];
     const key = `${from.number}->${to.number}`;
     if (map.get(key) > 0) continue;
-    if (from.pageNum == null || to.pageNum == null || from.pageNum !== to.pageNum) {
+    if (
+      from.pageNum == null ||
+      to.pageNum == null ||
+      from.pageNum !== to.pageNum
+    ) {
       continue;
     }
 
@@ -261,7 +281,7 @@ export function supplementDistancesBesideAuxiliaryPosts(
     for (const hit of labelHits) {
       if (usedLabel.has(hit.li)) continue;
 
-      const gapToSeg = labelGapToSegment(hit.lx, hit.ly, from, to, false);
+      const gapToSeg = labelGapToSegment(hit.lx, hit.ly, from, to, false, sorted);
       if (gapToSeg > GAP_PT) continue;
 
       let nearestAssignedGap = Infinity;
@@ -270,7 +290,7 @@ export function supplementDistancesBesideAuxiliaryPosts(
         const tj = sorted[j + 1];
         const kj = `${fj.number}->${tj.number}`;
         if (!(map.get(kj) > 0)) continue;
-        const g = labelGapToSegment(hit.lx, hit.ly, fj, tj, false);
+        const g = labelGapToSegment(hit.lx, hit.ly, fj, tj, false, sorted);
         nearestAssignedGap = Math.min(nearestAssignedGap, g);
       }
       if (nearestAssignedGap < gapToSeg * 0.88) continue;

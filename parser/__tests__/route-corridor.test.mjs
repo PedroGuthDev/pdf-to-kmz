@@ -2,7 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   chordSideSign,
+  gpsChordSide,
   reflectGpsAcrossChord,
+  refineGpsAtSheetBreakCorridor,
   refineGpsToPdfRouteCorridor,
 } from "../geo/route-corridor.js";
 
@@ -48,5 +50,42 @@ describe("route-corridor", () => {
   it("chordSideSign returns 0 on segment", () => {
     assert.equal(chordSideSign(0, 0, 10, 0, 5, 0), 0);
     assert.equal(chordSideSign(0, 0, 10, 0, 5, 2), 1);
+  });
+
+  it("refineGpsAtSheetBreakCorridor flips incoming page when GPS mirrors at break", () => {
+    const cablesByPage = new Map([
+      [
+        4,
+        [
+          [
+            { op: "m", x: 0, y: 0 },
+            { op: "l", x: 200, y: 0 },
+          ],
+        ],
+      ],
+      [
+        5,
+        [
+          [
+            { op: "m", x: 0, y: 0 },
+            { op: "l", x: 200, y: 0 },
+          ],
+        ],
+      ],
+    ]);
+    const posts = [
+      { number: 24, pageNum: 4, x: 100, y: 10, lat: -27.64, lon: -48.656 },
+      { number: 25, pageNum: 4, x: 120, y: 10, lat: -27.6401, lon: -48.6558 },
+      { number: 26, pageNum: 5, x: 140, y: 10, lat: -27.6399, lon: -48.6556 },
+      { number: 27, pageNum: 5, x: 160, y: 10, lat: -27.6403, lon: -48.6554 },
+    ];
+    // GPS mirrored across chord while PDF stays same side of cable (y=10)
+    posts[2].lat = -27.6415;
+    const w = [];
+    const n = refineGpsAtSheetBreakCorridor(posts, cablesByPage, () => false, w);
+    assert.ok(n >= 2);
+    const a = { lat: posts[0].lat, lon: posts[0].lon };
+    const b = { lat: posts[3].lat, lon: posts[3].lon };
+    assert.equal(gpsChordSide(a, b, { lat: posts[1].lat, lon: posts[1].lon }), gpsChordSide(a, b, { lat: posts[2].lat, lon: posts[2].lon }));
   });
 });

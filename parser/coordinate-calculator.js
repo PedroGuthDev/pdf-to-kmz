@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-route-corridor";
+export const CALC_PIPELINE_ID = "2026-05-page5-label-break";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -43,7 +43,10 @@ import {
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
 import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
-import { refineGpsToPdfRouteCorridor } from "./geo/route-corridor.js";
+import {
+  refineGpsAtSheetBreakCorridor,
+  refineGpsToPdfRouteCorridor,
+} from "./geo/route-corridor.js";
 import {
   buildOverviewCompositeTransform,
   remapPostsToOverviewViaUtm,
@@ -507,12 +510,48 @@ function applyDistanceLabelGpsChain(
       sorted[0].lat = startLat;
       sorted[0].lon = startLon;
     } else {
-      const anchor = utm[startIdx];
-      if (anchor.lat == null) continue;
-      lat = anchor.lat;
-      lon = anchor.lon;
-      sorted[startIdx].lat = lat;
-      sorted[startIdx].lon = lon;
+      const prev = sorted[startIdx - 1];
+      const first = sorted[startIdx];
+      const crossBreak =
+        prev.pageNum != null &&
+        first.pageNum != null &&
+        prev.pageNum !== first.pageNum;
+      const mBreak =
+        crossBreak &&
+        (distMap.get(`${prev.number}->${first.number}`) ??
+          distMap.get(`${first.number}->${prev.number}`));
+      if (
+        crossBreak &&
+        mBreak != null &&
+        mBreak > 0 &&
+        utm[startIdx - 1].lat != null &&
+        utm[startIdx - 1].lon != null
+      ) {
+        const bearing = bearingAtSheetBreakEntry(
+          sorted,
+          startIdx,
+          cablesByPage,
+        );
+        const dest = destinationPoint(
+          utm[startIdx - 1].lat,
+          utm[startIdx - 1].lon,
+          bearing,
+          mBreak,
+        );
+        lat = dest.lat;
+        lon = dest.lon;
+        sorted[startIdx].lat = lat;
+        sorted[startIdx].lon = lon;
+        utm[startIdx] = { lat, lon };
+        applied++;
+      } else {
+        const anchor = utm[startIdx];
+        if (anchor.lat == null) continue;
+        lat = anchor.lat;
+        lon = anchor.lon;
+        sorted[startIdx].lat = lat;
+        sorted[startIdx].lon = lon;
+      }
     }
 
     for (let i = startIdx + 1; i <= endIdx; i++) {
@@ -562,6 +601,34 @@ function applyDistanceLabelGpsChain(
   }
 
   return labeled >= 3 && applied >= 3;
+}
+
+/**
+ * Bearing along the route when entering a new detail sheet (exit direction on previous page).
+ *
+ * @param {Array} sorted
+ * @param {number} startIdx first post index on the incoming page
+ * @param {Map<number, Array>} [cablesByPage]
+ */
+function bearingAtSheetBreakEntry(sorted, startIdx, cablesByPage) {
+  const prev = sorted[startIdx - 1];
+  const first = sorted[startIdx];
+  if (cablesByPage) {
+    const exit = cableExitBearingAtPost(prev, cablesByPage);
+    if (exit != null) return exit;
+  }
+  const prevPrev = startIdx >= 2 ? sorted[startIdx - 2] : null;
+  if (
+    prevPrev &&
+    prevPrev.pageNum === prev.pageNum &&
+    prevPrev.lat != null &&
+    prev.lat != null
+  ) {
+    return gpsBearing(prevPrev.lat, prevPrev.lon, prev.lat, prev.lon);
+  }
+  const dx = first.x - prev.x;
+  const dy = first.y - prev.y;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
 }
 
 /**
@@ -1414,21 +1481,33 @@ export function calculateCoordinates(
         "[coordinate-calculator] GPS refined along route using Distância_Poste segment lengths " +
           "(bearings from Cabo Projetado where available; post #1 anchor unchanged).",
       );
-      if (!tailAnchorUtmRestore) {
-        const relockedPages = lockSheetBreaksFromChainedGps(
-          pageTransforms,
-          sorted,
-          augDistMapForSeams,
-          warnings,
-        );
-        for (const post of sorted) {
-          if (!relockedPages.has(post.pageNum)) continue;
-          const transform = pageTransforms.get(post.pageNum);
-          if (transform) {
-            const { lat, lon } = projectPost(post.x, post.y, transform);
-            post.lat = lat;
-            post.lon = lon;
-          }
+    }
+    const hasSheetBreakDist =
+      multiSheetRoute &&
+      sorted.some((p, i) => {
+        if (i === 0) return false;
+        const prev = sorted[i - 1];
+        if (prev.pageNum == null || p.pageNum == null || prev.pageNum === p.pageNum)
+          return false;
+        const m =
+          augDistMapForSeams.get(`${prev.number}->${p.number}`) ??
+          augDistMapForSeams.get(`${p.number}->${prev.number}`);
+        return m != null && m > 0;
+      });
+    if ((chained || hasSheetBreakDist) && !tailAnchorUtmRestore) {
+      const relockedPages = lockSheetBreaksFromChainedGps(
+        pageTransforms,
+        sorted,
+        augDistMapForSeams,
+        warnings,
+      );
+      for (const post of sorted) {
+        if (!relockedPages.has(post.pageNum)) continue;
+        const transform = pageTransforms.get(post.pageNum);
+        if (transform) {
+          const { lat, lon } = projectPost(post.x, post.y, transform);
+          post.lat = lat;
+          post.lon = lon;
         }
       }
     }
@@ -1524,21 +1603,27 @@ export function calculateCoordinates(
     );
   }
 
-  // ── Route corridor (multi-sheet): PDF pole side vs GPS chord side ─────────
+  // ── Route corridor (multi-sheet): sheet breaks + per-post PDF vs GPS side ─
   if (multiSheetRoute && sorted.some((p) => p.lat != null)) {
     const auxCablesForCorridor = cableSegments?.length
       ? buildCablesByPage(cableSegments)
       : null;
-    const corridorFixed = refineGpsToPdfRouteCorridor(
-      sorted,
-      (post) =>
-        auxCablesForCorridor != null &&
-        isOffRouteCablePost(post, postMap, auxCablesForCorridor),
-      warnings,
-    );
+    const skipAux = (post) =>
+      auxCablesForCorridor != null &&
+      isOffRouteCablePost(post, postMap, auxCablesForCorridor);
+    let corridorFixed = 0;
+    if (auxCablesForCorridor) {
+      corridorFixed += refineGpsAtSheetBreakCorridor(
+        sorted,
+        auxCablesForCorridor,
+        skipAux,
+        warnings,
+      );
+    }
+    corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings);
     if (corridorFixed > 0) {
       warnings.push(
-        `[route-corridor] Adjusted ${corridorFixed} post(s) to match plan corridor (neighbor chord).`,
+        `[route-corridor] Adjusted ${corridorFixed} post GPS position(s) to match plan corridor.`,
       );
     }
   }
