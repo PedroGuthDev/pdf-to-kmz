@@ -19,6 +19,9 @@ export const PRESET_COLORS = {
   white: '#ffffff',
   yellow: '#ffff00',
   black: '#000000',
+  amber: '#ffaa00',
+  aqua: '#55ffff',
+  moss: '#55aa00',
 };
 
 const PRESET_FALLBACKS = {
