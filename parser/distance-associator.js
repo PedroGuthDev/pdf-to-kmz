@@ -105,7 +105,16 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
         const pdfM = pdfPt * detailSf;
         const ratio = pdfM / meters;
-        if (ratio < 0.35 || ratio > 2.5) continue;
+        const gapPt = labelGapToSegment(
+          lx,
+          ly,
+          from,
+          to,
+          false,
+          sortedPosts,
+        );
+        const labelOnChord = gapPt < 55;
+        if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) continue;
         ratioPenalty = 35 * Math.abs(Math.log(ratio));
       }
 
@@ -164,30 +173,22 @@ function parseDistanceMeters(str) {
 
 /**
  * Gap from label anchor to segment. Same-page: distance to chord A–B.
- * Cross-page: label is on the incoming sheet (to.pageNum) but "to" may be far along
- * the route (wrong pole assignment); score by nearest post on that sheet.
+ * Cross-page: label is on the incoming sheet; use chord A–B and distance to the
+ * incoming post only (not every post on that sheet — avoids stealing labels drawn
+ * between 24–25 on a later sheet from the 14→15 break).
  *
- * @param {Array} [allPosts] Sorted posts (for cross-page nearest-on-sheet).
+ * @param {Array} [allPosts] Reserved for tests; unused after cross-page scoring fix.
  */
 function labelGapToSegment(lx, ly, from, to, crossPage, allPosts = []) {
   const ax = from.anchorX ?? from.x;
   const ay = from.anchorY ?? from.y;
   const bx = to.anchorX ?? to.x;
   const by = to.anchorY ?? to.y;
-  if (!crossPage) return distPointToSegment(lx, ly, ax, ay, bx, by);
+  const chordGap = distPointToSegment(lx, ly, ax, ay, bx, by);
+  if (!crossPage) return chordGap;
 
-  const incomingPage = to.pageNum;
-  if (incomingPage == null || !allPosts?.length) {
-    return Math.hypot(lx - bx, ly - by);
-  }
-  let gap = Infinity;
-  for (const p of allPosts) {
-    if ((p.pageNum ?? 1) !== incomingPage) continue;
-    const px = p.anchorX ?? p.x;
-    const py = p.anchorY ?? p.y;
-    gap = Math.min(gap, Math.hypot(lx - px, ly - py));
-  }
-  return gap === Infinity ? Math.hypot(lx - bx, ly - by) : gap;
+  const toGap = Math.hypot(lx - bx, ly - by);
+  return Math.min(chordGap, toGap);
 }
 
 /**

@@ -652,11 +652,18 @@ export function inferMissingSegmentMeters(
   let pdfIn = null;
   let pdfOut = null;
 
-  if (next && (next.pageNum ?? null) === (curr.pageNum ?? null)) {
-    const mOut = distMap.get(`${curr.number}->${next.number}`);
+  if (next) {
+    const mOut =
+      distMap.get(`${curr.number}->${next.number}`) ??
+      distMap.get(`${next.number}->${curr.number}`);
     if (mOut > 0) {
-      pdfOut = pdfSpanPt(curr, next, cablesByPage);
-      if (pdfOut > 1e-6) estOut = mOut * (pdfMid / pdfOut);
+      if ((next.pageNum ?? null) === (curr.pageNum ?? null)) {
+        pdfOut = pdfSpanPt(curr, next, cablesByPage);
+        if (pdfOut > 1e-6) estOut = mOut * (pdfMid / pdfOut);
+      } else if (pdfEuc > 1e-6 && pdfMid / pdfEuc > 1.15) {
+        // Sheet corner: posts drawn close but cross-page label gives true span (24→25 / 25→26).
+        estOut = mOut;
+      }
     }
   }
   if (prevPrev && (prevPrev.pageNum ?? null) === (prev.pageNum ?? null)) {
