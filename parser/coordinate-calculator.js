@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-corridor-gate";
+export const CALC_PIPELINE_ID = "2026-05-corridor-clamp-8m";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -44,6 +44,7 @@ import {
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
 import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
 import {
+  clampGpsToRouteCableCorridor,
   refineGpsAtSheetBreakCorridor,
   refineGpsToPdfRouteCorridor,
 } from "./geo/route-corridor.js";
@@ -1626,6 +1627,16 @@ export function calculateCoordinates(
       );
     }
     corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings);
+    if (auxCablesForCorridor && pageTransforms.size > 0) {
+      corridorFixed += clampGpsToRouteCableCorridor(
+        sorted,
+        auxCablesForCorridor,
+        pageTransforms,
+        skipAux,
+        warnings,
+        { distMap: augDistMapForSeams },
+      );
+    }
     if (corridorFixed > 0) {
       warnings.push(
         `[route-corridor] Adjusted ${corridorFixed} post GPS position(s) to match plan corridor.`,

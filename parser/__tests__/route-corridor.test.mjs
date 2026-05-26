@@ -2,7 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   chordSideSign,
+  clampGpsToRouteCableCorridor,
   gpsChordSide,
+  lateralMetersChord,
   reflectGpsAcrossChord,
   refineGpsAtSheetBreakCorridor,
   refineGpsToPdfRouteCorridor,
@@ -58,8 +60,8 @@ describe("route-corridor", () => {
         4,
         [
           [
-            { op: "m", x: 0, y: 0 },
-            { op: "l", x: 200, y: 0 },
+            { type: "M", x: 0, y: 0 },
+            { type: "L", x: 200, y: 0 },
           ],
         ],
       ],
@@ -67,25 +69,65 @@ describe("route-corridor", () => {
         5,
         [
           [
-            { op: "m", x: 0, y: 0 },
-            { op: "l", x: 200, y: 0 },
+            { type: "M", x: 0, y: 0 },
+            { type: "L", x: 200, y: 0 },
           ],
         ],
       ],
     ]);
     const posts = [
       { number: 24, pageNum: 4, x: 100, y: 10, lat: -27.64, lon: -48.656 },
-      { number: 25, pageNum: 4, x: 120, y: 10, lat: -27.6401, lon: -48.6558 },
+      { number: 25, pageNum: 4, x: 120, y: 10, lat: -27.6401, lon: -48.6555 },
       { number: 26, pageNum: 5, x: 140, y: 10, lat: -27.6399, lon: -48.6556 },
       { number: 27, pageNum: 5, x: 160, y: 10, lat: -27.6403, lon: -48.6554 },
     ];
-    // GPS mirrored across chord while PDF stays same side of cable (y=10)
-    posts[2].lat = -27.6415;
+    // GPS on opposite side of 24–27 chord on page 5 while PDF stays same cable side (y=10)
+    posts[2].lat = -27.642;
+    posts[2].lon = -48.6565;
     const w = [];
     const n = refineGpsAtSheetBreakCorridor(posts, cablesByPage, () => false, w);
     assert.ok(n >= 2);
     const a = { lat: posts[0].lat, lon: posts[0].lon };
     const b = { lat: posts[3].lat, lon: posts[3].lon };
     assert.equal(gpsChordSide(a, b, { lat: posts[1].lat, lon: posts[1].lon }), gpsChordSide(a, b, { lat: posts[2].lat, lon: posts[2].lon }));
+  });
+
+  it("clampGpsToRouteCableCorridor shrinks lateral offset beyond 8 m", () => {
+    const cablesByPage = new Map();
+    const pageTransforms = new Map([
+      [
+        1,
+        {
+          origin_e: 500000,
+          origin_n: 6940000,
+          x_scale_sf: 0.05,
+          y_scale_sf: 0.05,
+          zone: 22,
+          theta: 0,
+        },
+      ],
+    ]);
+    const posts = [
+      { number: 1, pageNum: 1, x: 0, y: 0, lat: -27.64, lon: -48.656 },
+      { number: 2, pageNum: 1, x: 100, y: 0, lat: -27.639, lon: -48.662 },
+      { number: 3, pageNum: 1, x: 200, y: 0, lat: -27.638, lon: -48.654 },
+    ];
+    const w = [];
+    const n = clampGpsToRouteCableCorridor(
+      posts,
+      cablesByPage,
+      pageTransforms,
+      () => false,
+      w,
+      { maxLateralM: 8 },
+    );
+    assert.equal(n, 1);
+    const lateral = lateralMetersChord(
+      { lat: posts[0].lat, lon: posts[0].lon },
+      { lat: posts[2].lat, lon: posts[2].lon },
+      { lat: posts[1].lat, lon: posts[1].lon },
+    );
+    assert.ok(lateral <= 8.5);
+    assert.match(w[0], /lateral clamp/);
   });
 });

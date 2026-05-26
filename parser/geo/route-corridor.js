@@ -3,10 +3,15 @@
  * Fixes KMZ cable zig-zags when arc/label placement flips a post across the street.
  */
 
-import { nearestCableHitOnPage } from "../cable-builder.js";
-import { haversineMeters } from "./utm-calibrator.js";
+import {
+  nearestCableHitOnPage,
+  OFF_CABLE_FOR_LABEL_CHAIN_PT,
+} from "../cable-builder.js";
+import { haversineMeters, projectPost } from "./utm-calibrator.js";
 
 const MIN_CORRIDOR_LATERAL_M = 0.75;
+export const DEFAULT_ROUTE_CORRIDOR_CLAMP_M = 8;
+const CLAMP_RMSE_TOLERANCE_M = 1.25;
 const MIN_SIDE_PDF_PT = 2;
 const MIN_SIDE_GPS_M = 0.15;
 const MIN_CABLE_OFFSET_PT = 3;
@@ -243,6 +248,157 @@ export function refineGpsToPdfRouteCorridor(sorted, skipPost = () => false, warn
     warnings.push(
       `[route-corridor] post ${curr.number}: reflected GPS across ${prev.number}–${next.number} chord ` +
         `(PDF vs GPS corridor side mismatch, ${latM.toFixed(1)} m off chord).`,
+    );
+  }
+  return fixed;
+}
+
+/**
+ * @param {{ lat: number, lon: number }} origin  corridor anchor
+ * @param {{ lat: number, lon: number }} gps
+ * @param {number} maxM
+ */
+function shrinkGpsLateralToMax(origin, gps, maxM) {
+  const d = haversineMeters(origin.lat, origin.lon, gps.lat, gps.lon);
+  if (d <= maxM) return gps;
+  if (d < 1e-6) return { lat: origin.lat, lon: origin.lon };
+  const t = maxM / d;
+  return {
+    lat: origin.lat + t * (gps.lat - origin.lat),
+    lon: origin.lon + t * (gps.lon - origin.lon),
+  };
+}
+
+/**
+ * @param {{ lat: number, lon: number }} a
+ * @param {{ lat: number, lon: number }} b
+ * @param {{ lat: number, lon: number }} p
+ */
+function footOnChord(a, b, p) {
+  const midLat = (a.lat + b.lat) / 2;
+  const cosLat = Math.cos((midLat * Math.PI) / 180);
+  const origin = a;
+  const bm = toLocalMeters(origin, b, cosLat);
+  const pm = toLocalMeters(origin, p, cosLat);
+  const len2 = bm.x * bm.x + bm.y * bm.y;
+  if (len2 < 0.01) return { lat: p.lat, lon: p.lon };
+  const t = Math.max(0, Math.min(1, (pm.x * bm.x + pm.y * bm.y) / len2));
+  return {
+    lat: origin.lat + (t * bm.y) / 110540,
+    lon: origin.lon + (t * bm.x) / (111320 * cosLat),
+  };
+}
+
+/**
+ * @param {{ number: number, lat?: number|null, lon?: number|null }} post
+ * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} sorted
+ * @param {Map<string, number>} distMap
+ */
+function worstAdjacentSpanError(post, sorted, distMap) {
+  if (!distMap?.size) return null;
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  let worst = 0;
+  let any = false;
+  for (const other of [post.number - 1, post.number + 1]) {
+    const label =
+      distMap.get(`${post.number}->${other}`) ??
+      distMap.get(`${other}->${post.number}`);
+    if (label == null || label <= 0) continue;
+    const a = byNum.get(Math.min(post.number, other));
+    const b = byNum.get(Math.max(post.number, other));
+    if (!a?.lat || !b?.lat) continue;
+    any = true;
+    worst = Math.max(
+      worst,
+      Math.abs(haversineMeters(a.lat, a.lon, b.lat, b.lon) - label),
+    );
+  }
+  return any ? worst : null;
+}
+
+/**
+ * Pull GPS toward Cabo Projetado (and, when needed, the neighbor chord) when lateral
+ * offset exceeds maxLateralM. Translation along lateral only; span RMSE-gated per post.
+ *
+ * @returns {number} posts adjusted
+ */
+export function clampGpsToRouteCableCorridor(
+  sorted,
+  cablesByPage,
+  pageTransforms,
+  skipPost = () => false,
+  warnings = [],
+  opts = {},
+) {
+  if (!pageTransforms?.size) return 0;
+  const maxM = opts.maxLateralM ?? DEFAULT_ROUTE_CORRIDOR_CLAMP_M;
+  const distMap = opts.distMap ?? null;
+  const list = [...sorted].sort((a, b) => a.number - b.number);
+  const byNum = new Map(list.map((p) => [p.number, p]));
+  let fixed = 0;
+
+  for (const post of list) {
+    if (post.lat == null || post.lon == null) continue;
+    if (skipPost(post)) continue;
+
+    const gCurr = { lat: post.lat, lon: post.lon };
+    let anchor = null;
+    let lateral = 0;
+
+    const pg = post.pageNum ?? 1;
+    const transform = pageTransforms.get(pg);
+    if (transform && cablesByPage?.size) {
+      const hit = nearestCableHitOnPage(post.x, post.y, pg, cablesByPage);
+      if (Number.isFinite(hit.d) && hit.d <= OFF_CABLE_FOR_LABEL_CHAIN_PT) {
+        const corridor = projectPost(hit.x, hit.y, transform);
+        const d = haversineMeters(gCurr.lat, gCurr.lon, corridor.lat, corridor.lon);
+        if (d > lateral) {
+          lateral = d;
+          anchor = corridor;
+        }
+      }
+    }
+
+    const prev = byNum.get(post.number - 1);
+    const next = byNum.get(post.number + 1);
+    if (
+      prev?.lat != null &&
+      next?.lat != null &&
+      (prev.pageNum ?? 1) === pg &&
+      (next.pageNum ?? 1) === pg
+    ) {
+      const gPrev = { lat: prev.lat, lon: prev.lon };
+      const gNext = { lat: next.lat, lon: next.lon };
+      const foot = footOnChord(gPrev, gNext, gCurr);
+      const d = haversineMeters(gCurr.lat, gCurr.lon, foot.lat, foot.lon);
+      if (d > lateral) {
+        lateral = d;
+        anchor = foot;
+      }
+    }
+
+    if (!anchor || lateral <= maxM) continue;
+
+    const trial = shrinkGpsLateralToMax(anchor, gCurr, maxM);
+    const spanBefore = worstAdjacentSpanError(post, list, distMap);
+    const saved = { lat: post.lat, lon: post.lon };
+    post.lat = trial.lat;
+    post.lon = trial.lon;
+    const spanAfter = worstAdjacentSpanError(post, list, distMap);
+    if (
+      spanBefore != null &&
+      spanAfter != null &&
+      spanAfter > spanBefore + CLAMP_RMSE_TOLERANCE_M
+    ) {
+      post.lat = saved.lat;
+      post.lon = saved.lon;
+      continue;
+    }
+
+    fixed++;
+    warnings.push(
+      `[route-corridor] post ${post.number}: lateral clamp ${lateral.toFixed(1)} m → ${maxM} m ` +
+        `(route corridor).`,
     );
   }
   return fixed;
