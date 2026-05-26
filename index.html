@@ -46,6 +46,8 @@
       @media (prefers-reduced-motion: reduce) {
         * {
           transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
         }
       }
 
@@ -64,6 +66,12 @@
         background: var(--canvas);
       }
 
+      @media (max-width: 480px) {
+        body {
+          padding: var(--space-lg) var(--space-md);
+        }
+      }
+
       h1 {
         font-size: 1.75rem;
         font-weight: 600;
@@ -79,6 +87,12 @@
 
       h2:first-child {
         margin-top: 0;
+      }
+
+      h3 {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin: var(--space-lg) 0 var(--space-xs);
       }
 
       .lede {
@@ -103,6 +117,12 @@
         border: 1px solid var(--border-strong);
         border-radius: var(--radius-sm);
         padding: 10px 12px;
+      }
+
+      input[type="text"],
+      textarea,
+      select {
+        width: 100%;
       }
 
       input[type="file"] {
@@ -253,6 +273,7 @@
         padding: var(--space-lg);
         background: var(--surface-step);
         border: 1px solid var(--border);
+        border-radius: var(--radius-md);
       }
 
       #coordForm p {
@@ -381,6 +402,20 @@
         margin-top: var(--space-sm);
       }
 
+      .section-gap {
+        margin-top: var(--space-xl);
+      }
+
+      .muted {
+        color: var(--ink-muted);
+      }
+
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        line-height: 1.5;
+      }
+
       .page-footer {
         margin-top: var(--space-xl);
         padding-top: var(--space-md);
@@ -431,7 +466,7 @@
       </div>
     </section>
 
-    <div id="status"></div>
+    <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="summary" class="panel">
       <strong>Parse results:</strong>
@@ -479,11 +514,21 @@
       <h3>KMZ appearance</h3>
       <div class="appearance-group" id="appearanceIconColor">
         <label>Post icon color</label>
-        <div class="swatch-row" data-target="iconColor"></div>
+        <div
+          class="swatch-row"
+          data-target="iconColor"
+          role="radiogroup"
+          aria-label="Post icon color"
+        ></div>
       </div>
       <div class="appearance-group" id="appearanceLineColor">
         <label>Route line color</label>
-        <div class="swatch-row" data-target="lineColor"></div>
+        <div
+          class="swatch-row"
+          data-target="lineColor"
+          role="radiogroup"
+          aria-label="Route line color"
+        ></div>
       </div>
       <div class="appearance-group">
         <label for="lineWidthSelect">Line width</label>
@@ -491,7 +536,12 @@
       </div>
       <div class="appearance-group" id="appearanceLabelColor">
         <label>Label color</label>
-        <div class="swatch-row" data-target="labelColor"></div>
+        <div
+          class="swatch-row"
+          data-target="labelColor"
+          role="radiogroup"
+          aria-label="Label color"
+        ></div>
       </div>
       <div class="appearance-group">
         <label for="labelScaleSelect">Label scale</label>
@@ -522,7 +572,7 @@
       <div id="coordWarning"></div>
     </section>
 
-    <section id="resultSection" style="display: none; margin-top: 32px">
+    <section id="resultSection" class="section-gap" style="display: none">
       <h2>Step 3: Output</h2>
       <p>Preview of calculated posts (up to first 10):</p>
       <pre id="outputPreview"></pre>
@@ -532,7 +582,7 @@
           type="text"
           id="kmzFilenameInput"
           placeholder="Uses PDF name if empty"
-          style="width: 100%; margin-bottom: var(--space-sm)"
+          style="margin-bottom: var(--space-sm)"
         />
         <button type="button" id="downloadKmzBtn" class="btn-primary" disabled>
           Download KMZ
@@ -548,12 +598,12 @@
       </div>
     </section>
 
-    <section id="debugSection" style="display: none; margin-top: 32px">
+    <section id="debugSection" class="section-gap" style="display: none">
       <h2>Debug: Calibration Data</h2>
       <pre id="debugOutput"></pre>
     </section>
 
-    <section id="refCompareSection" style="display: none; margin-top: 32px">
+    <section id="refCompareSection" class="section-gap" style="display: none">
       <h2>Comparison vs Reference (coordenadas postes.txt)</h2>
       <p class="hint">
         Enter reference coordinates below (one per line: "num; lat, lon") to
@@ -882,6 +932,27 @@
           if (w === DEFAULT_OPTIONS.lineWidth) opt.selected = true;
           lineWidthSelect.appendChild(opt);
         }
+
+        function refreshSwatchTabStops(row) {
+          const radios = Array.from(row.querySelectorAll(".swatch"));
+          const activeIndex = Math.max(
+            0,
+            radios.findIndex((b) => b.getAttribute("aria-checked") === "true"),
+          );
+          radios.forEach((b, idx) => {
+            b.tabIndex = idx === activeIndex ? 0 : -1;
+          });
+        }
+
+        function selectSwatch(row, btn) {
+          for (const s of row.querySelectorAll(".swatch")) {
+            s.setAttribute("aria-checked", "false");
+          }
+          btn.setAttribute("aria-checked", "true");
+          refreshSwatchTabStops(row);
+          btn.focus();
+        }
+
         for (const row of document.querySelectorAll(".swatch-row")) {
           const target = row.dataset.target;
           for (const [key, hex] of Object.entries(PRESET_COLORS)) {
@@ -892,19 +963,38 @@
             btn.dataset.target = target;
             btn.style.backgroundColor = hex;
             btn.title = key;
+            btn.setAttribute("role", "radio");
             btn.setAttribute(
               "aria-checked",
               key === DEFAULT_OPTIONS[target] ? "true" : "false",
             );
             btn.addEventListener("click", () => {
               if (btn.disabled) return;
-              for (const s of row.querySelectorAll(".swatch")) {
-                s.setAttribute("aria-checked", "false");
+              selectSwatch(row, btn);
+            });
+            btn.addEventListener("keydown", (e) => {
+              const key = e.key;
+              if (
+                key !== "ArrowLeft" &&
+                key !== "ArrowRight" &&
+                key !== "ArrowUp" &&
+                key !== "ArrowDown"
+              ) {
+                return;
               }
-              btn.setAttribute("aria-checked", "true");
+              e.preventDefault();
+              const radios = Array.from(row.querySelectorAll(".swatch"));
+              const currentIndex = Math.max(0, radios.indexOf(btn));
+              const dir =
+                key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
+              const nextIndex =
+                (currentIndex + dir + radios.length) % radios.length;
+              const next = radios[nextIndex];
+              if (next) selectSwatch(row, next);
             });
             row.appendChild(btn);
           }
+          refreshSwatchTabStops(row);
         }
       }
 
@@ -1186,6 +1276,9 @@
           const li = document.createElement("li");
           li.textContent = "[calc] " + w;
           document.getElementById("warningsList").appendChild(li);
+        }
+        if (calcWarnings.length) {
+          warningsEl.style.display = "block";
         }
 
         // Debug: dump post transforms and projected coords
