@@ -10,6 +10,7 @@ import {
 import {
   destinationPoint,
   lockPageOriginAtGps,
+  projectPost,
   utmFromPdfPoint,
   utmToLatLon,
 } from './utm-calibrator.js';
@@ -305,6 +306,193 @@ export function adjustPageOriginsByCableSimilarity(
 }
 
 /**
+ * Cabo Projetado endpoint on a detail sheet (entry = low-X end, exit = high-X end).
+ *
+ * @param {number} pageNum
+ * @param {'entry'|'exit'} edge
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} sortedPosts
+ * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>} cablesByPage
+ * @returns {{ x: number, y: number }|null}
+ */
+export function routeCableSheetEdgePoint(pageNum, edge, sortedPosts, cablesByPage) {
+  const onPage = sortedPosts.filter((p) => (p.pageNum ?? 1) === pageNum);
+  if (!onPage.length || !cablesByPage?.size) return null;
+
+  const refPost = onPage.reduce((a, b) =>
+    edge === 'entry'
+      ? a.number < b.number
+        ? a
+        : b
+      : a.number > b.number
+        ? a
+        : b,
+  );
+  const ops = selectRouteCableOps(pageNum, cablesByPage, refPost.x, refPost.y);
+  if (!ops?.length) return null;
+
+  const total = pathTotalArcLength(ops);
+  const p0 = pointAtArcLength(ops, 0);
+  const p1 = pointAtArcLength(ops, total);
+  if (!p0 || !p1) return null;
+
+  if (edge === 'entry') {
+    return p0.x <= p1.x ? p0 : p1;
+  }
+  return p0.x >= p1.x ? p0 : p1;
+}
+
+/**
+ * Bearing along the route cable on a page, using post number order on that sheet.
+ *
+ * @param {number} pageNum
+ * @param {{ x: number, y: number }} pt
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} sortedPosts
+ * @param {Map<number, Array<Array<import('../construct-path-parser.js').PathOp>>>} cablesByPage
+ * @returns {number|null}
+ */
+export function cableBearingAlongRouteOnPage(pageNum, pt, sortedPosts, cablesByPage) {
+  const onPage = sortedPosts
+    .filter((p) => (p.pageNum ?? 1) === pageNum)
+    .sort((a, b) => a.number - b.number);
+  if (onPage.length < 2) return null;
+
+  const ops = selectRouteCableOps(pageNum, cablesByPage, pt.x, pt.y);
+  if (!ops?.length) return null;
+
+  const hitA = nearestPointOnPathOps(onPage[0].x, onPage[0].y, ops);
+  const hitB = nearestPointOnPathOps(
+    onPage[onPage.length - 1].x,
+    onPage[onPage.length - 1].y,
+    ops,
+  );
+  const hit = nearestPointOnPathOps(pt.x, pt.y, ops);
+  const dir = hitB.t >= hitA.t ? 1 : -1;
+  return cableTangentBearingDeg(ops, hit.t, dir);
+}
+
+/**
+ * Lock incoming detail pages at sheet breaks using Cabo Projetado exit/entry endpoints.
+ * Does not require Distância_Poste at the break for PDF placement — only for span meters
+ * when available in distMap (otherwise the segment is skipped).
+ *
+ * @param {Map<number, object>} transforms
+ * @param {Array} sortedPosts
+ * @param {Map<string, number>} distMap
+ * @param {Map<number, Array>} cablesByPage
+ * @param {string[]} warnings
+ * @returns {number} pages adjusted
+ */
+export function lockSheetBreakPagesByCableEndpoints(
+  transforms,
+  sortedPosts,
+  distMap,
+  cablesByPage,
+  warnings,
+) {
+  if (transforms.size < 2 || !sortedPosts?.length || !cablesByPage?.size) {
+    return 0;
+  }
+
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  let adjusted = 0;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum === curr.pageNum ||
+      curr.number !== prev.number + 1
+    ) {
+      continue;
+    }
+
+    const m =
+      distMap.get(`${prev.number}->${curr.number}`) ??
+      distMap.get(`${curr.number}->${prev.number}`);
+    if (m == null || m <= 0) continue;
+
+    const prevTf = transforms.get(prev.pageNum);
+    if (!prevTf || !transforms.has(curr.pageNum)) continue;
+
+    const exitPt = routeCableSheetEdgePoint(
+      prev.pageNum,
+      'exit',
+      sorted,
+      cablesByPage,
+    );
+    const entryPt = routeCableSheetEdgePoint(
+      curr.pageNum,
+      'entry',
+      sorted,
+      cablesByPage,
+    );
+    if (!exitPt || !entryPt) continue;
+
+    const exitOps = selectRouteCableOps(
+      prev.pageNum,
+      cablesByPage,
+      exitPt.x,
+      exitPt.y,
+    );
+    if (exitOps) {
+      let mOpCount = 0;
+      for (const op of exitOps) if (op.type === 'M') mOpCount++;
+      if (mOpCount >= 5) continue;
+    }
+    let bearing = cableBearingAlongRouteOnPage(
+      prev.pageNum,
+      exitPt,
+      sorted,
+      cablesByPage,
+    );
+    if (bearing == null && exitOps) {
+      const hit = nearestPointOnPathOps(exitPt.x, exitPt.y, exitOps);
+      const total = pathTotalArcLength(exitOps);
+      const towardEnd = hit.t >= total * 0.5 ? 1 : -1;
+      bearing = cableTangentBearingDeg(exitOps, hit.t, towardEnd);
+    }
+    if (bearing == null) continue;
+
+    const entryOps = selectRouteCableOps(
+      curr.pageNum,
+      cablesByPage,
+      entryPt.x,
+      entryPt.y,
+    );
+    if (entryOps) {
+      let mOpCount = 0;
+      for (const op of entryOps) if (op.type === 'M') mOpCount++;
+      if (mOpCount >= 5) continue;
+    }
+
+    const gpsPrev = projectPost(prev.x, prev.y, prevTf);
+    const junction = destinationPoint(gpsPrev.lat, gpsPrev.lon, bearing, m);
+
+    if (
+      lockPageOriginAtGps(
+        transforms,
+        curr.pageNum,
+        entryPt.x,
+        entryPt.y,
+        junction.lat,
+        junction.lon,
+      )
+    ) {
+      adjusted++;
+    }
+  }
+
+  if (adjusted > 0) {
+    warnings.push(
+      `[cable-boundary] ${adjusted} page origin(s) locked at sheet breaks via Cabo Projetado entry/exit (span from labels when present).`,
+    );
+  }
+  return adjusted;
+}
+
+/**
  * Re-anchor incoming detail pages at cross-page boundaries: label-walk junction GPS
  * locked to the Cabo Projetado point nearest the first post on the new sheet (cable
  * tangent used for exit bearing on the previous sheet).
@@ -377,11 +565,18 @@ export function adjustPageOriginsByCableContinuity(
 
     if (!crossPage) continue;
 
-    const currPos = postPdfPos(curr);
-    const opsNext = selectRouteCableOps(curr.pageNum, cablesByPage, currPos.x, currPos.y);
+    const entryPt =
+      routeCableSheetEdgePoint(curr.pageNum, 'entry', sorted, cablesByPage) ??
+      postPdfPos(curr);
+    const opsNext = selectRouteCableOps(
+      curr.pageNum,
+      cablesByPage,
+      entryPt.x,
+      entryPt.y,
+    );
     const lockPt = opsNext
-      ? nearestPointOnPathOps(currPos.x, currPos.y, opsNext)
-      : { x: currPos.x, y: currPos.y };
+      ? nearestPointOnPathOps(entryPt.x, entryPt.y, opsNext)
+      : entryPt;
 
     if (
       lockPageOriginAtGps(transforms, curr.pageNum, lockPt.x, lockPt.y, lat, lon)

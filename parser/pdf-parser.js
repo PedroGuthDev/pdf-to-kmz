@@ -53,6 +53,7 @@ import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js
 import { associateDistances }                          from './distance-associator.js';
 import { prefillGapDistancesForPolePlacement }         from './geo/label-lsq-calibrator.js';
 import { computeScaleFactor }                          from './geo/utm-calibrator.js';
+import { routeCableSheetEdgePoint }                    from './geo/cable-boundary-calibrator.js';
 import {
   buildCableSegments,
   buildCablesByPage,
@@ -237,14 +238,17 @@ function pairLabelsToRects(labels, rects, pageHeight, maxPageNum) {
  * Parse an INFOVIAS PDF and return structured post, distance, and cable data.
  *
  * @param {ArrayBuffer} arrayBuffer  PDF file contents from FileReader.arrayBuffer().
+ * @param {{ onProgress?: (info: { stage?: string, message: string, pageNum?: number, numPages?: number }) => void }} [hooks]
  * @returns {Promise<
  *   | { posts: Array, distances: Array, cableSegments: Array, warnings: string[], layerMap: { allNames: string[] } }
  *   | { error: 'missing_layers', missing: string[], allNames: string[] }
  *   | { error: 'parse_failed', message: string, warnings: string[] }
  * >}
  */
-export async function parsePdf(arrayBuffer) {
+export async function parsePdf(arrayBuffer, hooks = {}) {
   const warnings = [];
+  const onProgress =
+    typeof hooks.onProgress === 'function' ? hooks.onProgress : null;
 
   try {
     const pdfjsLib = await getPdfjsLib();
@@ -257,6 +261,7 @@ export async function parsePdf(arrayBuffer) {
       ).href;
     }
     // ── Load PDF ────────────────────────────────────────────────────────────
+    onProgress?.({ stage: 'loading', message: 'Loading PDF…' });
     const pdfDoc = await pdfjsLib.getDocument(docOpts).promise;
 
     // ── Build OCG layer map ──────────────────────────────────────────────────
@@ -315,6 +320,12 @@ export async function parsePdf(arrayBuffer) {
 
     // ── Process all pages (D-09): each page is independent user space; results merged below ─
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      onProgress?.({
+        stage: 'pages',
+        pageNum,
+        numPages: pdfDoc.numPages,
+        message: `Reading page ${pageNum} of ${pdfDoc.numPages}…`,
+      });
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
       const pageWidth = page.view[2];
@@ -506,6 +517,7 @@ export async function parsePdf(arrayBuffer) {
     const calibratedPageNums = pairedViewportBoxes.map(v => v.pageNum);
     const calibratedPageSet = new Set(calibratedPageNums);
 
+    onProgress?.({ stage: 'ocr', message: 'Reading post numbers…' });
     const allOcrResults = [];
     for (const batch of pendingOcrBatches) {
       const pageNum = batch.circles[0]?.pageNum;
@@ -600,14 +612,31 @@ export async function parsePdf(arrayBuffer) {
       return overviewScale ?? null;
     };
 
-    const { distances, warnings: dw } = associateDistances(posts, allDistItems, [], {
+    // Use Cabo Projetado entry endpoints to help cross-page label association when
+    // the incoming post PDF position is wrong (e.g. post 26 mirrored to high-X).
+    /** @type {Map<number, { x: number, y: number }>} */
+    const crossPageEntryPointByPage = new Map();
+    const multiSheetRoute = pairedViewportBoxes.length >= 3;
+    if (multiSheetRoute && allCablePaths.length > 0) {
+      const cablesByPage = buildCablesByPage(allCablePaths);
+      const sortedByNum = [...posts].sort((a, b) => a.number - b.number);
+      const pages = new Set(
+        sortedByNum.map((p) => p.pageNum).filter((pn) => pn != null),
+      );
+      for (const pn of pages) {
+        const pt = routeCableSheetEdgePoint(pn, 'entry', sortedByNum, cablesByPage);
+        if (pt) crossPageEntryPointByPage.set(pn, pt);
+      }
+    }
+
+    let { distances, warnings: dw } = associateDistances(posts, allDistItems, [], {
       scaleFactor: overviewScale ?? undefined,
       perPageScale,
+      crossPageEntryPointByPage,
     });
     warnings.push(...dw);
 
     // ── Canonical PDF position: Poste pole symbol (N3 on multi-sheet, else greedy) ─
-    const multiSheetRoute = pairedViewportBoxes.length >= 3;
     if (multiSheetRoute && allCablePaths.length > 0) {
       const cablesForPrefill = buildCablesByPage(allCablePaths);
       const prefilled = prefillGapDistancesForPolePlacement(

@@ -426,6 +426,20 @@ function realignPostsToMarkerAnchorWhenCablePulled(
   for (let pi = 0; pi < posts.length; pi++) {
     const p = posts[pi];
     if (skipPostNumbers && skipPostNumbers.has(p.number)) continue;
+    // If the post is already exactly on a raw Poste centroid, keep it. This is
+    // typically the correct pole symbol even if the OCR label anchor is far away.
+    {
+      const pg = p.pageNum ?? 1;
+      let onRaw = false;
+      for (const sym of symbols) {
+        if ((sym.pageNum ?? 1) !== pg) continue;
+        if (Math.hypot(sym.x - p.x, sym.y - p.y) <= 2) {
+          onRaw = true;
+          break;
+        }
+      }
+      if (onRaw) continue;
+    }
     const anchor = anchorOf(p);
     const split = Math.hypot(p.x - anchor.x, p.y - anchor.y);
     if (split < ANCHOR_POLE_SPLIT_REALIGN_PT) continue;
@@ -526,6 +540,29 @@ export function assignPostPositionsFromPosteSymbols(
 
   attachMarkerAnchors(posts);
 
+  const frozenPostIndices = opts.frozenPostIndices ?? null;
+
+  // If a post already sits on a raw Poste centroid (common when the Numero_Poste ring
+  // already matched the correct pole symbol), keep it. This avoids later passes moving
+  // a correct symbol just because the label anchor is far away.
+  const usedSymbol = new Set();
+  const snappedPosts = new Set();
+  for (let pi = 0; pi < posts.length; pi++) {
+    if (frozenPostIndices?.has(pi)) continue;
+    const p = posts[pi];
+    const pg = p.pageNum ?? 1;
+    for (let si = 0; si < symbols.length; si++) {
+      const sym = symbols[si];
+      if (usedSymbol.has(si)) continue;
+      if ((sym.pageNum ?? 1) !== pg) continue;
+      if (Math.hypot(sym.x - p.x, sym.y - p.y) <= 2) {
+        usedSymbol.add(si);
+        snappedPosts.add(pi);
+        break;
+      }
+    }
+  }
+
   /** @type {Map<number, ReturnType<typeof routeSortKeyForPage>>} */
   const routeKeyByPage = new Map();
   const routeKeyFor = post => {
@@ -540,10 +577,8 @@ export function assignPostPositionsFromPosteSymbols(
   /** @type {Array<{ pi: number, si: number, score: number }>} */
   const candidates = [];
 
-  const frozenPostIndices = opts.frozenPostIndices ?? null;
-
   for (let pi = 0; pi < posts.length; pi++) {
-    if (frozenPostIndices?.has(pi)) continue;
+    if (frozenPostIndices?.has(pi) || snappedPosts.has(pi)) continue;
     const p = posts[pi];
     const pg = p.pageNum ?? 1;
     const anchor = anchorOf(p);
@@ -566,7 +601,10 @@ export function assignPostPositionsFromPosteSymbols(
         if (!routeOps) continue;
         const symCable = nearestPointOnPathOps(sym.x, sym.y, routeOps);
         const arcDelta = Math.abs(symCable.t - anchorCable.t);
-        if (arcDelta > arcMax) continue;
+        // If the label anchor is extremely close to a symbol, allow a wider arc delta.
+        // Some sheets draw Numero_Poste rings offset along the cable even when the pole
+        // symbol is correct (Valmor p4 fixture).
+        if (arcDelta > arcMax && dLabel > 25) continue;
         const score = dLabel + 0.35 * anchorCable.d + 1.5 * arcDelta;
         candidates.push({ pi, si, score });
       } else {
@@ -582,8 +620,7 @@ export function assignPostPositionsFromPosteSymbols(
   candidates.sort((a, b) => a.score - b.score);
 
   const usedPost = new Set();
-  const usedSymbol = new Set();
-  const snappedPosts = new Set();
+  // usedSymbol/snappedPosts already seeded above with "already-on-symbol" posts.
 
   for (const { pi, si } of candidates) {
     if (usedPost.has(pi) || usedSymbol.has(si)) continue;
@@ -623,7 +660,7 @@ export function assignPostPositionsFromPosteSymbols(
         if (!routeOps) continue;
         const symCable = nearestPointOnPathOps(sym.x, sym.y, routeOps);
         const arcDelta = Math.abs(symCable.t - anchorCable.t);
-        if (arcDelta > arcMaxRelaxed) continue;
+        if (arcDelta > arcMaxRelaxed && dLabel > 25) continue;
         const score = dLabel + 1.5 * arcDelta;
         if (score < bestScore) {
           bestScore = score;

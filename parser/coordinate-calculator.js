@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-25-26-sheet-break";
+export const CALC_PIPELINE_ID = "2026-05-cable-sheet-break";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -41,7 +41,12 @@ import {
   refineAnchorPagePdfByLabelBracket,
   refinePageOriginsByLabelLsq,
 } from "./geo/label-lsq-calibrator.js";
-import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
+import {
+  adjustPageOriginsByCableSimilarity,
+  lockSheetBreakPagesByCableEndpoints,
+  routeCableSheetEdgePoint,
+  cableBearingAlongRouteOnPage,
+} from "./geo/cable-boundary-calibrator.js";
 import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
 import {
   refineGpsAtSheetBreakCorridor,
@@ -1152,6 +1157,17 @@ export function calculateCoordinates(
             `[label-lsq] Inferred ${crossAug.filled} cross-page distance label(s) from neighbors for global fit.`,
           );
         }
+        const cablesByPage = buildCablesByPage(cableSegments);
+        const nBoundaryPre = cablesByPage?.size
+          ? lockSheetBreakPagesByCableEndpoints(
+              pageTransforms,
+              sorted,
+              augDistMap,
+              cablesByPage,
+              warnings,
+            )
+          : 0;
+
         let lsq = refinePageOriginsByLabelLsq(
           pageTransforms,
           sorted,
@@ -1160,7 +1176,6 @@ export function calculateCoordinates(
           warnings,
         );
         let labelLsqImproved = Boolean(lsq.improved);
-        const cablesByPage = buildCablesByPage(cableSegments);
         const n6 = adjustPageOriginsByCableSimilarity(
           pageTransforms,
           sorted,
@@ -1170,16 +1185,25 @@ export function calculateCoordinates(
           warnings,
         );
         const multiSheetDetail = viewportBoxes.length >= 3;
-        // Boundary when global label-lsq did not run; LSQ already fit page 4–5 (do not stack boundary on top).
-        const nBoundary =
-          labelLsqImproved || n6 > 0
-            ? 0
-            : lockPageOriginsAtSheetBreaksFromPriorProjection(
-                pageTransforms,
-                sorted,
-                augDistMap,
-                warnings,
-              );
+        // Boundary when global label-lsq did not run; prefer cable entry/exit at sheet breaks.
+        let nBoundary = 0;
+        if (!labelLsqImproved && n6 === 0 && nBoundaryPre === 0 && cablesByPage?.size) {
+          nBoundary = lockSheetBreakPagesByCableEndpoints(
+            pageTransforms,
+            sorted,
+            augDistMap,
+            cablesByPage,
+            warnings,
+          );
+        }
+        if (!labelLsqImproved && n6 === 0 && nBoundary === 0) {
+          nBoundary = lockPageOriginsAtSheetBreaksFromPriorProjection(
+            pageTransforms,
+            sorted,
+            augDistMap,
+            warnings,
+          );
+        }
         if (!labelLsqImproved && nBoundary > 0) {
           const lsq2 = refinePageOriginsByLabelLsq(
             pageTransforms,

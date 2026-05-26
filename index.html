@@ -307,18 +307,128 @@
         font-size: 0.9em;
         display: none;
       }
+
+      #uploadZone {
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: var(--space-lg);
+        background: var(--surface);
+        text-align: center;
+      }
+
+      #uploadZone.drag-over {
+        background: var(--surface-step);
+        border-color: var(--accent);
+      }
+
+      #uploadSelected {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-sm);
+      }
+
+      #uploadFileName {
+        font-weight: 600;
+        word-break: break-all;
+      }
+
+      .appearance-group {
+        margin: var(--space-md) 0;
+      }
+
+      .appearance-group label {
+        margin-bottom: var(--space-xs);
+      }
+
+      .swatch-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+        margin-top: var(--space-xs);
+      }
+
+      .swatch {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .swatch[aria-checked="true"] {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .swatch:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      select {
+        font: inherit;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        padding: 10px 12px;
+      }
+
+      #secondAnchorPanel {
+        margin-top: var(--space-sm);
+      }
+
+      .page-footer {
+        margin-top: var(--space-xl);
+        padding-top: var(--space-md);
+        border-top: 1px solid var(--border);
+        font-size: 0.875rem;
+        color: var(--ink-muted);
+      }
+
+      .page-footer a,
+      .page-footer button.link-btn {
+        color: var(--accent);
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+
+      .page-footer a:hover,
+      .page-footer button.link-btn:hover {
+        color: var(--accent-hover);
+      }
     </style>
   </head>
   <body>
     <h1>PDF to KMZ</h1>
     <p class="lede">
-      Upload an INFOVIAS PDF to extract post, distance, and cable segment data.
-      The parser walks <strong>every page</strong> in order (not only page 2).
+      Upload an INFOVIAS route PDF, anchor post #1 in GPS, customize how it looks
+      in Google Earth, then download a KMZ file.
     </p>
 
-    <section id="uploadSection">
-      <label for="pdfInput">Select PDF file:</label>
-      <input type="file" id="pdfInput" accept=".pdf" />
+    <section id="uploadSection" aria-label="Upload PDF">
+      <div id="uploadZone">
+        <p><strong>Upload route PDF</strong></p>
+        <p class="hint">Drag a file here or choose Browse.</p>
+        <input type="file" id="pdfInput" accept=".pdf" hidden />
+        <button type="button" id="browsePdfBtn" class="btn-secondary">
+          Browse
+        </button>
+      </div>
+      <div id="uploadSelected" hidden>
+        <span id="uploadFileName"></span>
+        <button type="button" id="changeFileBtn" class="btn-secondary">
+          Change file
+        </button>
+      </div>
     </section>
 
     <div id="status"></div>
@@ -346,18 +456,65 @@
           placeholder="-27.645312, -48.671234"
           aria-describedby="coordHint"
         />
+      </div>
+      <button
+        type="button"
+        id="secondAnchorToggle"
+        class="btn-secondary"
+        aria-expanded="false"
+        aria-controls="secondAnchorPanel"
+      >
+        Improve accuracy (2nd anchor)
+      </button>
+      <div id="secondAnchorPanel" hidden>
+        <label for="gpsInputLast"
+          >Last Post Coordinates (optional, improves accuracy)</label
+        >
+        <input
+          type="text"
+          id="gpsInputLast"
+          placeholder="-27.659066, -48.702999"
+        />
+      </div>
+      <h3>KMZ appearance</h3>
+      <div class="appearance-group" id="appearanceIconColor">
+        <label>Post icon color</label>
+        <div class="swatch-row" data-target="iconColor"></div>
+      </div>
+      <div class="appearance-group" id="appearanceLineColor">
+        <label>Route line color</label>
+        <div class="swatch-row" data-target="lineColor"></div>
+      </div>
+      <div class="appearance-group">
+        <label for="lineWidthSelect">Line width</label>
+        <select id="lineWidthSelect"></select>
+      </div>
+      <div class="appearance-group" id="appearanceLabelColor">
+        <label>Label color</label>
+        <div class="swatch-row" data-target="labelColor"></div>
+      </div>
+      <div class="appearance-group">
+        <label for="labelScaleSelect">Label scale</label>
+        <select id="labelScaleSelect">
+          <option value="0.8">0.8</option>
+          <option value="1" selected>1</option>
+          <option value="1.2">1.2</option>
+          <option value="1.5">1.5</option>
+        </select>
+      </div>
+      <div class="appearance-group">
+        <label for="lineDescriptionInput">Route note</label>
+        <textarea
+          id="lineDescriptionInput"
+          rows="2"
+          placeholder="Optional note shown in Google Earth for the route line"
+        ></textarea>
+      </div>
+      <div class="btn-row">
         <button type="button" id="calcBtn" class="btn-primary">
           Calculate Route
         </button>
       </div>
-      <label for="gpsInputLast"
-        >Last Post Coordinates (optional, improves accuracy)</label
-      >
-      <input
-        type="text"
-        id="gpsInputLast"
-        placeholder="-27.659066, -48.702999"
-      />
       <p id="coordHint" class="hint">
         Paste latitude and longitude for post #1. Brazil bounds are checked;
         invalid format is rejected before calculation.
@@ -370,6 +527,13 @@
       <p>Preview of calculated posts (up to first 10):</p>
       <pre id="outputPreview"></pre>
       <div style="margin-top: var(--space-md)">
+        <label for="kmzFilenameInput">KMZ filename (optional)</label>
+        <input
+          type="text"
+          id="kmzFilenameInput"
+          placeholder="Uses PDF name if empty"
+          style="width: 100%; margin-bottom: var(--space-sm)"
+        />
         <button type="button" id="downloadKmzBtn" class="btn-primary" disabled>
           Download KMZ
         </button>
@@ -464,6 +628,10 @@
         mergeOptions,
         CALC_PIPELINE_ID,
       } from "./parser/pdf-parser.js";
+      import {
+        PRESET_COLORS,
+        DEFAULT_OPTIONS,
+      } from "./parser/kmz-defaults.js";
       import {
         computeScaleFactor,
         buildPageTransforms,
@@ -587,6 +755,12 @@
       }
 
       const pdfInput = document.getElementById("pdfInput");
+      const uploadSection = document.getElementById("uploadSection");
+      const uploadZone = document.getElementById("uploadZone");
+      const uploadSelected = document.getElementById("uploadSelected");
+      const uploadFileName = document.getElementById("uploadFileName");
+      const browsePdfBtn = document.getElementById("browsePdfBtn");
+      const changeFileBtn = document.getElementById("changeFileBtn");
       const statusEl = document.getElementById("status");
       const summaryEl = document.getElementById("summary");
       const summaryList = document.getElementById("summaryList");
@@ -594,8 +768,15 @@
       const warningsList = document.getElementById("warningsList");
       const coordForm = document.getElementById("coordForm");
       const gpsInput = document.getElementById("gpsInput");
+      const gpsInputLast = document.getElementById("gpsInputLast");
       const calcBtn = document.getElementById("calcBtn");
       const coordWarning = document.getElementById("coordWarning");
+      const secondAnchorToggle = document.getElementById("secondAnchorToggle");
+      const secondAnchorPanel = document.getElementById("secondAnchorPanel");
+      const lineWidthSelect = document.getElementById("lineWidthSelect");
+      const labelScaleSelect = document.getElementById("labelScaleSelect");
+      const lineDescriptionInput = document.getElementById("lineDescriptionInput");
+      const kmzFilenameInput = document.getElementById("kmzFilenameInput");
       const resultSection = document.getElementById("resultSection");
       const outputPreview = document.getElementById("outputPreview");
       const downloadKmzBtn = document.getElementById("downloadKmzBtn");
@@ -603,10 +784,16 @@
       const kmzStats = document.getElementById("kmzStats");
       const kmzStatsBody = document.getElementById("kmzStatsBody");
       const kmzStatsOmitted = document.getElementById("kmzStatsOmitted");
+      const refCompareSection = document.getElementById("refCompareSection");
+      const compareOutput = document.getElementById("compareOutput");
+      const devToolsToggle = document.getElementById("devToolsToggle");
+      const startOverBtn = document.getElementById("startOverBtn");
 
-      let currentParseData = null; // Store posts and distances from Phase 1
+      let currentParseData = null;
       let lastCalcResult = null;
       let lastKmzObjectUrl = null;
+      let lastPdfFile = null;
+      let devToolsVisible = false;
 
       function revokeKmzObjectUrl() {
         if (lastKmzObjectUrl) {
@@ -639,7 +826,102 @@
         statusEl.className = "";
       }
 
-      function clearResults() {
+      function resolveKmzFilename(userInput, pdfFileName) {
+        let base = (userInput || "").trim();
+        if (!base) {
+          base = (pdfFileName || "route").replace(/\.pdf$/i, "");
+        }
+        base =
+          base.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^\.+/, "") ||
+          "route";
+        if (!/\.kmz$/i.test(base)) base += ".kmz";
+        return base;
+      }
+
+      function getSelectedPreset(target) {
+        const row = document.querySelector(
+          `.swatch-row[data-target="${target}"]`,
+        );
+        const selected = row?.querySelector('.swatch[aria-checked="true"]');
+        return selected?.dataset.preset ?? DEFAULT_OPTIONS[target];
+      }
+
+      function readAppearanceOptions() {
+        return {
+          iconColor: getSelectedPreset("iconColor"),
+          lineColor: getSelectedPreset("lineColor"),
+          labelColor: getSelectedPreset("labelColor"),
+          lineWidth: Number(lineWidthSelect.value),
+          labelScale: Number(labelScaleSelect.value),
+          lineDescription: lineDescriptionInput.value.trim(),
+        };
+      }
+
+      function resetAppearanceDefaults() {
+        for (const target of ["iconColor", "lineColor", "labelColor"]) {
+          const row = document.querySelector(
+            `.swatch-row[data-target="${target}"]`,
+          );
+          if (!row) continue;
+          for (const btn of row.querySelectorAll(".swatch")) {
+            const isDefault =
+              btn.dataset.preset === DEFAULT_OPTIONS[target];
+            btn.setAttribute("aria-checked", isDefault ? "true" : "false");
+          }
+        }
+        lineWidthSelect.value = String(DEFAULT_OPTIONS.lineWidth);
+        labelScaleSelect.value = String(DEFAULT_OPTIONS.labelScale);
+        lineDescriptionInput.value = DEFAULT_OPTIONS.lineDescription;
+      }
+
+      function initAppearanceControls() {
+        for (let w = 1; w <= 8; w++) {
+          const opt = document.createElement("option");
+          opt.value = String(w);
+          opt.textContent = String(w);
+          if (w === DEFAULT_OPTIONS.lineWidth) opt.selected = true;
+          lineWidthSelect.appendChild(opt);
+        }
+        for (const row of document.querySelectorAll(".swatch-row")) {
+          const target = row.dataset.target;
+          for (const [key, hex] of Object.entries(PRESET_COLORS)) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "swatch";
+            btn.dataset.preset = key;
+            btn.dataset.target = target;
+            btn.style.backgroundColor = hex;
+            btn.title = key;
+            btn.setAttribute(
+              "aria-checked",
+              key === DEFAULT_OPTIONS[target] ? "true" : "false",
+            );
+            btn.addEventListener("click", () => {
+              if (btn.disabled) return;
+              for (const s of row.querySelectorAll(".swatch")) {
+                s.setAttribute("aria-checked", "false");
+              }
+              btn.setAttribute("aria-checked", "true");
+            });
+            row.appendChild(btn);
+          }
+        }
+      }
+
+      function setUploadIdle() {
+        uploadZone.hidden = false;
+        uploadSelected.hidden = true;
+        uploadFileName.textContent = "";
+        pdfInput.value = "";
+      }
+
+      function setUploadSelected(file) {
+        uploadZone.hidden = true;
+        uploadSelected.hidden = false;
+        uploadFileName.textContent = file.name;
+      }
+
+      function resetSession() {
         hideStatus();
         summaryEl.style.display = "none";
         summaryList.innerHTML = "";
@@ -648,28 +930,60 @@
         coordForm.style.display = "none";
         resultSection.style.display = "none";
         coordWarning.style.display = "none";
+        gpsInput.value = "";
+        gpsInputLast.value = "";
+        kmzFilenameInput.value = "";
+        secondAnchorPanel.hidden = true;
+        secondAnchorToggle.setAttribute("aria-expanded", "false");
         currentParseData = null;
+        lastPdfFile = null;
         resetKmzUi();
+        resetAppearanceDefaults();
+        setUploadIdle();
+        debugSection.style.display = "none";
+        refCompareSection.style.display = "none";
+        devToolsVisible = false;
+        devToolsToggle.textContent = "Show developer tools";
+        compareOutput.style.display = "none";
       }
 
-      function showWarnings(warnings) {
-        if (!warnings || warnings.length === 0) return;
-        warningsList.innerHTML = "";
-        for (const w of warnings) {
-          const li = document.createElement("li");
-          li.textContent = w;
-          warningsList.appendChild(li);
+      function setParsingUi(blocked) {
+        const toggle = (el, on) => {
+          if (!el) return;
+          el.disabled = !on;
+        };
+        toggle(browsePdfBtn, !blocked);
+        toggle(changeFileBtn, !blocked);
+        toggle(gpsInput, !blocked);
+        toggle(gpsInputLast, !blocked);
+        toggle(calcBtn, !blocked);
+        toggle(downloadKmzBtn, !blocked);
+        toggle(lineWidthSelect, !blocked);
+        toggle(labelScaleSelect, !blocked);
+        toggle(lineDescriptionInput, !blocked);
+        toggle(kmzFilenameInput, !blocked);
+        toggle(secondAnchorToggle, !blocked);
+        for (const sw of document.querySelectorAll(".swatch")) {
+          toggle(sw, !blocked);
         }
-        warningsEl.style.display = "block";
+        uploadSection.setAttribute("aria-busy", blocked ? "true" : "false");
       }
 
-      pdfInput.addEventListener("change", async (e) => {
-        clearResults();
+      function isPdfFile(file) {
+        if (!file) return false;
+        if (file.type === "application/pdf") return true;
+        return /\.pdf$/i.test(file.name || "");
+      }
 
-        const file = e.target.files[0];
+      async function handlePdfFile(file) {
         if (!file) return;
-
-        // T-03-01: Size guard — reject before calling arrayBuffer()
+        if (!isPdfFile(file)) {
+          showStatus(
+            "Please choose a PDF file (.pdf extension or application/pdf type).",
+            "error",
+          );
+          return;
+        }
         if (file.size > 50 * 1024 * 1024) {
           showStatus(
             "File exceeds 50 MB limit. Please select a smaller PDF.",
@@ -678,26 +992,31 @@
           return;
         }
 
-        showStatus("Parsing...", "info");
+        resetSession();
+        lastPdfFile = file;
+        setUploadSelected(file);
+        setParsingUi(true);
 
         let buf;
         try {
           buf = await file.arrayBuffer();
         } catch (err) {
           showStatus("Could not read file: " + err.message, "error");
+          setParsingUi(false);
           return;
         }
 
         let result;
         try {
-          // T-03-02: Outer try/catch — prevent any parsePdf() exception from reaching DOM unhandled
-          result = await parsePdf(buf);
+          result = await parsePdf(buf, {
+            onProgress: ({ message }) => showStatus(message, "info"),
+          });
         } catch (err) {
           showStatus("Unexpected error: " + err.message, "error");
           return;
+        } finally {
+          setParsingUi(false);
         }
-
-        // ── Handle error cases ──────────────────────────────────────────────────
 
         if (result.error === "missing_layers") {
           const missingStr = result.missing.join(", ");
@@ -714,16 +1033,12 @@
 
         if (result.error === "parse_failed") {
           showStatus("Parse failed: " + result.message, "error");
-          // Show any partial warnings even on parse failure
           showWarnings(result.warnings);
           return;
         }
 
-        // ── Success path ────────────────────────────────────────────────────────
-
         showStatus("Parse complete.", "success");
 
-        // Populate summary (D-14)
         summaryList.innerHTML = "";
         const summaryData = [
           "Posts found: " + result.posts.length,
@@ -737,7 +1052,6 @@
         }
         summaryEl.style.display = "block";
 
-        // Store data for coordinate calculation
         currentParseData = {
           posts: result.posts,
           distances: result.distances,
@@ -747,15 +1061,57 @@
           pageDimensions: result.pageDimensions,
         };
 
-        // D-15: Continuous flow — show coordinate form immediately, no confirmation gate
         coordForm.style.display = "block";
-
-        // D-07: Show all parser warnings
         showWarnings(result.warnings);
+      }
 
-        // Debug: dump calibration data on-page
-        showDebug(dumpCalibrationData(result));
-        document.getElementById("refCompareSection").style.display = "block";
+      initAppearanceControls();
+
+      function showWarnings(warnings) {
+        if (!warnings || warnings.length === 0) return;
+        warningsList.innerHTML = "";
+        for (const w of warnings) {
+          const li = document.createElement("li");
+          li.textContent = w;
+          warningsList.appendChild(li);
+        }
+        warningsEl.style.display = "block";
+      }
+
+      browsePdfBtn.addEventListener("click", () => pdfInput.click());
+      changeFileBtn.addEventListener("click", () => resetSession());
+      pdfInput.addEventListener("change", () => {
+        const file = pdfInput.files?.[0];
+        if (file) handlePdfFile(file);
+      });
+      startOverBtn.addEventListener("click", () => location.reload());
+      secondAnchorToggle.addEventListener("click", () => {
+        const open = secondAnchorPanel.hidden;
+        secondAnchorPanel.hidden = !open;
+        secondAnchorToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      devToolsToggle.addEventListener("click", () => {
+        devToolsVisible = !devToolsVisible;
+        const display = devToolsVisible ? "block" : "none";
+        debugSection.style.display = display;
+        refCompareSection.style.display = display;
+        devToolsToggle.textContent = devToolsVisible
+          ? "Hide developer tools"
+          : "Show developer tools";
+      });
+
+      uploadZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadZone.classList.add("drag-over");
+      });
+      uploadZone.addEventListener("dragleave", () => {
+        uploadZone.classList.remove("drag-over");
+      });
+      uploadZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove("drag-over");
+        const file = e.dataTransfer?.files?.[0];
+        if (file) handlePdfFile(file);
       });
 
       calcBtn.addEventListener("click", () => {
@@ -905,7 +1261,7 @@
         downloadKmzBtn.textContent = "Building KMZ…";
 
         try {
-          const opts = mergeOptions({});
+          const opts = mergeOptions(readAppearanceOptions());
           const { kml, stats } = buildKml(
             lastCalcResult.posts,
             lastCalcResult.connections,
@@ -926,7 +1282,10 @@
           lastKmzObjectUrl = url;
           const a = document.createElement("a");
           a.href = url;
-          a.download = "route.kmz";
+          a.download = resolveKmzFilename(
+            kmzFilenameInput.value,
+            lastPdfFile?.name,
+          );
           a.style.display = "none";
           document.body.appendChild(a);
           a.click();
@@ -968,7 +1327,6 @@
       const compareBtn1 = document.getElementById("compareBtn1");
       const compareBtn2 = document.getElementById("compareBtn2");
       const fillRef34Btn = document.getElementById("fillRef34Btn");
-      const compareOutput = document.getElementById("compareOutput");
       const refInput = document.getElementById("refInput");
 
       // Haversine in-browser (no import needed)
@@ -1140,5 +1498,13 @@
       compareBtn1.addEventListener("click", () => runReferenceCompare(false));
       compareBtn2.addEventListener("click", () => runReferenceCompare(true));
     </script>
+
+    <footer class="page-footer">
+      <button type="button" id="startOverBtn" class="link-btn">Start over</button>
+      ·
+      <button type="button" id="devToolsToggle" class="link-btn">
+        Show developer tools
+      </button>
+    </footer>
   </body>
 </html>
