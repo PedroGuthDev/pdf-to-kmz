@@ -4,6 +4,8 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
+import { isOffRouteCablePost } from './cable-builder.js';
+
 /**
  * Shortest distance from point (px,py) to segment A–B (clamped).
  *
@@ -147,4 +149,147 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
   }
 
   return { distances, warnings };
+}
+
+/**
+ * Parse a distance label string (Brazilian comma decimals).
+ * @returns {number|null}
+ */
+function parseDistanceMeters(str) {
+  const normalized = str.trim().replace(/\s+/g, '').replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
+  const meters = parseFloat(normalized);
+  return Number.isFinite(meters) && meters > 0 ? meters : null;
+}
+
+/**
+ * Gap from label anchor to segment (same-page); cross-page uses distance to "to" post.
+ */
+function labelGapToSegment(lx, ly, from, to, crossPage) {
+  const ax = from.anchorX ?? from.x;
+  const ay = from.anchorY ?? from.y;
+  const bx = to.anchorX ?? to.x;
+  const by = to.anchorY ?? to.y;
+  if (crossPage) return Math.hypot(lx - bx, ly - by);
+  return distPointToSegment(lx, ly, ax, ay, bx, by);
+}
+
+/**
+ * Second pass: assign orphan Distância_Poste labels beside auxiliary (off-cable) posts.
+ * Runs after pole positions are stable (e.g. post cable-arc placer). No ratio guard;
+ * only labels whose nearest segment is unassigned, or clearly closer to the gap segment
+ * than to any segment that already has a label.
+ *
+ * @param {Array} posts Sorted or unsorted posts (flipY).
+ * @param {Array} distItems Distância_Poste text items.
+ * @param {Map<string, number>} distMap Existing segment lengths.
+ * @param {Map<number, Array>} cablesByPage
+ * @param {{ gapThresholdPt?: number, perPageScale?: (pageNum: number) => number|null, warnings?: string[] }} [opts]
+ * @returns {{ map: Map<string, number>, filled: number }}
+ */
+export function supplementDistancesBesideAuxiliaryPosts(
+  posts,
+  distItems,
+  distMap,
+  cablesByPage,
+  opts = {},
+) {
+  const map = new Map(distMap);
+  let filled = 0;
+  const GAP_PT = opts.gapThresholdPt ?? 52;
+  const warnings = opts.warnings ?? [];
+
+  if (!distItems?.length || !cablesByPage?.size) return { map, filled };
+
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(sorted.map((p) => [p.number, p]));
+
+  /** @type {Array<{ li: number, meters: number, bestIdx: number, bestGap: number, lx: number, ly: number }>} */
+  const labelHits = [];
+
+  for (let li = 0; li < distItems.length; li++) {
+    const dt = distItems[li];
+    const meters = parseDistanceMeters(dt.str);
+    if (meters == null) continue;
+
+    const labelPage = dt.pageNum ?? null;
+    const w = typeof dt.width === 'number' && dt.width > 0 ? dt.width : 0;
+    const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+    const ly = dt.y;
+
+    let bestIdx = -1;
+    let bestGap = Infinity;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const from = sorted[i];
+      const to = sorted[i + 1];
+      const samePage =
+        from.pageNum != null &&
+        to.pageNum != null &&
+        from.pageNum === to.pageNum;
+      const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
+      if (samePage && labelPage != null && labelPage !== from.pageNum) continue;
+      if (crossPage && labelPage != null && labelPage !== to.pageNum) continue;
+
+      const gap = labelGapToSegment(lx, ly, from, to, crossPage);
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx >= 0 && bestGap < GAP_PT * 2) {
+      labelHits.push({ li, meters, bestIdx, bestGap, lx, ly });
+    }
+  }
+
+  const usedLabel = new Set();
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const from = sorted[i];
+    const to = sorted[i + 1];
+    const key = `${from.number}->${to.number}`;
+    if (map.get(key) > 0) continue;
+    if (from.pageNum == null || to.pageNum == null || from.pageNum !== to.pageNum) {
+      continue;
+    }
+
+    const off =
+      isOffRouteCablePost(from, postByNum, cablesByPage) ||
+      isOffRouteCablePost(to, postByNum, cablesByPage);
+    if (!off) continue;
+
+    let pick = null;
+    for (const hit of labelHits) {
+      if (usedLabel.has(hit.li)) continue;
+
+      const gapToSeg = labelGapToSegment(hit.lx, hit.ly, from, to, false);
+      if (gapToSeg > GAP_PT) continue;
+
+      let nearestAssignedGap = Infinity;
+      for (let j = 0; j < sorted.length - 1; j++) {
+        const fj = sorted[j];
+        const tj = sorted[j + 1];
+        const kj = `${fj.number}->${tj.number}`;
+        if (!(map.get(kj) > 0)) continue;
+        const g = labelGapToSegment(hit.lx, hit.ly, fj, tj, false);
+        nearestAssignedGap = Math.min(nearestAssignedGap, g);
+      }
+      if (nearestAssignedGap < gapToSeg * 0.88) continue;
+
+      if (!pick || gapToSeg < pick.gapToSeg) {
+        pick = { ...hit, gapToSeg };
+      }
+    }
+
+    if (!pick) continue;
+
+    map.set(key, pick.meters);
+    map.set(`${to.number}->${from.number}`, pick.meters);
+    usedLabel.add(pick.li);
+    filled++;
+    warnings.push(
+      `[distance-assoc] Orphan label ${pick.meters} m assigned to posts ${from.number}→${to.number} (auxiliary gap).`,
+    );
+  }
+
+  return { map, filled };
 }

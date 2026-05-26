@@ -311,6 +311,7 @@ const calcOpts = {
   pageDimensions: parsed.pageDimensions,
   posteRawCentroids: parsed.posteRawCentroids,
   overviewComposite,
+  distanceLabelItems: parsed.distanceLabelItems,
 };
 if (twoAnchor && lastRef) {
   calcOpts.lastPostGps = { lat: lastRef.lat, lon: lastRef.lon };

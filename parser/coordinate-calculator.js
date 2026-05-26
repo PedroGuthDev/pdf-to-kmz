@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-auxiliary-post";
+export const CALC_PIPELINE_ID = "2026-05-aux-orphan-gap";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -27,6 +27,7 @@ import {
   bearingForDistanceLabelChain,
 } from "./cable-builder.js";
 import { placePostsOnCableByArcLength } from "./geo/cable-arc-placer.js";
+import { supplementDistancesBesideAuxiliaryPosts } from "./distance-associator.js";
 import { attachMarkerAnchors } from "./post-positioning.js";
 import {
   augmentCrossPageDistances,
@@ -832,6 +833,7 @@ export function calculateCoordinates(
     disableCableArcPlacer,
     disableSeamLock,
     disableCableChainBearing,
+    distanceLabelItems,
   } = opts_;
 
   if (
@@ -918,6 +920,40 @@ export function calculateCoordinates(
       }
     }
 
+    if (
+      !overviewComposite &&
+      viewportBoxes.length >= 3 &&
+      cableSegments?.length &&
+      distanceLabelItems?.length
+    ) {
+      const auxAssocCables = buildCablesByPage(cableSegments);
+      const { map: auxDistMap, filled: auxDistFilled } =
+        supplementDistancesBesideAuxiliaryPosts(
+          sorted,
+          distanceLabelItems,
+          distMap,
+          auxAssocCables,
+          {
+            warnings,
+            perPageScale: (pn) => {
+              const paths = utmGridPathsPerPage?.get(pn);
+              if (paths?.length) {
+                const sf = computeScaleFactor(paths, warnings);
+                if (sf != null) return sf;
+              }
+              return scaleFactor;
+            },
+          },
+        );
+      if (auxDistFilled > 0) {
+        for (const [k, v] of auxDistMap) distMap.set(k, v);
+        for (const d of distances) {
+          const v = auxDistMap.get(`${d.from}->${d.to}`);
+          if (v > 0) d.meters = v;
+        }
+      }
+    }
+
     // Build page transforms (D-REV-11, D-REV-12)
     if (
       scaleFactor !== null &&
@@ -989,8 +1025,11 @@ export function calculateCoordinates(
         const gapCablesByPage = cableSegments?.length
           ? buildCablesByPage(cableSegments)
           : null;
-        const { map: distWithGaps, filled: gapFilled, filledKeys: gapFilledKeys } =
-          fillAdjacentMissingDistances(sorted, distMap, gapCablesByPage);
+        const {
+          map: distWithGaps,
+          filled: gapFilled,
+          filledKeys: gapFilledKeys,
+        } = fillAdjacentMissingDistances(sorted, distMap, gapCablesByPage);
         if (gapFilled > 0) {
           warnings.push(
             `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`,
@@ -1006,7 +1045,7 @@ export function calculateCoordinates(
           );
           if (auxPdf) {
             warnings.push(
-              '[label-lsq] Auxiliary off-cable post(s) repositioned along neighbor label brackets.',
+              "[label-lsq] Auxiliary off-cable post(s) repositioned along neighbor label brackets.",
             );
           }
         }
@@ -1401,8 +1440,9 @@ export function calculateCoordinates(
         }
       }
     }
-    const auxCablesEarly =
-      cableSegments?.length ? buildCablesByPage(cableSegments) : null;
+    const auxCablesEarly = cableSegments?.length
+      ? buildCablesByPage(cableSegments)
+      : null;
     if (auxCablesEarly?.size && augDistMapForSeams?.size) {
       refineGpsPastAuxiliaryPostsOnAnchorPage(
         pageTransforms,

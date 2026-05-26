@@ -691,7 +691,8 @@ export function inferMissingSegmentMeters(
     const currOff =
       postByNum && isOffRouteCablePost(curr, postByNum, cablesByPage);
     if (prevOff || currOff) {
-      blended = Math.max(blended, neighborAvg ?? 0);
+      const bypassSum = estIn + estOut;
+      blended = Math.max(blended, neighborAvg ?? 0, bypassSum);
     }
     return blended;
   }
