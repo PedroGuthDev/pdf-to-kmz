@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-25-26-sheet-break";
+export const CALC_PIPELINE_ID = "2026-05-corridor-gate";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -1487,7 +1487,11 @@ export function calculateCoordinates(
       sorted.some((p, i) => {
         if (i === 0) return false;
         const prev = sorted[i - 1];
-        if (prev.pageNum == null || p.pageNum == null || prev.pageNum === p.pageNum)
+        if (
+          prev.pageNum == null ||
+          p.pageNum == null ||
+          prev.pageNum === p.pageNum
+        )
           return false;
         const m =
           augDistMapForSeams.get(`${prev.number}->${p.number}`) ??
@@ -1618,6 +1622,7 @@ export function calculateCoordinates(
         auxCablesForCorridor,
         skipAux,
         warnings,
+        { distMap: augDistMapForSeams },
       );
     }
     corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings);

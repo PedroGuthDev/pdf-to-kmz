@@ -4,6 +4,7 @@
  */
 
 import { nearestCableHitOnPage } from "../cable-builder.js";
+import { haversineMeters } from "./utm-calibrator.js";
 
 const MIN_CORRIDOR_LATERAL_M = 0.75;
 const MIN_SIDE_PDF_PT = 2;
@@ -135,11 +136,13 @@ export function refineGpsAtSheetBreakCorridor(
   cablesByPage,
   skipPost = () => false,
   warnings = [],
+  opts = {},
 ) {
   if (!cablesByPage?.size) return 0;
   const list = [...sorted].sort((a, b) => a.number - b.number);
   const fixedPages = new Set();
   let fixed = 0;
+  const distMap = opts.distMap ?? null;
 
   for (let i = 1; i < list.length; i++) {
     const prev = list[i - 1];
@@ -172,6 +175,26 @@ export function refineGpsAtSheetBreakCorridor(
     const sidePrev = gpsChordSide(a, b, gPrev);
     const sideCurr = gpsChordSide(a, b, gCurr);
     if (sidePrev === 0 || sideCurr === 0 || sidePrev === sideCurr) continue;
+
+    if (distMap?.size) {
+      const m =
+        distMap.get(`${prev.number}->${curr.number}`) ??
+        distMap.get(`${curr.number}->${prev.number}`);
+      if (m != null && m > 0) {
+        const dBefore = haversineMeters(prev.lat, prev.lon, curr.lat, curr.lon);
+        const reflectedCurr = reflectGpsAcrossChord(a, b, gCurr);
+        const dAfter = haversineMeters(
+          prev.lat,
+          prev.lon,
+          reflectedCurr.lat,
+          reflectedCurr.lon,
+        );
+        const errBefore = Math.abs(dBefore - m);
+        const errAfter = Math.abs(dAfter - m);
+        // Only reflect if it improves the seam distance match.
+        if (!(errAfter < errBefore - 0.5)) continue;
+      }
+    }
 
     fixedPages.add(currPage);
     for (const p of list) {
