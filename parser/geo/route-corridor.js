@@ -218,15 +218,39 @@ export function refineGpsAtSheetBreakCorridor(
   return fixed;
 }
 
+/**
+ * Route-order neighbors on the same page, skipping auxiliary/off-cable posts for chord reference.
+ * @returns {{ prev: object, next: object } | null}
+ */
+function corridorChordNeighbors(sorted, i, skipPost) {
+  const curr = sorted[i];
+  const page = curr.pageNum ?? 1;
+  let li = i - 1;
+  while (li >= 0) {
+    const p = sorted[li];
+    if ((p.pageNum ?? 1) !== page) return null;
+    if (!skipPost(p)) break;
+    li--;
+  }
+  let ri = i + 1;
+  while (ri < sorted.length) {
+    const p = sorted[ri];
+    if ((p.pageNum ?? 1) !== page) return null;
+    if (!skipPost(p)) break;
+    ri++;
+  }
+  if (li < 0 || ri >= sorted.length) return null;
+  return { prev: sorted[li], next: sorted[ri] };
+}
+
 export function refineGpsToPdfRouteCorridor(sorted, skipPost = () => false, warnings = []) {
   let fixed = 0;
   for (let i = 1; i < sorted.length - 1; i++) {
-    const prev = sorted[i - 1];
     const curr = sorted[i];
-    const next = sorted[i + 1];
     if (skipPost(curr)) continue;
-    if ((prev.pageNum ?? 1) !== (curr.pageNum ?? 1)) continue;
-    if ((next.pageNum ?? 1) !== (curr.pageNum ?? 1)) continue;
+    const chord = corridorChordNeighbors(sorted, i, skipPost);
+    if (!chord) continue;
+    const { prev, next } = chord;
     if (prev.lat == null || curr.lat == null || next.lat == null) continue;
 
     const pdfSide = chordSideSign(prev.x, prev.y, next.x, next.y, curr.x, curr.y);
@@ -245,9 +269,14 @@ export function refineGpsToPdfRouteCorridor(sorted, skipPost = () => false, warn
     curr.lat = reflected.lat;
     curr.lon = reflected.lon;
     fixed++;
+    const via =
+      prev.number === sorted[i - 1]?.number && next.number === sorted[i + 1]?.number
+        ? ""
+        : ` (via route posts ${prev.number}–${next.number})`;
     warnings.push(
-      `[route-corridor] post ${curr.number}: reflected GPS across ${prev.number}–${next.number} chord ` +
-        `(PDF vs GPS corridor side mismatch, ${latM.toFixed(1)} m off chord).`,
+      `[route-corridor] post ${curr.number}: reflected GPS across ${prev.number}–${next.number} chord` +
+        via +
+        ` (PDF vs GPS corridor side mismatch, ${latM.toFixed(1)} m off chord).`,
     );
   }
   return fixed;

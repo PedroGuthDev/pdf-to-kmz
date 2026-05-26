@@ -595,7 +595,13 @@ Browser: max ~14m, 20/34 <5m, posts 26–34 <9m, label-lsq RMSE ~3.34m. Harness 
 
 next_action: |
 Human-verify in index.html (upload João Born → Calculate → KMZ). Optional follow-up: page-3
-posts 6 and 9–10 PDF/cable position (Procrustes floor ~10–14m for mid-page band).
+post 7 (~12m) and post 3 (~12m) mid-page distortion; post 6 fixed via route-corridor chord.
+
+session_14_2026-05-26: |
+Post 6 root cause: refineGpsToPdfRouteCorridor reflected GPS across auxiliary neighbors 5–7
+(tap posts off main cable), flipping post 6 to wrong corridor side (13.8m error).
+Fix: corridorChordNeighbors() skips auxiliary posts and uses route chord 3–8 for post 6.
+Harness/browser: post 6 13.80m → 6.03m; posts 9–11 unchanged (9.90 / 7.79 / 6.97m).
 
 current_state_2026-05-26: |
 Session 13 VERIFIED (b2d2f65): D-N3-PASS2 in parser/pdf-parser.js after first multi-sheet N3.

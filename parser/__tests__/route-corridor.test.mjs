@@ -21,6 +21,27 @@ describe("route-corridor", () => {
     assert.ok(Math.abs(back.lon - p.lon) < 1e-6);
   });
 
+  it("refineGpsToPdfRouteCorridor uses route neighbors when immediate are auxiliary", () => {
+    const posts = [
+      { number: 3, pageNum: 3, x: 0, y: 0, lat: -27.64, lon: -48.656 },
+      { number: 5, pageNum: 3, x: 20, y: 2, lat: -27.6398, lon: -48.6558 },
+      { number: 6, pageNum: 3, x: 50, y: 8, lat: -27.6399, lon: -48.65547 },
+      { number: 7, pageNum: 3, x: 70, y: 2, lat: -27.63985, lon: -48.6554 },
+      { number: 8, pageNum: 3, x: 100, y: 0, lat: -27.63992, lon: -48.65516 },
+    ];
+    // GPS on opposite side of 3–8 chord; immediate neighbors 5–7 are auxiliary.
+    posts[2].lat = -27.6405;
+    const w = [];
+    const n = refineGpsToPdfRouteCorridor(
+      posts,
+      (p) => p.number === 5 || p.number === 7,
+      w,
+    );
+    assert.equal(n, 1);
+    assert.match(w[0], /post 6/);
+    assert.match(w[0], /via route posts 3–8/);
+  });
+
   it("refineGpsToPdfRouteCorridor flips GPS when opposite PDF side", () => {
     const posts = [
       { number: 26, pageNum: 5, x: 134, y: 330, lat: -27.64007, lon: -48.65578 },
