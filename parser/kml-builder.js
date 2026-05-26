@@ -22,8 +22,101 @@ function padPostNumber(n) {
 }
 
 /**
+ * @param {{ number: number, lat?: number|null, lon?: number|null }|undefined} post
+ * @returns {boolean}
+ */
+function hasGps(post) {
+  return post != null && post.lat != null && post.lon != null;
+}
+
+/**
+ * @param {number} from
+ * @param {number} to
+ * @returns {string}
+ */
+function edgeKey(from, to) {
+  return `${from}->${to}`;
+}
+
+/**
+ * At a bifurcation, prefer the main-route successor (consecutive post number)
+ * over a branch spur (branch start posts).
+ *
+ * @param {number} from
+ * @param {Array<{ from: number, to: number }>} candidates
+ * @param {Set<number>} branchStarts
+ * @returns {{ from: number, to: number }}
+ */
+function preferMainRouteEdge(from, candidates, branchStarts) {
+  const sorted = [...candidates].sort((a, b) => a.to - b.to);
+  const consecutive = sorted.find((e) => e.to === from + 1);
+  if (consecutive) return consecutive;
+  const nonBranch = sorted.filter((e) => !branchStarts.has(e.to));
+  return nonBranch[0] ?? sorted[0];
+}
+
+/**
+ * Chain directed edges into polylines; split on gaps and bifurcations.
+ *
+ * @param {Array<{ from: number, to: number, gap?: boolean }>} connections
+ * @param {Set<number>} branchStarts
+ * @returns {Array<{ postNumbers: number[], gap: boolean }>}
+ */
+export function buildRoutePolylines(connections, branchStarts = new Set()) {
+  const drawable = connections.filter((e) => e.from != null && e.to != null);
+  const gapEdges = drawable.filter((e) => e.gap === true);
+  const chainEdges = drawable.filter((e) => e.gap !== true);
+
+  const outMap = new Map();
+  for (const e of chainEdges) {
+    if (!outMap.has(e.from)) outMap.set(e.from, []);
+    outMap.get(e.from).push(e);
+  }
+
+  const used = new Set();
+  const polylines = [];
+
+  /**
+   * @param {number} from
+   * @param {number} to
+   * @returns {number[]}
+   */
+  function extendForward(from, to) {
+    const path = [from, to];
+    used.add(edgeKey(from, to));
+    let curr = to;
+    while (true) {
+      const outs = (outMap.get(curr) || []).filter(
+        (e) => !used.has(edgeKey(e.from, e.to)),
+      );
+      if (outs.length === 0) break;
+      const next =
+        outs.length === 1
+          ? outs[0]
+          : preferMainRouteEdge(curr, outs, branchStarts);
+      used.add(edgeKey(next.from, next.to));
+      path.push(next.to);
+      curr = next.to;
+    }
+    return path;
+  }
+
+  for (const e of chainEdges) {
+    const key = edgeKey(e.from, e.to);
+    if (used.has(key)) continue;
+    polylines.push({ postNumbers: extendForward(e.from, e.to), gap: false });
+  }
+
+  for (const e of gapEdges) {
+    polylines.push({ postNumbers: [e.from, e.to], gap: true });
+  }
+
+  return polylines;
+}
+
+/**
  * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} posts
- * @param {Array<{ from: number, to: number }>} connections
+ * @param {Array<{ from: number, to: number, gap?: boolean }>} connections
  * @param {Record<string, unknown>} [options]
  * @returns {{ kml: string, stats: { placemarkCount: number, lineCount: number, omittedNoGps: number, skippedLines: number, warnings: string[] } }}
  */
@@ -40,6 +133,35 @@ export function buildKml(posts, connections, options = {}) {
     warnings,
   };
 
+  const branchStarts = new Set();
+  for (const e of connections) {
+    if (e.gap === true) continue;
+    const outs = connections.filter(
+      (c) => c.from === e.from && c.gap !== true && c.to !== e.to,
+    );
+    if (outs.length > 0) {
+      for (const o of outs) {
+        if (o.to > e.from + 1 || o.to - e.from > 1) {
+          branchStarts.add(o.to);
+        }
+      }
+    }
+  }
+
+  const drawableConnections = [];
+  for (const edge of connections) {
+    const fromPost = postByNum.get(edge.from);
+    const toPost = postByNum.get(edge.to);
+    if (!hasGps(fromPost) || !hasGps(toPost)) {
+      stats.skippedLines += 1;
+      warnings.push(
+        `[kml-builder] edge ${padPostNumber(edge.from)}→${padPostNumber(edge.to)} skipped (missing GPS)`,
+      );
+      continue;
+    }
+    drawableConnections.push(edge);
+  }
+
   const parts = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<kml xmlns="http://www.opengis.net/kml/2.2">',
@@ -50,7 +172,7 @@ export function buildKml(posts, connections, options = {}) {
   ];
 
   for (const post of posts) {
-    if (post.lat == null || post.lon == null) {
+    if (!hasGps(post)) {
       stats.omittedNoGps += 1;
       warnings.push(
         `[kml-builder] post ${padPostNumber(post.number)} omitted (no GPS)`,
@@ -73,27 +195,28 @@ export function buildKml(posts, connections, options = {}) {
     stats.placemarkCount += 1;
   }
 
-  for (const edge of connections) {
-    const fromPost = postByNum.get(edge.from);
-    const toPost = postByNum.get(edge.to);
-    const fromLabel = padPostNumber(edge.from);
-    const toLabel = padPostNumber(edge.to);
-    if (
-      !fromPost ||
-      !toPost ||
-      fromPost.lat == null ||
-      fromPost.lon == null ||
-      toPost.lat == null ||
-      toPost.lon == null
-    ) {
+  const polylines = buildRoutePolylines(drawableConnections, branchStarts);
+  const lineDesc = escapeXml(merged.lineDescription);
+
+  for (const { postNumbers, gap } of polylines) {
+    const coords = [];
+    for (const num of postNumbers) {
+      const p = postByNum.get(num);
+      if (!hasGps(p)) continue;
+      coords.push(`${p.lon},${p.lat},0`);
+    }
+    if (coords.length < 2) {
       stats.skippedLines += 1;
-      warnings.push(
-        `[kml-builder] edge ${fromLabel}→${toLabel} skipped (missing GPS)`,
-      );
       continue;
     }
-    const lineName = `Poste ${fromLabel} → Poste ${toLabel}`;
-    const lineDesc = escapeXml(merged.lineDescription);
+
+    const first = padPostNumber(postNumbers[0]);
+    const last = padPostNumber(postNumbers[postNumbers.length - 1]);
+    const lineName =
+      postNumbers.length === 2
+        ? `Poste ${first} → Poste ${last}`
+        : `Route ${first}–${last}`;
+
     parts.push(
       '<Placemark>',
       `<name>${escapeXml(lineName)}</name>`,
@@ -101,11 +224,16 @@ export function buildKml(posts, connections, options = {}) {
       '<styleUrl>#routeLine</styleUrl>',
       '<LineString>',
       '<tessellate>1</tessellate>',
-      `<coordinates>${fromPost.lon},${fromPost.lat},0 ${toPost.lon},${toPost.lat},0</coordinates>`,
+      `<coordinates>${coords.join(' ')}</coordinates>`,
       '</LineString>',
       '</Placemark>',
     );
     stats.lineCount += 1;
+    if (gap) {
+      warnings.push(
+        `[kml-builder] gap segment ${first}→${last} (separate cable run)`,
+      );
+    }
   }
 
   parts.push('</Document>', '</kml>');

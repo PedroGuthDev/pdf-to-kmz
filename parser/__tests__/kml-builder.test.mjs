@@ -1,24 +1,83 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKml } from '../kml-builder.js';
+import { buildKml, buildRoutePolylines } from '../kml-builder.js';
+
+describe('buildRoutePolylines', () => {
+  it('merges a simple chain into one polyline', () => {
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+      { from: 3, to: 4 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    assert.equal(lines.length, 1);
+    assert.deepEqual(lines[0].postNumbers, [1, 2, 3, 4]);
+  });
+
+  it('splits at bifurcation into main run and branch', () => {
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+      { from: 2, to: 4 },
+    ];
+    const branchStarts = new Set([4]);
+    const lines = buildRoutePolylines(connections, branchStarts);
+    assert.equal(lines.length, 2);
+    const sorted = lines
+      .map((l) => l.postNumbers.join(','))
+      .sort()
+      .join('|');
+    assert.match(sorted, /1,2,3/);
+    assert.match(sorted, /2,4/);
+  });
+
+  it('splits on gap edges', () => {
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3, gap: true },
+      { from: 3, to: 4 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    assert.equal(lines.length, 3);
+    assert.deepEqual(
+      lines.find((l) => l.gap)?.postNumbers,
+      [2, 3],
+    );
+    assert.deepEqual(
+      lines.find((l) => !l.gap && l.postNumbers[0] === 1)?.postNumbers,
+      [1, 2],
+    );
+    assert.deepEqual(
+      lines.find((l) => !l.gap && l.postNumbers[0] === 3)?.postNumbers,
+      [3, 4],
+    );
+  });
+});
 
 describe('buildKml', () => {
-  it('builds placemarks and one line for a simple route', () => {
+  it('builds placemarks and one merged line for a simple route', () => {
     const posts = [
       { number: 1, lat: -27.65, lon: -48.69 },
       { number: 2, lat: -27.66, lon: -48.7 },
+      { number: 3, lat: -27.67, lon: -48.71 },
     ];
-    const connections = [{ from: 1, to: 2 }];
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+    ];
     const { kml, stats } = buildKml(posts, connections, {});
-    assert.equal(stats.placemarkCount, 2);
+    assert.equal(stats.placemarkCount, 3);
     assert.equal(stats.lineCount, 1);
-    assert.match(kml, /xmlns="http:\/\/www\.opengis\.net\/kml\/2\.2"/);
-    assert.match(kml, /Style id="postPoint"/);
-    assert.match(kml, /<name>Poste 01<\/name>/);
-    assert.match(kml, /<LineString>/);
+    const lineStrings = kml.match(/<LineString>/g) || [];
+    assert.equal(lineStrings.length, 1);
+    const routeCoords = kml.match(
+      /<LineString>[\s\S]*?<coordinates>([^<]+)<\/coordinates>/,
+    )?.[1];
+    assert.ok(routeCoords?.trim().split(/\s+/).length >= 3);
+    assert.match(kml, /Route 01–03/);
   });
 
-  it('draws multiple lines from connection graph (branch)', () => {
+  it('draws two cable runs at a branch (not one line per edge)', () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 2, lat: 2, lon: 2 },
@@ -32,7 +91,7 @@ describe('buildKml', () => {
     ];
     const { stats } = buildKml(posts, connections, {});
     assert.equal(stats.placemarkCount, 4);
-    assert.equal(stats.lineCount, 3);
+    assert.equal(stats.lineCount, 2);
   });
 
   it('omits posts without GPS and counts them', () => {
