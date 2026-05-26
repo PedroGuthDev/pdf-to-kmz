@@ -25,6 +25,7 @@ import {
   cableSegmentBearingDeg,
   cableExitBearingAtPost,
   bearingForDistanceLabelChain,
+  isOffRouteCablePost,
 } from "./cable-builder.js";
 import { placePostsOnCableByArcLength } from "./geo/cable-arc-placer.js";
 import { supplementDistancesBesideAuxiliaryPosts } from "./distance-associator.js";
@@ -713,6 +714,32 @@ export function snapPostsToPolyline(
     post.y = near.y;
     usedPost.add(pi);
   }
+}
+
+/**
+ * Labeled length for a main-route hop that may skip off-cable (auxiliary) posts.
+ *
+ * @param {Array} sorted
+ * @param {Map<string, number>} distMap
+ * @param {number} i index of route post `from`
+ * @param {number} j index of route post `to`
+ * @returns {number|null}
+ */
+function metersForRouteHop(sorted, distMap, i, j) {
+  const from = sorted[i];
+  const to = sorted[j];
+  const direct = distMap.get(`${from.number}->${to.number}`);
+  if (direct != null && direct > 0) return direct;
+  let sum = 0;
+  let any = false;
+  for (let k = i; k < j; k++) {
+    const m = distMap.get(`${sorted[k].number}->${sorted[k + 1].number}`);
+    if (m != null && m > 0) {
+      sum += m;
+      any = true;
+    }
+  }
+  return any ? sum : null;
 }
 
 export function detectGaps(posts, distances, cableSegments) {
@@ -1498,6 +1525,9 @@ export function calculateCoordinates(
 
   // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
   const connections = [];
+  const cablesByPageForConn = cableSegments?.length
+    ? buildCablesByPage(cableSegments)
+    : new Map();
   const branchJunctionMap = new Map(
     topology.branches.map((b) => [b.start, b.junctionPost]),
   );
@@ -1545,49 +1575,67 @@ export function calculateCoordinates(
       }
     }
 
-    // Forward connection to next post in sequence
-    if (i < sorted.length - 1) {
-      const next = sorted[i + 1];
-      if (branchStarts.has(next.number)) continue; // branch starts handled above
+    // Forward connection along main route — skip off-cable auxiliary taps (e.g. 3→5, not 3→4→5)
+    if (isOffRouteCablePost(curr, postMap, cablesByPageForConn)) continue;
 
-      const isGap = gapSet.has(`${curr.number}->${next.number}`);
-      const isCrossPage =
-        curr.pageNum != null &&
-        next.pageNum != null &&
-        curr.pageNum !== next.pageNum;
-
-      let meters, bearing;
-      if (isCrossPage) {
-        // D-REV-15: cross-page — GPS-vector
-        if (
-          curr.lat != null &&
-          curr.lon != null &&
-          next.lat != null &&
-          next.lon != null
-        ) {
-          meters = haversineMeters(curr.lat, curr.lon, next.lat, next.lon);
-          bearing = gpsBearing(curr.lat, curr.lon, next.lat, next.lon);
-        } else {
-          meters = 0;
-          bearing = 0;
-        }
-      } else {
-        // D-REV-14: same-page — PDF-space
-        const pdfD = Math.hypot(next.x - curr.x, next.y - curr.y);
-        const m = distMap.get(`${curr.number}->${next.number}`);
-        meters = m != null ? m : scaleFactor != null ? pdfD * scaleFactor : 0;
-        bearing = pdfBearing(curr, next);
-      }
-
-      connections.push({
-        from: curr.number,
-        to: next.number,
-        meters,
-        bearing,
-        gap: isGap,
-        ...(isCrossPage ? { cross_page: true } : {}),
-      });
+    let j = i + 1;
+    while (
+      j < sorted.length &&
+      isOffRouteCablePost(sorted[j], postMap, cablesByPageForConn)
+    ) {
+      j++;
     }
+    if (j >= sorted.length) continue;
+
+    const next = sorted[j];
+    if (branchStarts.has(next.number)) continue; // branch starts handled above
+
+    let isGap = false;
+    for (let k = i; k < j; k++) {
+      if (gapSet.has(`${sorted[k].number}->${sorted[k + 1].number}`)) {
+        isGap = true;
+        break;
+      }
+    }
+
+    const isCrossPage =
+      curr.pageNum != null &&
+      next.pageNum != null &&
+      curr.pageNum !== next.pageNum;
+
+    let meters, bearing;
+    if (isCrossPage) {
+      // D-REV-15: cross-page — GPS-vector
+      if (
+        curr.lat != null &&
+        curr.lon != null &&
+        next.lat != null &&
+        next.lon != null
+      ) {
+        meters = haversineMeters(curr.lat, curr.lon, next.lat, next.lon);
+        bearing = gpsBearing(curr.lat, curr.lon, next.lat, next.lon);
+      } else {
+        meters = 0;
+        bearing = 0;
+      }
+    } else {
+      // D-REV-14: same-page — PDF-space; sum label hops through auxiliary posts when present
+      const pdfD = Math.hypot(next.x - curr.x, next.y - curr.y);
+      const m =
+        metersForRouteHop(sorted, distMap, i, j) ??
+        (scaleFactor != null ? pdfD * scaleFactor : 0);
+      meters = m;
+      bearing = pdfBearing(curr, next);
+    }
+
+    connections.push({
+      from: curr.number,
+      to: next.number,
+      meters,
+      bearing,
+      gap: isGap,
+      ...(isCrossPage ? { cross_page: true } : {}),
+    });
   }
 
   // ── Label vs haversine sanity-check (D-ACC-08) ───────────────────────────

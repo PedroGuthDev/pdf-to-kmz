@@ -78,6 +78,11 @@ console.log('\n[Test Group 7] Connections contract fields');
 assert(src.includes('from: curr.number') || src.includes('from: junc.number'), 'connections from field');
 assert(src.includes('to: next.number') || src.includes('to: curr.number'), 'connections to field');
 assert(src.includes('gap: isGap') || src.includes('gap: false'), 'connections gap field');
+assert(
+  src.includes('isOffRouteCablePost(curr, postMap, cablesByPageForConn)'),
+  'main-route connections skip off-cable auxiliary posts',
+);
+assert(src.includes('metersForRouteHop'), 'route hop sums label spans past auxiliary posts');
 assert(src.includes('meters'), 'connections meters field');
 assert(src.includes('bearing'), 'connections bearing field');
 
