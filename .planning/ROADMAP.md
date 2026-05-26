@@ -18,6 +18,7 @@
 **Plans:** 4/4 complete
 
 Plans:
+
 - [x] 01-01-PLAN.md — Walking Skeleton: prove OCG layer extraction on real PDF, resolve A1/A2 assumptions
 - [x] 01-02-PLAN.md — Parser modules: all 8 parser/ modules implementing the full PDF extraction pipeline
 - [x] 01-03-PLAN.md — Browser UI: index.html wiring file input to parsePdf() with result summary display
@@ -43,6 +44,7 @@ Plans:
 **Plans:** 4 active plans (02-01/02-02 obsolete; 02-03/02-04/02-05 shipped; 02-06 planned)
 
 Plans:
+
 - [x] 02-01-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
 - [x] 02-02-PLAN.md — OBSOLETE (sequential GPS chaining — replaced)
 - [x] 02-03-PLAN.md — UTM calibration foundation: utm-calibrator.js module, layer-sources.js extensions, pdf-parser.js pipeline extension
