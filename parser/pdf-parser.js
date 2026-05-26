@@ -61,6 +61,9 @@ import {
   detectGaps,
   CALC_PIPELINE_ID,
 } from './coordinate-calculator.js';
+import { buildKml } from './kml-builder.js';
+import { packageKmz } from './kmz-packager.js';
+import { mergeOptions } from './kmz-defaults.js';
 
 // Re-export coordinate calculator functions for single-entry-point imports (Phase 2).
 export {
@@ -70,6 +73,9 @@ export {
   detectRouteTopology,
   detectGaps,
   CALC_PIPELINE_ID,
+  buildKml,
+  packageKmz,
+  mergeOptions,
 };
 
 /** Poste-layer engineering label under the red circle, e.g. "10-300 (U)" / "10-150 (U)". */
