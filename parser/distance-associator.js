@@ -83,14 +83,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
       const ly = dt.y;
 
-      const gap = labelGapToSegment(
-        lx,
-        ly,
-        from,
-        to,
-        crossPage,
-        sortedPosts,
-      );
+      const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
 
       const meters = parseFloat(normalized);
       let ratioPenalty = 0;
@@ -105,14 +98,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
         const pdfM = pdfPt * detailSf;
         const ratio = pdfM / meters;
-        const gapPt = labelGapToSegment(
-          lx,
-          ly,
-          from,
-          to,
-          false,
-          sortedPosts,
-        );
+        const gapPt = labelGapToSegment(lx, ly, from, to, false, sortedPosts);
         const labelOnChord = gapPt < 55;
         if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) continue;
         ratioPenalty = 35 * Math.abs(Math.log(ratio));
@@ -173,22 +159,21 @@ function parseDistanceMeters(str) {
 
 /**
  * Gap from label anchor to segment. Same-page: distance to chord A–B.
- * Cross-page: label is on the incoming sheet; use chord A–B and distance to the
- * incoming post only (not every post on that sheet — avoids stealing labels drawn
- * between 24–25 on a later sheet from the 14→15 break).
+ * Cross-page: label is on the incoming sheet near the entry post (e.g. 33,7 beside
+ * post 26). Use distance to the incoming post only — chord A–B crosses the whole
+ * sheet and wrongly attracts mirrored labels at the outgoing edge (32,4 @ ~974).
  *
- * @param {Array} [allPosts] Reserved for tests; unused after cross-page scoring fix.
+ * @param {Array} [_allPosts] Reserved for tests; unused.
  */
-function labelGapToSegment(lx, ly, from, to, crossPage, allPosts = []) {
+function labelGapToSegment(lx, ly, from, to, crossPage, _allPosts = []) {
   const ax = from.anchorX ?? from.x;
   const ay = from.anchorY ?? from.y;
   const bx = to.anchorX ?? to.x;
   const by = to.anchorY ?? to.y;
-  const chordGap = distPointToSegment(lx, ly, ax, ay, bx, by);
-  if (!crossPage) return chordGap;
-
-  const toGap = Math.hypot(lx - bx, ly - by);
-  return Math.min(chordGap, toGap);
+  if (!crossPage) {
+    return distPointToSegment(lx, ly, ax, ay, bx, by);
+  }
+  return Math.hypot(lx - bx, ly - by);
 }
 
 /**
@@ -282,7 +267,14 @@ export function supplementDistancesBesideAuxiliaryPosts(
     for (const hit of labelHits) {
       if (usedLabel.has(hit.li)) continue;
 
-      const gapToSeg = labelGapToSegment(hit.lx, hit.ly, from, to, false, sorted);
+      const gapToSeg = labelGapToSegment(
+        hit.lx,
+        hit.ly,
+        from,
+        to,
+        false,
+        sorted,
+      );
       if (gapToSeg > GAP_PT) continue;
 
       let nearestAssignedGap = Infinity;

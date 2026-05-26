@@ -18,6 +18,21 @@ describe("distance-associator cross-page labels", () => {
     assert.equal(seg?.meters, 35.2);
   });
 
+  it("assigns 33,7 at sheet entry to 25→26 not mirrored 32,4 at outgoing edge", () => {
+    const posts = [
+      { number: 25, x: 1098, y: 46, pageNum: 4 },
+      { number: 26, x: 134, y: 330, pageNum: 5 },
+      { number: 27, x: 218, y: 304, pageNum: 5 },
+    ];
+    const distItems = [
+      { str: "32,4", x: 974, y: 65, pageNum: 5, width: 11.4 },
+      { str: "33,7", x: 88, y: 363, pageNum: 5, width: 11.4 },
+    ];
+    const { distances } = associateDistances(posts, distItems, []);
+    const seg = distances.find((d) => d.from === 25 && d.to === 26);
+    assert.equal(seg?.meters, 33.7);
+  });
+
   it("assigns sheet-edge label on incoming page to cross-page segment", () => {
     const posts = [
       { number: 25, x: 1098, y: 46, pageNum: 4 },
