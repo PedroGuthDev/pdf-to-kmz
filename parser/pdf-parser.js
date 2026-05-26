@@ -722,6 +722,47 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
             perPageScale,
           },
         );
+
+        // D-N3-PASS2: Re-associate distances and re-run N3 once more so the distance
+        // map reflects the post-N3 positions (not the pre-N3 Numero_Poste anchors).
+        // On routes like João Born where N3 moves tap-detected posts onto the cable,
+        // the second pass converges to label-consistent positions that let
+        // refinePageOriginsByLabelLsq succeed (browser pipeline parity with the harness
+        // PARSE DEBUG flow — see .planning/debug/joao-born-coords-off.md sessions 12-13).
+        for (const p of posts) {
+          p.anchorX = p.x;
+          p.anchorY = p.y;
+        }
+        const { distances: distancesPass2 } = associateDistances(
+          posts,
+          allDistItems,
+          [],
+          {
+            scaleFactor: overviewScale ?? undefined,
+            perPageScale,
+          },
+        );
+        // Splice pass-2 labels back into the shared `distances` array so downstream
+        // code (calculateCoordinates) sees the refreshed values.
+        for (const d of distances) {
+          const d2 = distancesPass2.find(
+            (x) => x.from === d.from && x.to === d.to,
+          );
+          if (d2) d.meters = d2.meters;
+        }
+        const cablesForPass2 = buildCablesByPage(allCablePaths);
+        prefillGapDistancesForPolePlacement(posts, distances, cablesForPass2);
+        assignPolesGloballyByLabels(
+          posts,
+          allPosteRaw,
+          allCablePaths,
+          distances,
+          warnings,
+          {
+            postByNum: new Map(posts.map((p) => [p.number, p])),
+            perPageScale,
+          },
+        );
       } else {
         assignPostPositionsFromPosteSymbols(
           posts,
