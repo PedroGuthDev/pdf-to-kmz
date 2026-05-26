@@ -7,7 +7,7 @@ import { nearestCableHitOnPage } from "../cable-builder.js";
 
 const MIN_CORRIDOR_LATERAL_M = 0.75;
 const MIN_SIDE_PDF_PT = 2;
-const MIN_SIDE_GPS_M = 0.05;
+const MIN_SIDE_GPS_M = 0.15;
 const MIN_CABLE_OFFSET_PT = 3;
 
 /**
@@ -111,24 +111,8 @@ export function reflectGpsAcrossChord(a, b, p) {
  */
 export function signedCableOffsetPt(post, cablesByPage) {
   const pg = post.pageNum ?? 1;
-  const paths = cablesByPage.get(pg) ?? [];
-  // Test fixtures sometimes use `{ op: 'm'|'l' }` instead of `{ type: 'M'|'L' }`.
-  // Normalize here so corridor logic stays tolerant.
-  const normalized =
-    paths.length > 0 && paths[0]?.[0] && 'op' in paths[0][0]
-      ? paths.map(path =>
-          path.map(seg => ({
-            type: String(seg.op ?? '').toUpperCase(),
-            x: seg.x,
-            y: seg.y,
-          })),
-        )
-      : paths;
-  const map =
-    normalized === paths ? cablesByPage : new Map([[pg, normalized]]);
-
-  const hit = nearestCableHitOnPage(post.x, post.y, pg, map);
-  const probe = nearestCableHitOnPage(hit.x + 3, hit.y, pg, map);
+  const hit = nearestCableHitOnPage(post.x, post.y, pg, cablesByPage);
+  const probe = nearestCableHitOnPage(hit.x + 3, hit.y, pg, cablesByPage);
   const tx = probe.x - hit.x;
   const ty = probe.y - hit.y;
   const px = post.x - hit.x;

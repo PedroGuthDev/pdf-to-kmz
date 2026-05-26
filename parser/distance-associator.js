@@ -43,12 +43,7 @@ function distPointToSegment(px, py, ax, ay, bx, by) {
  *   Text items from Distância_Poste layer (flipY applied). Optional `width` improves
  *   association when the label anchor is the glyph box left edge.
  * @param {string[]} warnings  Mutable warning accumulator (D-07).
- * @param {{
- *  scaleFactor?: number,
- *  detailScaleFactor?: number,
- *  perPageScale?: (pageNum: number) => number|null,
- *  crossPageEntryPointByPage?: Map<number, { x: number, y: number }>
- * }} [opts]
+ * @param {{ scaleFactor?: number, detailScaleFactor?: number, perPageScale?: (pageNum: number) => number|null }} [opts]
  * @returns {{ distances: Array<{ from: number, to: number, meters: number|null }>, warnings: string[] }}
  */
 export function associateDistances(posts, distItems, warnings = [], opts = {}) {
@@ -88,17 +83,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
       const ly = dt.y;
 
-      const entryPt =
-        crossPage && opts.crossPageEntryPointByPage?.get(to.pageNum);
-      const gap = labelGapToSegment(
-        lx,
-        ly,
-        from,
-        to,
-        crossPage,
-        sortedPosts,
-        entryPt,
-      );
+      const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
 
       const meters = parseFloat(normalized);
       let ratioPenalty = 0;
@@ -180,15 +165,7 @@ function parseDistanceMeters(str) {
  *
  * @param {Array} [_allPosts] Reserved for tests; unused.
  */
-function labelGapToSegment(
-  lx,
-  ly,
-  from,
-  to,
-  crossPage,
-  _allPosts = [],
-  crossPageEntryPoint = null,
-) {
+function labelGapToSegment(lx, ly, from, to, crossPage, _allPosts = []) {
   const ax = from.anchorX ?? from.x;
   const ay = from.anchorY ?? from.y;
   const bx = to.anchorX ?? to.x;
@@ -196,9 +173,7 @@ function labelGapToSegment(
   if (!crossPage) {
     return distPointToSegment(lx, ly, ax, ay, bx, by);
   }
-  const cx = crossPageEntryPoint?.x ?? bx;
-  const cy = crossPageEntryPoint?.y ?? by;
-  return Math.hypot(lx - cx, ly - cy);
+  return Math.hypot(lx - bx, ly - by);
 }
 
 /**
