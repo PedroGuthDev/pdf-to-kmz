@@ -288,6 +288,7 @@ function segmentProjectionU(ax, ay, bx, by, px, py) {
  * @param {Set<number>} snappedPosts
  * @param {Map<number, { number: number, x: number, y: number, pageNum?: number }>} postByNum
  * @param {string[]} warnings
+ * @param {Map<string, number>} [distMap]
  */
 function repositionOffRoutePostsBetweenNeighbors(
   posts,
@@ -296,7 +297,8 @@ function repositionOffRoutePostsBetweenNeighbors(
   usedSymbol,
   snappedPosts,
   postByNum,
-  warnings
+  warnings,
+  distMap = null,
 ) {
   for (let pi = 0; pi < posts.length; pi++) {
     const p = posts[pi];
@@ -338,6 +340,18 @@ function repositionOffRoutePostsBetweenNeighbors(
     if (segLen < 20) continue;
 
     const uAnchor = segmentProjectionU(ax, ay, bx, by, anchor.x, anchor.y);
+    let uAlong = uAnchor;
+    if (distMap) {
+      const mIn =
+        distMap.get(`${prev.number}->${p.number}`) ??
+        distMap.get(`${p.number}->${prev.number}`);
+      const mOut =
+        distMap.get(`${p.number}->${next.number}`) ??
+        distMap.get(`${next.number}->${p.number}`);
+      if (mIn > 0 && mOut > 0) {
+        uAlong = mIn / (mIn + mOut);
+      }
+    }
 
     let bestSi = -1;
     let bestScore = Infinity;
@@ -347,12 +361,12 @@ function repositionOffRoutePostsBetweenNeighbors(
       if ((sym.pageNum ?? 1) !== pg) continue;
       const u = segmentProjectionU(ax, ay, bx, by, sym.x, sym.y);
       const dLabel = Math.hypot(sym.x - anchor.x, sym.y - anchor.y);
-      const uLo = Math.min(BETWEEN_NEIGHBOR_SEG_MIN, uAnchor - 0.08);
-      const uHi = Math.max(BETWEEN_NEIGHBOR_SEG_MAX, uAnchor + 0.08);
+      const uLo = Math.min(BETWEEN_NEIGHBOR_SEG_MIN, uAlong - 0.08);
+      const uHi = Math.max(BETWEEN_NEIGHBOR_SEG_MAX, uAlong + 0.08);
       if (u < uLo || u > uHi) {
         if (dLabel > POSTE_LABEL_MATCH_MAX_PT) continue;
       }
-      const score = dLabel + 0.12 * Math.abs(u - uAnchor) * segLen;
+      const score = dLabel + 0.12 * Math.abs(u - uAlong) * segLen;
       if (score < bestScore) {
         bestScore = score;
         bestSi = si;
@@ -1800,7 +1814,8 @@ export function assignPolesGloballyByLabels(
     usedSymbol,
     snappedPosts,
     postByNum,
-    warnings
+    warnings,
+    distMap,
   );
 
   realignPostsToMarkerAnchorWhenCablePulled(

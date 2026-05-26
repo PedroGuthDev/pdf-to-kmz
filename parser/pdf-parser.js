@@ -51,8 +51,13 @@ import {
 } from './post-positioning.js';
 import { ocrCircleNumbers, createOcrWorker }            from './ocr-extractor.js';
 import { associateDistances }                          from './distance-associator.js';
+import { prefillGapDistancesForPolePlacement }         from './geo/label-lsq-calibrator.js';
 import { computeScaleFactor }                          from './geo/utm-calibrator.js';
-import { buildCableSegments, minDistancePointToCablesOnPage } from './cable-builder.js';
+import {
+  buildCableSegments,
+  buildCablesByPage,
+  minDistancePointToCablesOnPage,
+} from './cable-builder.js';
 import {
   calculateCoordinates,
   parseCoordinateInput,
@@ -603,6 +608,19 @@ export async function parsePdf(arrayBuffer) {
 
     // ── Canonical PDF position: Poste pole symbol (N3 on multi-sheet, else greedy) ─
     const multiSheetRoute = pairedViewportBoxes.length >= 3;
+    if (multiSheetRoute && allCablePaths.length > 0) {
+      const cablesForPrefill = buildCablesByPage(allCablePaths);
+      const prefilled = prefillGapDistancesForPolePlacement(
+        posts,
+        distances,
+        cablesForPrefill,
+      );
+      if (prefilled > 0) {
+        warnings.push(
+          `[pdf-parser] Prefilled ${prefilled} gap distance(s) before pole placement (incl. tap connectors).`,
+        );
+      }
+    }
     if (allPosteRaw.length > 0) {
       if (multiSheetRoute) {
         assignPolesGloballyByLabels(posts, allPosteRaw, allCablePaths, distances, warnings, {

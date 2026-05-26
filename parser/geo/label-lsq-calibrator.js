@@ -1165,13 +1165,103 @@ const LABEL_BRACKET_CHORD_RATIO = 1.55;
  * @returns {boolean}
  */
 /**
- * @param {{ relaxForAuxiliary?: boolean }} [opts]
+ * Short tap-pole connector (e.g. 4→5) when inbound label is along cable but chord is tiny.
+ * @returns {number|null}
+ */
+export function inferTapConnectorMeters(mBefore, mAfter, prev, post, next, cablesByPage) {
+  if (!(mBefore > 0) || !(mAfter > 0)) return null;
+  const pdfEuc = Math.hypot(next.x - post.x, next.y - post.y);
+  const pdfIn = pdfSpanPt(prev, post, cablesByPage);
+  const pdfOut = pdfSpanPt(post, next, cablesByPage);
+  if (!(pdfIn > 1e-6) || !(pdfOut > 1e-6) || !(pdfEuc > 0)) return null;
+  if (pdfEuc / pdfIn >= 0.28) return null;
+
+  const estIn = mBefore * (pdfEuc / pdfIn);
+  const estOut = mAfter * (pdfEuc / pdfOut);
+  const compression = pdfEuc / pdfIn;
+  const tapBoost = Math.min(3, Math.max(1.75, 0.45 / compression));
+  const shortLeg = ((estIn + estOut) / 2) * tapBoost;
+  const neighborAvg = (mBefore + mAfter) / 2;
+  return Math.min(shortLeg, neighborAvg * 0.35);
+}
+
+/**
+ * Fill missing same-page segment labels before N3 / pole placement (mutates `distances`).
+ * Applies tap-connector override on outbound legs from off-cable poles.
+ *
+ * @param {Array} sortedPosts
+ * @param {Array<{ from: number, to: number, meters: number|null }>} distances
+ * @param {Map<number, Array>} cablesByPage
+ * @returns {number} count of segments updated
+ */
+export function prefillGapDistancesForPolePlacement(
+  sortedPosts,
+  distances,
+  cablesByPage,
+) {
+  if (!distances?.length) return 0;
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const distMap = new Map();
+  for (const d of distances) {
+    if (d.meters != null && d.meters > 0) {
+      distMap.set(`${d.from}->${d.to}`, d.meters);
+      distMap.set(`${d.to}->${d.from}`, d.meters);
+    }
+  }
+  const { map, filledKeys } = fillAdjacentMissingDistances(
+    sorted,
+    distMap,
+    cablesByPage,
+  );
+  const postByNum = new Map(sorted.map((p) => [p.number, p]));
+
+  if (cablesByPage?.size && filledKeys?.size) {
+    for (let i = 1; i < sorted.length - 1; i++) {
+      const prev = sorted[i - 1];
+      const post = sorted[i];
+      const next = sorted[i + 1];
+      if (post.pageNum !== prev.pageNum || next.pageNum !== post.pageNum) continue;
+      if (!isOffRouteCablePost(post, postByNum, cablesByPage)) continue;
+
+      const keyOut = `${post.number}->${next.number}`;
+      if (!filledKeys.has(keyOut)) continue;
+
+      const mBefore = map.get(`${prev.number}->${post.number}`);
+      const mAfter = map.get(keyOut);
+      const tap = inferTapConnectorMeters(
+        mBefore,
+        mAfter,
+        prev,
+        post,
+        next,
+        cablesByPage,
+      );
+      if (tap == null || tap <= 0) continue;
+      map.set(keyOut, tap);
+      map.set(`${next.number}->${post.number}`, tap);
+    }
+  }
+
+  let updated = 0;
+  for (const d of distances) {
+    const v = map.get(`${d.from}->${d.to}`);
+    if (v != null && v > 0 && d.meters !== v) {
+      d.meters = v;
+      updated++;
+    }
+  }
+  return updated;
+}
+
+/**
+ * @param {{ relaxForAuxiliary?: boolean, mAfterOverride?: number }} [opts]
  */
 function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, opts = {}) {
   const mBefore =
     distMap.get(`${prev.number}->${post.number}`) ??
     distMap.get(`${post.number}->${prev.number}`);
   const mAfter =
+    opts.mAfterOverride ??
     distMap.get(`${post.number}->${next.number}`) ??
     distMap.get(`${next.number}->${post.number}`);
   if (mBefore == null || mBefore <= 0 || mAfter == null || mAfter <= 0) return false;

@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-aux-orphan-gap";
+export const CALC_PIPELINE_ID = "2026-05-tap-prefill-n3";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.

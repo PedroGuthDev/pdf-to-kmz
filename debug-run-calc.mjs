@@ -17,6 +17,8 @@ import { parsePdf } from "./parser/pdf-parser.js";
 import { calculateCoordinates } from "./parser/coordinate-calculator.js";
 import { associateDistances } from "./parser/distance-associator.js";
 import { assignPolesGloballyByLabels } from "./parser/post-positioning.js";
+import { buildCablesByPage } from "./parser/cable-builder.js";
+import { prefillGapDistancesForPolePlacement } from "./parser/geo/label-lsq-calibrator.js";
 import { applyOverviewComposite } from "./parser/geo/overview-composite.js";
 import {
   computeScaleFactor,
@@ -288,6 +290,19 @@ if (
     }
     return overviewScale ?? null;
   };
+  const cablesForPrefill = parsed.cableSegments?.length
+    ? buildCablesByPage(parsed.cableSegments)
+    : buildCablesByPage(parsed.cablePaths);
+  const gapPrefilled = prefillGapDistancesForPolePlacement(
+    parserPosts,
+    distances,
+    cablesForPrefill,
+  );
+  if (gapPrefilled > 0) {
+    console.log(
+      `\n[prefill] ${gapPrefilled} gap distance(s) filled before N3 pole placement.`,
+    );
+  }
   const n3Warnings = [];
   assignPolesGloballyByLabels(
     parserPosts,

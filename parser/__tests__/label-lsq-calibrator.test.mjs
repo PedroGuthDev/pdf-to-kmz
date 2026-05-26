@@ -63,5 +63,4 @@ const gapMap = new Map([
 const inferred = inferMissingSegmentMeters(route, gapMap, 4, 5, null);
 assert.ok(inferred > 20, `expected blended inference, got ${inferred}`);
 assert.ok(inferred < 45, `expected blended inference, got ${inferred}`);
-
 console.log('label-lsq-calibrator.test.mjs: all assertions passed');
