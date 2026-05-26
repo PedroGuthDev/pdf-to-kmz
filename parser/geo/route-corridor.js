@@ -332,9 +332,15 @@ export function clampGpsToRouteCableCorridor(
 ) {
   if (!pageTransforms?.size) return 0;
   const maxM = opts.maxLateralM ?? DEFAULT_ROUTE_CORRIDOR_CLAMP_M;
+  const detailMaxM = opts.detailMaxLateralM ?? null;
   const distMap = opts.distMap ?? null;
   const list = [...sorted].sort((a, b) => a.number - b.number);
   const byNum = new Map(list.map((p) => [p.number, p]));
+  const pageCounts = new Map();
+  for (const p of list) {
+    const pg = p.pageNum ?? 1;
+    pageCounts.set(pg, (pageCounts.get(pg) ?? 0) + 1);
+  }
   let fixed = 0;
 
   for (const post of list) {
@@ -377,9 +383,12 @@ export function clampGpsToRouteCableCorridor(
       }
     }
 
-    if (!anchor || lateral <= maxM) continue;
+    const pgCount = pageCounts.get(pg) ?? 0;
+    const isDetailPage = detailMaxM != null && pgCount > 0 && pgCount <= 12;
+    const maxForPost = isDetailPage ? detailMaxM : maxM;
+    if (!anchor || lateral <= maxForPost) continue;
 
-    const trial = shrinkGpsLateralToMax(anchor, gCurr, maxM);
+    const trial = shrinkGpsLateralToMax(anchor, gCurr, maxForPost);
     const spanBefore = worstAdjacentSpanError(post, list, distMap);
     const saved = { lat: post.lat, lon: post.lon };
     post.lat = trial.lat;
@@ -397,7 +406,7 @@ export function clampGpsToRouteCableCorridor(
 
     fixed++;
     warnings.push(
-      `[route-corridor] post ${post.number}: lateral clamp ${lateral.toFixed(1)} m → ${maxM} m ` +
+      `[route-corridor] post ${post.number}: lateral clamp ${lateral.toFixed(1)} m → ${maxForPost} m ` +
         `(route corridor).`,
     );
   }

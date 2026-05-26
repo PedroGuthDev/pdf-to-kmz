@@ -1,6 +1,6 @@
 // parser/coordinate-calculator.js
 /** Bumped when multi-sheet calibration pipeline changes (shown in UI compare debug). */
-export const CALC_PIPELINE_ID = "2026-05-corridor-clamp-8m";
+export const CALC_PIPELINE_ID = "2026-05-corridor-nudge+detail-clamp";
 // GPS coordinate calculation from PDF positions using per-page UTM-grid calibration (D-REV-01).
 // Replaces sequential GPS chaining — each post's GPS is projected directly from its page's
 // independently-calibrated UTM transform. No error accumulation between posts.
@@ -26,6 +26,7 @@ import {
   cableExitBearingAtPost,
   bearingForDistanceLabelChain,
   isOffRouteCablePost,
+  OFF_CABLE_FOR_LABEL_CHAIN_PT,
 } from "./cable-builder.js";
 import { placePostsOnCableByArcLength } from "./geo/cable-arc-placer.js";
 import { supplementDistancesBesideAuxiliaryPosts } from "./distance-associator.js";
@@ -40,6 +41,7 @@ import {
   refineAnchorPageByDistortionZoneBias,
   refineAnchorPagePdfByLabelBracket,
   refinePageOriginsByLabelLsq,
+  labelDistanceRmse,
 } from "./geo/label-lsq-calibrator.js";
 import { adjustPageOriginsByCableSimilarity } from "./geo/cable-boundary-calibrator.js";
 import { applyGridAffineToTransforms } from "./geo/grid-affine-calibrator.js";
@@ -1626,6 +1628,99 @@ export function calculateCoordinates(
         { distMap: augDistMapForSeams },
       );
     }
+
+    // Page-level origin nudge at sheet breaks (RMSE-gated):
+    // If an incoming page has a consistent lateral drift from the cable corridor, shift the
+    // entire page origin slightly toward the corridor.
+    if (auxCablesForCorridor && pageTransforms.size > 0 && augDistMapForSeams?.size) {
+      const list = [...sorted].sort((a, b) => a.number - b.number);
+      const incomingPages = new Set();
+      for (let i = 1; i < list.length; i++) {
+        const prev = list[i - 1];
+        const curr = list[i];
+        const pPrev = prev.pageNum ?? 1;
+        const pCurr = curr.pageNum ?? 1;
+        if (pPrev !== pCurr) incomingPages.add(pCurr);
+      }
+
+      const rmseBefore = labelDistanceRmse(pageTransforms, list, augDistMapForSeams);
+      const backups = new Map();
+      let nudgedPages = 0;
+      let maxShift = 0;
+
+      for (const pg of incomingPages) {
+        const tf = pageTransforms.get(pg);
+        if (!tf) continue;
+        backups.set(pg, { origin_e: tf.origin_e, origin_n: tf.origin_n });
+
+        const onPage = list.filter(
+          (p) => (p.pageNum ?? 1) === pg && p.lat != null && p.lon != null && !skipAux(p),
+        );
+        if (onPage.length < 4) continue;
+
+        const midLat = onPage.reduce((s, p) => s + p.lat, 0) / onPage.length;
+        const cosLat = Math.cos((midLat * Math.PI) / 180);
+        let sumDx = 0;
+        let sumDy = 0;
+        let n = 0;
+        for (const p of onPage) {
+          const hit = nearestPointOnCablesOnPage(p.x, p.y, pg, auxCablesForCorridor);
+          if (!Number.isFinite(hit.d) || hit.d > OFF_CABLE_FOR_LABEL_CHAIN_PT) continue;
+          const corridor = projectPost(hit.x, hit.y, tf);
+          sumDx += (corridor.lon - p.lon) * 111320 * cosLat;
+          sumDy += (corridor.lat - p.lat) * 110540;
+          n++;
+        }
+        if (n < 4) continue;
+
+        const meanDx = sumDx / n;
+        const meanDy = sumDy / n;
+        const meanMag = Math.hypot(meanDx, meanDy);
+        if (meanMag < 0.5) continue;
+
+        const cap = 18;
+        const k = Math.min(1, cap / meanMag) * 0.7;
+        tf.origin_e += meanDx * k;
+        tf.origin_n += meanDy * k;
+
+        nudgedPages++;
+        maxShift = Math.max(maxShift, meanMag * k);
+      }
+
+      const rmseAfter = labelDistanceRmse(pageTransforms, list, augDistMapForSeams);
+      if (
+        nudgedPages > 0 &&
+        rmseBefore != null &&
+        rmseAfter != null &&
+        rmseAfter > rmseBefore + 0.75
+      ) {
+        for (const [pg, b] of backups) {
+          const tf = pageTransforms.get(pg);
+          if (!tf) continue;
+          tf.origin_e = b.origin_e;
+          tf.origin_n = b.origin_n;
+        }
+        warnings.push(
+          `[route-corridor] Sheet-break page nudge skipped (label RMSE worsened ` +
+            `${rmseBefore.toFixed(2)}→${rmseAfter.toFixed(2)} m).`,
+        );
+      } else if (nudgedPages > 0) {
+        for (const post of sorted) {
+          if (!incomingPages.has(post.pageNum ?? 1)) continue;
+          const transform = pageTransforms.get(post.pageNum);
+          if (transform) {
+            const { lat, lon } = projectPost(post.x, post.y, transform);
+            post.lat = lat;
+            post.lon = lon;
+          }
+        }
+        warnings.push(
+          `[route-corridor] Sheet-break page nudge applied to ${nudgedPages} page(s) ` +
+            `(max shift ≈ ${maxShift.toFixed(1)} m).`,
+        );
+      }
+    }
+
     corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings);
     if (auxCablesForCorridor && pageTransforms.size > 0) {
       corridorFixed += clampGpsToRouteCableCorridor(
@@ -1634,7 +1729,7 @@ export function calculateCoordinates(
         pageTransforms,
         skipAux,
         warnings,
-        { distMap: augDistMapForSeams },
+        { distMap: augDistMapForSeams, maxLateralM: 8, detailMaxLateralM: 4 },
       );
     }
     if (corridorFixed > 0) {
