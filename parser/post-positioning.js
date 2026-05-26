@@ -1481,6 +1481,10 @@ export function assignPolesGloballyByLabels(
   warnings = [],
   opts = {}
 ) {
+  const DEBUG_N3_SEAM =
+    typeof process !== "undefined" &&
+    (process.env?.DEBUG_N3_SEAM === "1" || process.env?.DEBUG_N3_SEAM === "true");
+
   const distMap = new Map();
   for (const d of distances || []) {
     if (d.meters == null || d.meters <= 0) continue;
@@ -1599,6 +1603,34 @@ export function assignPolesGloballyByLabels(
         arcWindowPt,
         topK
       );
+
+      if (DEBUG_N3_SEAM) {
+        const seamNum = Number(process.env?.DEBUG_N3_SEAM_POST ?? "26");
+        const seamPost = routePosts.find((p) => p.number === seamNum);
+        if (pageNum === 5 && seamPost) {
+          const seamIdx = routePosts.indexOf(seamPost);
+          const anchor = anchorOf(seamPost);
+          const anchorHit = nearestPointOnPathOps(anchor.x, anchor.y, routeOps);
+          const row = candidatesPerPost[seamIdx] ?? [];
+          console.info(
+            "[debug-n3-seam] " +
+              JSON.stringify({
+                pageNum,
+                pathIndex,
+                post: seamNum,
+                anchor,
+                anchorHit: { d: +anchorHit.d.toFixed(1), t: +anchorHit.t.toFixed(1) },
+                candidates: row.map((c) => ({
+                  si: c.si,
+                  x: +c.x.toFixed(1),
+                  y: +c.y.toFixed(1),
+                  t: +c.t.toFixed(1),
+                  dLabel: +c.dLabel.toFixed(1),
+                })),
+              }),
+          );
+        }
+      }
       candidatesPerPost = applyPerPostArcFallback(
         routePosts,
         candidatesPerPost,
@@ -1955,6 +1987,8 @@ export function assignPostsByRouteOrder(markers, _cablePaths = [], opts = {}) {
     byPage.get(pg).push(m);
   }
 
+  const cablesByPage = buildCablesByPage(_cablePaths);
+
   const pages = [...byPage.keys()].sort((a, b) => a - b);
   const ordered = [];
   for (const pg of pages) {
@@ -1962,11 +1996,28 @@ export function assignPostsByRouteOrder(markers, _cablePaths = [], opts = {}) {
     if (opts.reverseRoute) {
       pageMarkers = pageMarkers.reverse();
     } else if (pageMarkers.length >= 2) {
-      // Default: post 01 is usually at the feeder/source end of the detail sheet, which in many
-      // CAD exports is the high-X side of the page. Reverse when cable order runs low→high X.
-      const first = pageMarkers[0];
-      const last = pageMarkers[pageMarkers.length - 1];
-      if (last.x - first.x > SAME_COLUMN_X_PT) pageMarkers = pageMarkers.reverse();
+      // Prefer orienting markers by Cabo Projetado sheet entry (low-X endpoint) when available.
+      const paths = cablesByPage.get(pg) ?? [];
+      /** @type {{ x: number, y: number }|null} */
+      let entry = null;
+      for (const ops of paths) {
+        for (const op of ops || []) {
+          if (op?.type !== "M" && op?.type !== "L") continue;
+          if (!entry || op.x < entry.x) entry = { x: op.x, y: op.y };
+        }
+      }
+      if (entry) {
+        const first = pageMarkers[0];
+        const last = pageMarkers[pageMarkers.length - 1];
+        const dFirst = Math.hypot(first.x - entry.x, first.y - entry.y);
+        const dLast = Math.hypot(last.x - entry.x, last.y - entry.y);
+        if (dLast < dFirst) pageMarkers = pageMarkers.reverse();
+      } else {
+        // Fallback: post 01 is usually at feeder/source end; many exports are high-X. Reverse when low→high X.
+        const first = pageMarkers[0];
+        const last = pageMarkers[pageMarkers.length - 1];
+        if (last.x - first.x > SAME_COLUMN_X_PT) pageMarkers = pageMarkers.reverse();
+      }
     }
     ordered.push(...pageMarkers);
   }

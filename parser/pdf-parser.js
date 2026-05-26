@@ -59,7 +59,6 @@ import { ocrCircleNumbers, createOcrWorker } from "./ocr-extractor.js";
 import { associateDistances } from "./distance-associator.js";
 import { prefillGapDistancesForPolePlacement } from "./geo/label-lsq-calibrator.js";
 import { computeScaleFactor } from "./geo/utm-calibrator.js";
-import { routeCableSheetEdgePoint } from "./geo/cable-boundary-calibrator.js";
 import {
   buildCableSegments,
   buildCablesByPage,
