@@ -152,6 +152,44 @@ function pickCableNeighbourByDistance(
   return best;
 }
 
+function searchPostsInBox(tree, e, n, tol) {
+  return tree.search({
+    minX: e - tol,
+    minY: n - tol,
+    maxX: e + tol,
+    maxY: n + tol,
+  });
+}
+
+function mergeCandidateLists(a, b) {
+  const seen = new Set();
+  const out = [];
+  for (const c of [...a, ...b]) {
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c);
+  }
+  return out;
+}
+
+/** Last resort: any unclaimed INSERT whose cable span matches the distance label. */
+function pickUnclaimedBySpan(fromDwg, meters, tol, regionPosts, claimed, preferE, preferN) {
+  let best = null;
+  let bestPrefer = Infinity;
+  for (let i = 0; i < regionPosts.length; i++) {
+    if (claimed.has(i)) continue;
+    const c = regionPosts[i];
+    const span = Math.hypot(c.x - fromDwg.x, c.y - fromDwg.y);
+    if (Math.abs(span - meters) > tol) continue;
+    const prefer = Math.hypot(c.x - preferE, c.y - preferN);
+    if (prefer < bestPrefer) {
+      bestPrefer = prefer;
+      best = c;
+    }
+  }
+  return best;
+}
+
 function closestCandidate(candidates, predE, predN, fromIdx, adjacencyGraph, postToIndex) {
   let best = null;
   let bestScore = Infinity;
@@ -292,22 +330,31 @@ export function pairPostsAgainstRegion({
     const predE = fromDwg.x + meters * Math.sin(bearingRad);
     const predN = fromDwg.y + meters * Math.cos(bearingRad);
 
-    let candidates = tree.search({
-      minX: predE - tol,
-      minY: predN - tol,
-      maxX: predE + tol,
-      maxY: predN + tol,
-    });
+    let toUtmE = null;
+    let toUtmN = null;
+    if (toGps?.lat != null && toGps?.lon != null) {
+      const u = latLonToUtm(toGps.lat, toGps.lon, zoneExpected);
+      toUtmE = u.easting;
+      toUtmN = u.northing;
+    }
+
+    let candidates = searchPostsInBox(tree, predE, predN, tol);
+    if (toUtmE != null && toUtmN != null) {
+      candidates = mergeCandidateLists(
+        candidates,
+        searchPostsInBox(tree, toUtmE, toUtmN, tol),
+      );
+    }
 
     let best = null;
     let bestRawDist = Infinity;
-    let viaCableGraph = false;
+    let relaxedPick = false;
 
     if (candidates.length) {
       const pick = closestCandidate(
         candidates,
-        predE,
-        predN,
+        toUtmE ?? predE,
+        toUtmN ?? predN,
         fromIdx,
         adjacencyGraph,
         postToIndex,
@@ -328,11 +375,27 @@ export function pairPostsAgainstRegion({
       );
       if (cablePick) {
         best = cablePick;
-        viaCableGraph = true;
+        relaxedPick = true;
       }
     }
 
-    if (!best || (!viaCableGraph && bestRawDist > tol)) {
+    if (!best) {
+      const spanPick = pickUnclaimedBySpan(
+        fromDwg,
+        meters,
+        tol,
+        regionPosts,
+        claimed,
+        toUtmE ?? predE,
+        toUtmN ?? predN,
+      );
+      if (spanPick) {
+        best = spanPick;
+        relaxedPick = true;
+      }
+    }
+
+    if (!best || (!relaxedPick && bestRawDist > tol)) {
       warn({
         kind: "dwg-pair-fail",
         at_post: toNum,
