@@ -46,6 +46,73 @@ async function canvasToPngBytes(canvas) {
   return canvas.toBuffer('image/png');
 }
 
+/**
+ * Otsu threshold on grayscale histogram.
+ * @param {Uint32Array} hist
+ * @param {number} n pixel count
+ */
+function otsuThreshold(hist, n) {
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0;
+  let wB = 0;
+  let maxVar = 0;
+  let threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = n - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const varBetween = wB * wF * (mB - mF) ** 2;
+    if (varBetween > maxVar) {
+      maxVar = varBetween;
+      threshold = t;
+    }
+  }
+  return threshold;
+}
+
+/**
+ * Binarize RGBA crop: Otsu on luminance (sharper strokes than fixed threshold 110).
+ * @param {Uint8ClampedArray} cd
+ * @param {number} w
+ * @param {number} h
+ */
+function binarizeCropOtsu(cd, w, h) {
+  const hist = new Uint32Array(256);
+  const n = w * h;
+  const lum = new Uint8Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const g = Math.round(
+      0.299 * cd[i] + 0.587 * cd[i + 1] + 0.114 * cd[i + 2],
+    );
+    lum[p] = g;
+    hist[g]++;
+  }
+  const thresh = otsuThreshold(hist, n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const v = lum[p] < thresh ? 0 : 255;
+    cd[i] = cd[i + 1] = cd[i + 2] = v;
+    cd[i + 3] = 255;
+  }
+}
+
+/**
+ * Parse Tesseract digit output. Prefer the longest digit run (full label) over the
+ * last run (legacy: trailing fragment when ring noise splits digits).
+ * @param {string} text
+ * @returns {number|null}
+ */
+export function parseOcrDigitText(text) {
+  const runs = text.trim().match(/\d{1,3}/g);
+  if (!runs?.length) return null;
+  const best = runs.reduce((a, b) => (b.length > a.length ? b : a));
+  return parseInt(best, 10);
+}
+
 /** @param {string} dir */
 async function writeDebugPng(dir, name, canvas) {
   if (!dir || typeof process === 'undefined' || !process.versions?.node) return;
@@ -76,10 +143,9 @@ export async function createOcrWorker() {
   const worker = await createWorker('eng', 1, { logger: () => {} });
   await worker.setParameters({
     tessedit_char_whitelist: '0123456789',
-    // PSM 6 = single uniform block: most permissive mode that still respects
-    // character ordering. Works for binarized digit-on-white crops where the
-    // input is short (1–2 chars). PSM 7/8 returned empty even on clean inputs.
-    tessedit_pageseg_mode: '6',
+    // PSM 7 = single text line — fits 1–2 digit crops inside post rings (Siriu A/B:
+    // fixes 50→30, 53→93, 58→8 vs PSM 6 on Otsu+nearest crops).
+    tessedit_pageseg_mode: '7',
   });
   return worker;
 }
@@ -278,27 +344,14 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       await writeDebugPng(debugDir, `${debugStem}_color.png`, cropCanvas);
     }
 
-    // Binarise to black-on-white: any dark pixel becomes the digit, everything
-    // else (red ring outline, off-white background, anti-aliasing halo) becomes
-    // pure white. Gives Tesseract a textbook OCR input.
     const cropImg = cropCtx.getImageData(0, 0, cropW, cropH);
-    const cd = cropImg.data;
-    for (let i = 0; i < cd.length; i += 4) {
-      const dark = cd[i] < 110 && cd[i + 1] < 110 && cd[i + 2] < 110;
-      if (dark) {
-        cd[i] = 0; cd[i + 1] = 0; cd[i + 2] = 0;
-      } else {
-        cd[i] = 255; cd[i + 1] = 255; cd[i + 2] = 255;
-      }
-      cd[i + 3] = 255;
-    }
+    binarizeCropOtsu(cropImg.data, cropW, cropH);
     cropCtx.putImageData(cropImg, 0, 0);
     if (debugStem) {
       await writeDebugPng(debugDir, `${debugStem}_bin.png`, cropCanvas);
     }
 
-    // Upscale tiny crops (page-overview rings) with high-quality smoothing so
-    // Tesseract has enough pixels per digit to commit (≥25 px char height).
+    // Upscale small crops with nearest-neighbor (keeps stroke edges sharp for OCR).
     let ocrSource = cropCanvas;
     if (cropW < MIN_OCR_DIM || cropH < MIN_OCR_DIM) {
       const scaleUp = Math.max(MIN_OCR_DIM / cropW, MIN_OCR_DIM / cropH);
@@ -306,8 +359,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       const upH = Math.round(cropH * scaleUp);
       ocrSource = await createOcrCanvas(upW, upH);
       const upCtx = ocrSource.getContext('2d');
-      upCtx.imageSmoothingEnabled = true;
-      upCtx.imageSmoothingQuality = 'high';
+      upCtx.imageSmoothingEnabled = false;
       upCtx.drawImage(cropCanvas, 0, 0, upW, upH);
     }
 
@@ -323,11 +375,8 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
 
     const { data } = await worker.recognize(pngBytes);
     const text = data.text.trim();
-    // Lenient parse: pick the last digit run (Tesseract may emit "001" when the
-    // red ring is read as a leading "0", or " 1 " with stray spaces). The trailing
-    // run is the digit inside the ring. MAX_PLAUSIBLE_POST gating happens later.
     const runs = text.match(/\d{1,3}/g);
-    const num = runs && runs.length > 0 ? parseInt(runs[runs.length - 1], 10) : null;
+    const num = parseOcrDigitText(text);
 
     const ocrDebug = debugStem
       ? {

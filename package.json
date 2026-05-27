@@ -8,7 +8,7 @@
     "build:prod": "node scripts/build.mjs --prod",
     "dev": "npm run build && npx serve .",
     "dev:watch": "node scripts/build.mjs --watch",
-    "test": "node parser/__tests__/coordinate-calculator.test.mjs && node parser/__tests__/region-pairing.test.mjs && node parser/__tests__/ocr-outlier-repair.test.mjs && node parser/__tests__/node-canvas-render.test.mjs"
+    "test": "node parser/__tests__/coordinate-calculator.test.mjs && node parser/__tests__/region-pairing.test.mjs && node parser/__tests__/ocr-outlier-repair.test.mjs && node parser/__tests__/ocr-digit-parse.test.mjs && node parser/__tests__/node-canvas-render.test.mjs"
   },
   "keywords": [],
   "author": "",
