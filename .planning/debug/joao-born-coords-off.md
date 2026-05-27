@@ -611,6 +611,14 @@ aux posts (4–5–7) breaks LSQ (post 3 → 13.7m, 9–11 regress). Fix: snapOf
 route-corridor, requireOnCableNeighbors (only post 7 on page 3), reproject GPS for snapped
 posts only. Harness post 7 11.78m → 5.61m; posts 3/9–11 held (2.10 / 9.90 / 7.79 / 6.97m).
 
+session_14c_2026-05-27 (post 8): |
+Post 8 remained the only >10m outlier (11.33m). Manual experiment showed that moving post 8
+along its label bracket improved it to ~7m, so we generalized a safe bracket snap for
+on-cable posts: snapRoutePostsPdfByLabelBracket() runs after route-corridor, requires
+on-cable neighbors, and reprojects GPS only for snapped posts.
+Harness: post 8 11.33m → 7.00m; max error 11.33m → 9.90m; <5m: 21/34 → 23/34.
+Commits: 5a22c69 (posts 3 & 7), f645144 (post 8).
+
 current_state_2026-05-26: |
 Session 13 VERIFIED (b2d2f65): D-N3-PASS2 in parser/pdf-parser.js after first multi-sheet N3.
 
