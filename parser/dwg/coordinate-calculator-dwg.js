@@ -20,8 +20,16 @@ export async function calculateCoordinatesWithDwg(
   const warnings = [];
 
   let region = null;
+  const regionId = opts?.dwgRegionId;
   try {
-    region = await regionLibrary.lookupByGps(lat1, lon1);
+    if (regionId && typeof regionLibrary.getRegionWithIndex === "function") {
+      region = await regionLibrary.getRegionWithIndex(regionId);
+      if (!region) {
+        warnings.push({ kind: "dwg-region-miss", regionId, error: "selected region not found" });
+      }
+    } else {
+      region = await regionLibrary.lookupByGps(lat1, lon1);
+    }
   } catch (e) {
     warnings.push({ kind: "dwg-region-miss", lat: lat1, lon: lon1, error: String(e?.message ?? e) });
     const fallback = calculateCoordinates(posts, distances, lat1, lon1, cableSegments, opts);

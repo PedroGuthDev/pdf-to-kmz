@@ -238,6 +238,15 @@
         border: 1px solid var(--border);
       }
 
+      #dxfLibrarySection {
+        display: block;
+        margin: var(--space-xs) 0;
+        padding: var(--space-md);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border);
+        background: var(--surface);
+      }
+
       #summary {
         background: var(--surface-muted);
       }
@@ -558,7 +567,7 @@
 
     <section
       id="dxfLibrarySection"
-      class="panel section-gap"
+      class="section-gap"
       aria-label="Biblioteca de regiões DXF"
     >
       <h2 style="margin: 0 0 var(--space-xs); font-size: 1rem">
@@ -568,7 +577,14 @@
         Carregue um arquivo DXF regional para coordenadas de maior precisão.
         Pode fazer isso antes ou depois de enviar o PDF.
       </p>
-      <label for="dxfRegionName">Nome da região</label>
+      <label for="dxfRegionSelect">Região ativa</label>
+      <select id="dxfRegionSelect" aria-describedby="dxfRegionSelectHint">
+        <option value="">Automático (por GPS do poste 1)</option>
+      </select>
+      <p id="dxfRegionSelectHint" class="hint" style="margin: 4px 0 var(--space-sm)">
+        Com “Automático”, a região é escolhida pela caixa geográfica que contém o GPS do poste 1.
+      </p>
+      <label for="dxfRegionName">Nome da região (novo upload)</label>
       <div class="field-row">
         <input
           type="text"

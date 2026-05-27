@@ -150,6 +150,7 @@ const regionLibrary = createRegionLibrary();
       const dxfUploadBtn = document.getElementById("dxfUploadBtn");
       const dxfFileInput = document.getElementById("dxfFileInput");
       const dxfRegionName = document.getElementById("dxfRegionName");
+      const dxfRegionSelect = document.getElementById("dxfRegionSelect");
       const dxfUploadStatus = document.getElementById("dxfUploadStatus");
       const coordWarning = document.getElementById("coordWarning");
       const secondAnchorToggle = document.getElementById("secondAnchorToggle");
@@ -178,6 +179,44 @@ const regionLibrary = createRegionLibrary();
       let lastKmzObjectUrl = null;
       let lastPdfFile = null;
       let devToolsVisible = false;
+
+      function selectedDwgRegionId() {
+        return (dxfRegionSelect?.value ?? "").trim() || null;
+      }
+
+      function dwgOpts(baseOpts = {}) {
+        const id = selectedDwgRegionId();
+        return id ? { ...baseOpts, dwgRegionId: id } : baseOpts;
+      }
+
+      async function refreshDxfRegionSelect(preferId = null) {
+        if (!dxfRegionSelect) return;
+        const prev = preferId ?? dxfRegionSelect.value;
+        const regions = await regionLibrary.listRegions();
+        dxfRegionSelect.replaceChildren();
+        const auto = document.createElement("option");
+        auto.value = "";
+        auto.textContent = "Automático (por GPS do poste 1)";
+        dxfRegionSelect.appendChild(auto);
+        for (const r of regions.sort((a, b) =>
+          String(a.name).localeCompare(String(b.name), "pt-BR"),
+        )) {
+          const opt = document.createElement("option");
+          opt.value = r.id;
+          const when = r.uploadedAt
+            ? new Date(r.uploadedAt).toLocaleDateString("pt-BR")
+            : "";
+          opt.textContent = when ? `${r.name} (${when})` : r.name;
+          dxfRegionSelect.appendChild(opt);
+        }
+        if (prev && [...dxfRegionSelect.options].some((o) => o.value === prev)) {
+          dxfRegionSelect.value = prev;
+        } else if (preferId) {
+          dxfRegionSelect.value = preferId;
+        }
+      }
+
+      refreshDxfRegionSelect().catch(() => {});
 
       // ── DWG DXF upload handler ────────────────────────────────────────────────
       if (dxfUploadBtn && dxfFileInput) {
@@ -217,6 +256,7 @@ const regionLibrary = createRegionLibrary();
 
           try {
             await regionLibrary.addRegion(name, file);
+            await refreshDxfRegionSelect(name);
             if (dxfUploadStatus) {
               dxfUploadStatus.textContent = `Região "${name}" carregada com sucesso.`;
               dxfUploadStatus.style.color = "var(--success)";
@@ -442,6 +482,7 @@ const regionLibrary = createRegionLibrary();
         toggle(secondAnchorToggle, !blocked);
         toggle(dxfUploadBtn, !blocked);
         toggle(dxfRegionName, !blocked);
+        toggle(dxfRegionSelect, !blocked);
         for (const sw of document.querySelectorAll(".swatch")) {
           toggle(sw, !blocked);
         }
@@ -640,13 +681,13 @@ const regionLibrary = createRegionLibrary();
         // Deep clone to avoid mutating the original parse result on multiple runs
         const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
 
-        const opts = {
+        const opts = dwgOpts({
           utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
           viewportBoxes: currentParseData.viewportBoxes,
           pageDimensions: currentParseData.pageDimensions,
           distanceLabelItems: currentParseData.distanceLabelItems,
           ...(lastParsed ? { lastPostGps: lastParsed } : {}),
-        };
+        });
         const result = await calculateCoordinatesWithDwg(
           postsCopy,
           currentParseData.distances,
@@ -891,14 +932,14 @@ const regionLibrary = createRegionLibrary();
         }
 
         const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
-        const calcOpts = {
+        const calcOpts = dwgOpts({
           utmGridPathsPerPage: currentParseData.utmGridPathsPerPage,
           viewportBoxes: currentParseData.viewportBoxes,
           pageDimensions: currentParseData.pageDimensions,
           distanceLabelItems: currentParseData.distanceLabelItems,
           posteRawCentroids: currentParseData.posteRawCentroids,
           ...(lastPostGps ? { lastPostGps } : {}),
-        };
+        });
         const calcResult = await calculateCoordinatesWithDwg(
           postsCopy,
           currentParseData.distances,
