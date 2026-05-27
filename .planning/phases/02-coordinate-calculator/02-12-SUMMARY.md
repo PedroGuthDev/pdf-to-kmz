@@ -17,7 +17,8 @@ key_files:
     - debug-run-calc-dwg.mjs
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "72cf8d4 feat(02-12): add DWG end-to-end accuracy harness"
 ---
 
 # Phase 2 Plan 12: DWG end-to-end harness (G-3) — Summary
