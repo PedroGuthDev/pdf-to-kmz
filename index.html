@@ -531,8 +531,8 @@
   <body>
     <h1>PDF para KMZ</h1>
     <p class="lede">
-      Envie o PDF de rota INFOVIAS, informe o GPS do poste 1, ajuste a
-      aparência no Google Earth e baixe o arquivo KMZ.
+      Envie o PDF de rota INFOVIAS, informe o GPS do poste 1, ajuste a aparência
+      no Google Earth e baixe o arquivo KMZ.
     </p>
 
     <section id="uploadSection" aria-label="Enviar PDF">
@@ -567,58 +567,63 @@
       <section id="coordForm">
         <h2>Etapa 2: informe as coordenadas do primeiro poste</h2>
         <label for="gpsInput">Coordenadas do poste 1 (lat, lon)</label>
-      <div class="field-row">
-        <input
-          type="text"
-          id="gpsInput"
-          placeholder="-27.645312, -48.671234"
-        />
-      </div>
-      <div class="panel" style="margin-top: var(--space-sm)">
-        <strong>Biblioteca de regiões DXF</strong>
-        <p class="hint" style="margin-top: 6px">
-          Carregue um arquivo DXF regional para coordenadas de maior precisão.
-        </p>
         <div class="field-row">
           <input
             type="text"
-            id="dxfRegionName"
-            placeholder="Nome da região (ex: Siriu)"
+            id="gpsInput"
+            placeholder="-27.645312, -48.671234"
           />
         </div>
-        <input type="file" id="dxfFileInput" accept=".dxf" style="display: none" />
-        <div class="btn-row" style="margin-top: var(--space-xs)">
-          <button type="button" id="dxfUploadBtn" class="btn-secondary">
-            Carregar região DXF
+        <div class="panel" style="margin-top: var(--space-sm)">
+          <strong>Biblioteca de regiões DXF</strong>
+          <p class="hint" style="margin-top: 6px">
+            Carregue um arquivo DXF regional para coordenadas de maior precisão.
+          </p>
+          <div class="field-row">
+            <input
+              type="text"
+              id="dxfRegionName"
+              placeholder="Nome da região (ex: Siriu)"
+            />
+          </div>
+          <input
+            type="file"
+            id="dxfFileInput"
+            accept=".dxf"
+            style="display: none"
+          />
+          <div class="btn-row" style="margin-top: var(--space-xs)">
+            <button type="button" id="dxfUploadBtn" class="btn-secondary">
+              Carregar região DXF
+            </button>
+          </div>
+          <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
+        </div>
+        <button
+          type="button"
+          id="secondAnchorToggle"
+          class="btn-secondary btn-compact"
+          aria-expanded="false"
+          aria-controls="secondAnchorPanel"
+        >
+          Melhorar precisão com segundo ponto
+        </button>
+        <div id="secondAnchorPanel" hidden>
+          <label for="gpsInputLast"
+            >Coordenadas do último poste (opcional)</label
+          >
+          <input
+            type="text"
+            id="gpsInputLast"
+            placeholder="-27.659066, -48.702999"
+          />
+        </div>
+        <div class="btn-row">
+          <button type="button" id="calcBtn" class="btn-primary">
+            Calcular rota
           </button>
         </div>
-        <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
-      </div>
-      <button
-        type="button"
-        id="secondAnchorToggle"
-        class="btn-secondary btn-compact"
-        aria-expanded="false"
-        aria-controls="secondAnchorPanel"
-      >
-        Melhorar precisão com segundo ponto
-      </button>
-      <div id="secondAnchorPanel" hidden>
-        <label for="gpsInputLast"
-          >Coordenadas do último poste (opcional)</label
-        >
-        <input
-          type="text"
-          id="gpsInputLast"
-          placeholder="-27.659066, -48.702999"
-        />
-      </div>
-      <div class="btn-row">
-        <button type="button" id="calcBtn" class="btn-primary">
-          Calcular rota
-        </button>
-      </div>
-      <div id="coordWarning"></div>
+        <div id="coordWarning"></div>
       </section>
     </div>
 
@@ -627,54 +632,54 @@
       <div class="appearance-settings">
         <h3>Aparência do KMZ</h3>
         <div class="appearance-grid">
-      <div class="appearance-group" id="appearanceIconColor">
-        <label>Cor do ícone dos postes</label>
-        <div
-          class="swatch-row"
-          data-target="iconColor"
-          role="radiogroup"
-          aria-label="Cor do ícone dos postes"
-        ></div>
-      </div>
-      <div class="appearance-group" id="appearanceLineColor">
-        <label>Cor da linha da rota</label>
-        <div
-          class="swatch-row"
-          data-target="lineColor"
-          role="radiogroup"
-          aria-label="Cor da linha da rota"
-        ></div>
-      </div>
-      <div class="appearance-group appearance-line-width">
-        <label for="lineWidthSelect">Espessura da linha</label>
-        <select id="lineWidthSelect"></select>
-      </div>
-      <div class="appearance-group" id="appearanceLabelColor">
-        <label>Cor dos rótulos</label>
-        <div
-          class="swatch-row"
-          data-target="labelColor"
-          role="radiogroup"
-          aria-label="Cor dos rótulos"
-        ></div>
-      </div>
-      <div class="appearance-group appearance-label-scale">
-        <label for="labelScaleSelect">Tamanho dos rótulos</label>
-        <select id="labelScaleSelect">
-          <option value="0.8">0.8</option>
-          <option value="1" selected>1</option>
-          <option value="1.2">1.2</option>
-          <option value="1.5">1.5</option>
-        </select>
-      </div>
-      <div class="appearance-group appearance-description">
-        <label for="lineDescriptionInput">Observação da rota</label>
-        <textarea
-          id="lineDescriptionInput"
-          rows="2"
-          placeholder="Observação opcional exibida na linha da rota no Google Earth"
-        ></textarea>
-      </div>
+          <div class="appearance-group" id="appearanceIconColor">
+            <label>Cor do ícone dos postes</label>
+            <div
+              class="swatch-row"
+              data-target="iconColor"
+              role="radiogroup"
+              aria-label="Cor do ícone dos postes"
+            ></div>
+          </div>
+          <div class="appearance-group" id="appearanceLineColor">
+            <label>Cor da linha da rota</label>
+            <div
+              class="swatch-row"
+              data-target="lineColor"
+              role="radiogroup"
+              aria-label="Cor da linha da rota"
+            ></div>
+          </div>
+          <div class="appearance-group appearance-line-width">
+            <label for="lineWidthSelect">Espessura da linha</label>
+            <select id="lineWidthSelect"></select>
+          </div>
+          <div class="appearance-group" id="appearanceLabelColor">
+            <label>Cor dos rótulos</label>
+            <div
+              class="swatch-row"
+              data-target="labelColor"
+              role="radiogroup"
+              aria-label="Cor dos rótulos"
+            ></div>
+          </div>
+          <div class="appearance-group appearance-label-scale">
+            <label for="labelScaleSelect">Tamanho dos rótulos</label>
+            <select id="labelScaleSelect">
+              <option value="0.8">0.8</option>
+              <option value="1" selected>1</option>
+              <option value="1.2">1.2</option>
+              <option value="1.5">1.5</option>
+            </select>
+          </div>
+          <div class="appearance-group appearance-description">
+            <label for="lineDescriptionInput">Observação da rota</label>
+            <textarea
+              id="lineDescriptionInput"
+              rows="2"
+              placeholder="Observação opcional exibida na linha da rota no Google Earth"
+            ></textarea>
+          </div>
         </div>
       </div>
       <div style="margin-top: var(--space-md)">
@@ -786,6 +791,20 @@
           for (const v of values) sum += v;
           return sum;
         };
+      }
+    </script>
+
+    <!-- UMD build sets globalThis.DxfParser for the browser import-map shim -->
+    <script src="./node_modules/dxf-parser/dist/dxf-parser.js"></script>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "idb": "./node_modules/idb/build/index.js",
+          "rbush": "./node_modules/rbush/index.js",
+          "quickselect": "./node_modules/quickselect/index.js",
+          "dxf-parser": "./parser/dwg/dxf-parser-shim.js"
+        }
       }
     </script>
 
@@ -1251,10 +1270,7 @@
       async function handlePdfFile(file) {
         if (!file) return;
         if (!isPdfFile(file)) {
-          showStatus(
-            "Escolha um arquivo PDF com extensão .pdf.",
-            "error",
-          );
+          showStatus("Escolha um arquivo PDF com extensão .pdf.", "error");
           return;
         }
         if (file.size > 50 * 1024 * 1024) {
