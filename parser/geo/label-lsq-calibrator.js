@@ -1555,6 +1555,58 @@ export function snapOffCableAuxiliaryPostsByLabelBracket(
   return adjustedNums;
 }
 
+/**
+ * Snap on-cable route posts to the label bracket interpolation between neighbors when
+ * the current chord lengths don't match labels (e.g. post 8 on João Born page 3).
+ *
+ * @returns {number[]} post numbers whose PDF position was adjusted
+ */
+export function snapRoutePostsPdfByLabelBracket(
+  sortedPosts,
+  distMap,
+  cablesByPage,
+  warnings,
+  opts = {},
+) {
+  if (!cablesByPage?.size) return [];
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(sorted.map((p) => [p.number, p]));
+  const adjustedNums = [];
+
+  const byPage = new Map();
+  for (const p of sorted) {
+    if (p.pageNum == null) continue;
+    if (!byPage.has(p.pageNum)) byPage.set(p.pageNum, []);
+    byPage.get(p.pageNum).push(p);
+  }
+
+  for (const postsOnPage of byPage.values()) {
+    postsOnPage.sort((a, b) => a.number - b.number);
+    for (let i = 1; i < postsOnPage.length - 1; i++) {
+      const prev = postsOnPage[i - 1];
+      const post = postsOnPage[i];
+      const next = postsOnPage[i + 1];
+      if (post.number !== prev.number + 1 || next.number !== post.number + 1) continue;
+
+      if (opts.requireOnCableNeighbors) {
+        if (
+          isAuxiliaryRoutePost(prev, postByNum, cablesByPage) ||
+          isAuxiliaryRoutePost(next, postByNum, cablesByPage)
+        ) {
+          continue;
+        }
+      }
+      if (isAuxiliaryRoutePost(post, postByNum, cablesByPage)) continue;
+
+      if (tryLabelBracketPdfSnap(prev, post, next, distMap, warnings)) {
+        adjustedNums.push(post.number);
+      }
+    }
+  }
+
+  return adjustedNums;
+}
+
 const GPS_PAST_AUX_MAX_DOWNSTREAM = 5;
 const GPS_PAST_AUX_MIN_GAP_M = 5;
 const GPS_PAST_AUX_PER_POST_RMSE_M = 1.25;

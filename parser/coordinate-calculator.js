@@ -35,6 +35,7 @@ import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
   snapOffCableAuxiliaryPostsByLabelBracket,
+  snapRoutePostsPdfByLabelBracket,
   refineGpsPastAuxiliaryPostsOnAnchorPage,
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
@@ -1750,13 +1751,21 @@ export function calculateCoordinates(
 
     if (augDistMapForSeams?.size && cableSegments?.length) {
       const auxSnapCables = buildCablesByPage(cableSegments);
-      const snappedNums = snapOffCableAuxiliaryPostsByLabelBracket(
+      const snappedAuxNums = snapOffCableAuxiliaryPostsByLabelBracket(
         sorted,
         augDistMapForSeams,
         auxSnapCables,
         warnings,
         { requireOnCableNeighbors: true },
       );
+      const snappedRouteNums = snapRoutePostsPdfByLabelBracket(
+        sorted,
+        augDistMapForSeams,
+        auxSnapCables,
+        warnings,
+        { requireOnCableNeighbors: true },
+      );
+      const snappedNums = [...new Set([...snappedAuxNums, ...snappedRouteNums])];
       if (snappedNums.length > 0) {
         for (const num of snappedNums) {
           const post = postMap.get(num);
@@ -1767,7 +1776,7 @@ export function calculateCoordinates(
           post.lon = lon;
         }
         warnings.push(
-          `[label-lsq] Off-cable auxiliary post(s) ${snappedNums.join(", ")} snapped ` +
+          `[label-lsq] Post(s) ${snappedNums.join(", ")} snapped ` +
             `along on-cable neighbor brackets (post-corridor GPS reproject).`,
         );
       }
