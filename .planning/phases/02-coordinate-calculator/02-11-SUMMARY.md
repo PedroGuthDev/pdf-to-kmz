@@ -17,7 +17,8 @@ key_files:
     - parser/__tests__/region-pairing.test.mjs
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "17871d3 test(02-11): add DWG region pairing suite"
 ---
 
 # Phase 2 Plan 11: DWG pairing unit tests — Summary
