@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 04
-stopped_at: Phase 04 UI-SPEC approved
-last_updated: "2026-05-26T15:55:00.392Z"
+stopped_at: Phase 02 DWG iteration context gathered
+last_updated: "2026-05-27T17:45:19.636Z"
 last_activity: 2026-05-26
 progress:
   total_phases: 4
@@ -47,14 +47,14 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Last Session
 
-- **Stopped at:** Phase 04 UI-SPEC approved
+- **Stopped at:** Phase 02 DWG iteration context gathered
 - **Next:** New iteration beyond 02-07 — posts 9-11 need approach that beats 12.34m Procrustes floor (split-region label-RMSE metric insufficient)
 
 ## Session Continuity
 
-Last session: 2026-05-26T14:05:24.044Z
+Last session: 2026-05-27T17:45:19.325Z
 Stopped at: Discussion of posts 9-11 improvement; context written
-Resume file: .planning/phases/04-web-ui-integration/04-UI-SPEC.md
+Resume file: .planning/phases/02-coordinate-calculator/02-DWG-CONTEXT.md
 Accuracy: João Born 22/34 < 5m, max 18.97m (posts 9-11 at 15-19m); Valmor 9/11 < 5m, max 9.14m.
 
 ## Active Decisions
