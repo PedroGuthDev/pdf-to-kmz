@@ -4,16 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PDF para KMZ</title>
-    <script type="importmap">
-      {
-        "imports": {
-          "idb": "/node_modules/idb/build/index.js",
-          "rbush": "/node_modules/rbush/index.js",
-          "quickselect": "/node_modules/quickselect/index.js",
-          "dxf-parser": "/node_modules/dxf-parser/dist/index.js"
-        }
-      }
-    </script>
     <style>
       :root {
         --canvas: #f7f5f1;
@@ -824,13 +814,18 @@
         mergeOptions,
         CALC_PIPELINE_ID,
       } from "./parser/pdf-parser.js";
-      import { calculateCoordinatesWithDwg } from "./parser/dwg/coordinate-calculator-dwg.js";
-      import { createRegionLibrary } from "./parser/dwg/region-library.js";
+      import {
+        calculateCoordinatesWithDwg,
+        createRegionLibrary,
+      } from "./dist/dwg.bundle.js";
       import { PRESET_COLORS, DEFAULT_OPTIONS } from "./parser/kmz-defaults.js";
       import {
         computeScaleFactor,
         buildPageTransforms,
       } from "./parser/geo/utm-calibrator.js";
+
+      // Share PDF calculator with the DWG bundle (see parser/dwg/coordinate-calculator-dwg.js).
+      globalThis.__pdfToKmzCalculateCoordinates = calculateCoordinates;
 
       // ── DWG Region Library ──────────────────────────────────────────────────
       const regionLibrary = createRegionLibrary(); // uses browser IndexedDB
