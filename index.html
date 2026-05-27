@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF to KMZ</title>
+    <title>PDF para KMZ</title>
     <style>
       :root {
         --canvas: #f7f5f1;
@@ -457,19 +457,19 @@
     </style>
   </head>
   <body>
-    <h1>PDF to KMZ</h1>
+    <h1>PDF para KMZ</h1>
     <p class="lede">
-      Upload an INFOVIAS route PDF, anchor post #1 in GPS, customize how it
-      looks in Google Earth, then download a KMZ file.
+      Envie o PDF de rota INFOVIAS, informe o GPS do poste 1, ajuste a
+      aparência no Google Earth e baixe o arquivo KMZ.
     </p>
 
-    <section id="uploadSection" aria-label="Upload PDF">
+    <section id="uploadSection" aria-label="Enviar PDF">
       <div id="uploadZone">
-        <p><strong>Upload route PDF</strong></p>
-        <p class="hint">Drag a file here or choose Browse.</p>
+        <p><strong>Envie o PDF da rota</strong></p>
+        <p class="hint">Arraste o arquivo para cá ou clique em Procurar.</p>
         <input type="file" id="pdfInput" accept=".pdf" hidden />
         <button type="button" id="browsePdfBtn" class="btn-secondary">
-          Browse
+          Procurar
         </button>
       </div>
       <div id="uploadSelected" hidden>
@@ -479,7 +479,7 @@
           id="changeFileBtn"
           class="btn-secondary btn-compact"
         >
-          Change file
+          Trocar arquivo
         </button>
       </div>
     </section>
@@ -487,16 +487,16 @@
     <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="summary" class="panel">
-      <strong>Parse results:</strong>
+      <strong>Leitura do PDF:</strong>
       <ul id="summaryList"></ul>
     </div>
 
     <section id="coordForm">
-      <h2>Step 2: Enter First Post Coordinates</h2>
+      <h2>Etapa 2: informe as coordenadas do primeiro poste</h2>
       <p>
-        Provide the GPS coordinates for post #1 to calculate the entire route.
+        Use as coordenadas GPS do poste 1 para calcular toda a rota.
       </p>
-      <label for="gpsInput">Post #1 Coordinates (Lat, Lon):</label>
+      <label for="gpsInput">Coordenadas do poste 1 (lat, lon)</label>
       <div class="field-row">
         <input
           type="text"
@@ -512,11 +512,11 @@
         aria-expanded="false"
         aria-controls="secondAnchorPanel"
       >
-        Improve accuracy (2nd anchor)
+        Melhorar precisão com segundo ponto
       </button>
       <div id="secondAnchorPanel" hidden>
         <label for="gpsInputLast"
-          >Last Post Coordinates (optional, improves accuracy)</label
+          >Coordenadas do último poste (opcional)</label
         >
         <input
           type="text"
@@ -524,40 +524,40 @@
           placeholder="-27.659066, -48.702999"
         />
       </div>
-      <h3>KMZ appearance</h3>
+      <h3>Aparência do KMZ</h3>
       <div class="appearance-group" id="appearanceIconColor">
-        <label>Post icon color</label>
+        <label>Cor do ícone dos postes</label>
         <div
           class="swatch-row"
           data-target="iconColor"
           role="radiogroup"
-          aria-label="Post icon color"
+          aria-label="Cor do ícone dos postes"
         ></div>
       </div>
       <div class="appearance-group" id="appearanceLineColor">
-        <label>Route line color</label>
+        <label>Cor da linha da rota</label>
         <div
           class="swatch-row"
           data-target="lineColor"
           role="radiogroup"
-          aria-label="Route line color"
+          aria-label="Cor da linha da rota"
         ></div>
       </div>
       <div class="appearance-group">
-        <label for="lineWidthSelect">Line width</label>
+        <label for="lineWidthSelect">Espessura da linha</label>
         <select id="lineWidthSelect"></select>
       </div>
       <div class="appearance-group" id="appearanceLabelColor">
-        <label>Label color</label>
+        <label>Cor dos rótulos</label>
         <div
           class="swatch-row"
           data-target="labelColor"
           role="radiogroup"
-          aria-label="Label color"
+          aria-label="Cor dos rótulos"
         ></div>
       </div>
       <div class="appearance-group">
-        <label for="labelScaleSelect">Label scale</label>
+        <label for="labelScaleSelect">Tamanho dos rótulos</label>
         <select id="labelScaleSelect">
           <option value="0.8">0.8</option>
           <option value="1" selected>1</option>
@@ -566,45 +566,45 @@
         </select>
       </div>
       <div class="appearance-group">
-        <label for="lineDescriptionInput">Route note</label>
+        <label for="lineDescriptionInput">Observação da rota</label>
         <textarea
           id="lineDescriptionInput"
           rows="2"
-          placeholder="Optional note shown in Google Earth for the route line"
+          placeholder="Observação opcional exibida na linha da rota no Google Earth"
         ></textarea>
       </div>
       <div class="btn-row">
         <button type="button" id="calcBtn" class="btn-primary">
-          Calculate Route
+          Calcular rota
         </button>
       </div>
       <p id="coordHint" class="hint">
-        Paste latitude and longitude for post #1. Brazil bounds are checked;
-        invalid format is rejected before calculation.
+        Cole latitude e longitude do poste 1. O formato é validado antes do
+        cálculo, e coordenadas fora do Brasil geram um aviso.
       </p>
       <div id="coordWarning"></div>
     </section>
 
     <section id="resultSection" class="section-gap" style="display: none">
-      <h2>Step 3: Output</h2>
-      <p>Preview of calculated posts (up to first 10):</p>
+      <h2>Etapa 3: gerar KMZ</h2>
+      <p>Prévia dos postes calculados, até os 10 primeiros:</p>
       <pre id="outputPreview"></pre>
       <div style="margin-top: var(--space-md)">
-        <label for="kmzFilenameInput">KMZ filename (optional)</label>
+        <label for="kmzFilenameInput">Nome do arquivo KMZ (opcional)</label>
         <input
           type="text"
           id="kmzFilenameInput"
-          placeholder="Uses PDF name if empty"
+          placeholder="Se ficar vazio, usa o nome do PDF"
           style="margin-bottom: var(--space-sm)"
         />
         <button type="button" id="downloadKmzBtn" class="btn-primary" disabled>
-          Download KMZ
+          Baixar KMZ
         </button>
         <p class="hint" id="downloadKmzHint">
-          Run Calculate Route with valid coordinates first.
+          Calcule a rota com coordenadas válidas antes de baixar.
         </p>
         <div id="kmzStats" class="panel" style="display: none">
-          <strong>KMZ contents</strong>
+          <strong>Conteúdo do KMZ</strong>
           <p id="kmzStatsBody"></p>
           <p id="kmzStatsOmitted" style="display: none"></p>
         </div>
@@ -873,7 +873,7 @@
         lastCalcResult = null;
         downloadKmzBtn.disabled = true;
         downloadKmzBtn.removeAttribute("aria-busy");
-        downloadKmzBtn.textContent = "Download KMZ";
+        downloadKmzBtn.textContent = "Baixar KMZ";
         downloadKmzHint.style.display = "block";
         kmzStats.style.display = "none";
         kmzStatsBody.textContent = "";
@@ -895,11 +895,11 @@
       function resolveKmzFilename(userInput, pdfFileName) {
         let base = (userInput || "").trim();
         if (!base) {
-          base = (pdfFileName || "route").replace(/\.pdf$/i, "");
+          base = (pdfFileName || "rota").replace(/\.pdf$/i, "");
         }
         base =
           base.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^\.+/, "") ||
-          "route";
+          "rota";
         if (!/\.kmz$/i.test(base)) base += ".kmz";
         return base;
       }
@@ -1083,14 +1083,14 @@
         if (!file) return;
         if (!isPdfFile(file)) {
           showStatus(
-            "Please choose a PDF file (.pdf extension or application/pdf type).",
+            "Escolha um arquivo PDF com extensão .pdf.",
             "error",
           );
           return;
         }
         if (file.size > 50 * 1024 * 1024) {
           showStatus(
-            "File exceeds 50 MB limit. Please select a smaller PDF.",
+            "O arquivo passa de 50 MB. Selecione um PDF menor.",
             "error",
           );
           return;
@@ -1105,7 +1105,7 @@
         try {
           buf = await file.arrayBuffer();
         } catch (err) {
-          showStatus("Could not read file: " + err.message, "error");
+          showStatus("Não foi possível ler o arquivo: " + err.message, "error");
           setParsingUi(false);
           return;
         }
@@ -1116,7 +1116,7 @@
             onProgress: ({ message }) => showStatus(message, "info"),
           });
         } catch (err) {
-          showStatus("Unexpected error: " + err.message, "error");
+          showStatus("Erro inesperado: " + err.message, "error");
           return;
         } finally {
           setParsingUi(false);
@@ -1126,9 +1126,9 @@
           const missingStr = result.missing.join(", ");
           const availableStr = result.allNames.join(", ");
           showStatus(
-            "Missing PDF layers: " +
+            "Camadas obrigatórias não encontradas no PDF: " +
               missingStr +
-              ". Available layers: " +
+              ". Camadas disponíveis: " +
               availableStr,
             "error",
           );
@@ -1136,18 +1136,18 @@
         }
 
         if (result.error === "parse_failed") {
-          showStatus("Parse failed: " + result.message, "error");
+          showStatus("Não foi possível ler o PDF: " + result.message, "error");
           showWarnings(result.warnings);
           return;
         }
 
-        showStatus("Parse complete.", "success");
+        showStatus("PDF lido com sucesso.", "success");
 
         summaryList.innerHTML = "";
         const summaryData = [
-          "Posts found: " + result.posts.length,
-          "Distances found: " + result.distances.length,
-          "Cable segments found: " + result.cableSegments.length,
+          "Postes encontrados: " + result.posts.length,
+          "Distâncias encontradas: " + result.distances.length,
+          "Trechos de cabo encontrados: " + result.cableSegments.length,
         ];
         for (const text of summaryData) {
           const li = document.createElement("li");
@@ -1232,7 +1232,7 @@
 
         if (!parsed) {
           coordWarning.textContent =
-            "Invalid coordinate format. Try e.g. -27.645312, -48.671234";
+            "Formato inválido. Use latitude e longitude, por exemplo: -27.645312, -48.671234";
           coordWarning.style.display = "block";
           return;
         }
@@ -1242,12 +1242,13 @@
 
         if (!boundsCheck.valid) {
           // D-15: Show warning but do not reject
-          coordWarning.textContent = "Warning: " + boundsCheck.message;
+          coordWarning.textContent = "Aviso: " + boundsCheck.message;
           coordWarning.style.display = "block";
         }
 
         if (!currentParseData || !currentParseData.posts.length) {
-          coordWarning.textContent = "No parsed posts available.";
+          coordWarning.textContent =
+            "Nenhum poste foi lido ainda. Envie um PDF antes de calcular.";
           coordWarning.style.display = "block";
           return;
         }
@@ -1260,7 +1261,7 @@
             : null;
         if (lastInputVal && lastInputVal.trim() && !lastParsed) {
           coordWarning.textContent =
-            "Last post coordinate format invalid — proceeding with single anchor.";
+            "As coordenadas do último poste estão em formato inválido. O cálculo seguirá apenas com o poste 1.";
           coordWarning.style.display = "block";
         }
 
@@ -1327,14 +1328,14 @@
         // Display preview
         resultSection.style.display = "block";
 
-        const summaryText = `\nConnections: ${connections.length} (${gaps} gaps, ${branchStarts} branch junctions)\n`;
+        const summaryText = `\nConexões: ${connections.length} (${gaps} lacunas, ${branchStarts} ramificações)\n`;
 
         const preview = calculatedPosts
           .slice(0, 10)
           .map((p) => {
-            const latStr = p.lat != null ? p.lat.toFixed(6) : "N/A";
-            const lonStr = p.lon != null ? p.lon.toFixed(6) : "N/A";
-            return `Post ${String(p.number).padStart(2, "0")}: ${latStr}, ${lonStr} ${p.postType ? "(" + p.postType + ")" : ""}`;
+            const latStr = p.lat != null ? p.lat.toFixed(6) : "sem GPS";
+            const lonStr = p.lon != null ? p.lon.toFixed(6) : "sem GPS";
+            return `Poste ${String(p.number).padStart(2, "0")}: ${latStr}, ${lonStr} ${p.postType ? "(" + p.postType + ")" : ""}`;
           })
           .join("\n");
 
@@ -1342,7 +1343,7 @@
           summaryText +
           preview +
           (calculatedPosts.length > 10
-            ? "\n... and " + (calculatedPosts.length - 10) + " more"
+            ? "\n... e mais " + (calculatedPosts.length - 10)
             : "");
 
         lastCalcResult = {
@@ -1356,7 +1357,7 @@
         downloadKmzBtn.disabled = placemarkEligible === 0;
         downloadKmzHint.style.display =
           placemarkEligible === 0 ? "block" : "none";
-        downloadKmzBtn.textContent = "Download KMZ";
+        downloadKmzBtn.textContent = "Baixar KMZ";
         downloadKmzBtn.removeAttribute("aria-busy");
       });
 
@@ -1368,7 +1369,7 @@
         ).length;
         downloadKmzBtn.disabled = true;
         downloadKmzBtn.setAttribute("aria-busy", "true");
-        downloadKmzBtn.textContent = "Building KMZ…";
+        downloadKmzBtn.textContent = "Gerando KMZ...";
 
         try {
           const opts = mergeOptions(readAppearanceOptions());
@@ -1380,7 +1381,7 @@
 
           if (stats.placemarkCount === 0) {
             showStatus(
-              "No posts with GPS — fix coordinates and recalculate.",
+              "Nenhum poste tem GPS. Corrija as coordenadas e calcule novamente.",
               "error",
             );
             return;
@@ -1401,12 +1402,12 @@
           a.click();
           a.remove();
 
-          kmzStatsBody.textContent = `${stats.placemarkCount} post placemarks · ${stats.lineCount} route lines`;
+          kmzStatsBody.textContent = `${stats.placemarkCount} postes no mapa. ${stats.lineCount} linhas de rota.`;
           if (stats.omittedNoGps > 0) {
-            kmzStatsOmitted.textContent = `${stats.omittedNoGps} posts omitted (no GPS coordinates).`;
+            kmzStatsOmitted.textContent = `${stats.omittedNoGps} postes ficaram fora do KMZ porque não têm coordenadas GPS.`;
             kmzStatsOmitted.style.display = "block";
             const li = document.createElement("li");
-            li.textContent = `[kmz] ${stats.omittedNoGps} posts omitted (no GPS coordinates).`;
+            li.textContent = `[kmz] ${stats.omittedNoGps} postes sem coordenadas GPS ficaram fora do KMZ.`;
             warningsList.appendChild(li);
             warningsEl.style.display = "block";
           } else {
@@ -1420,15 +1421,15 @@
             warningsEl.style.display = "block";
           }
           kmzStats.style.display = "block";
-          showStatus("KMZ ready — open in Google Earth.", "success");
+          showStatus("KMZ pronto. Abra o arquivo no Google Earth.", "success");
         } catch (err) {
           const msg = String(err?.message || err);
           const statusMsg = /package|zip/i.test(msg)
-            ? `Could not package KMZ file: ${msg}`
-            : `Could not build KMZ: ${msg}`;
+            ? `Não foi possível empacotar o KMZ: ${msg}`
+            : `Não foi possível gerar o KMZ: ${msg}`;
           showStatus(statusMsg, "error");
         } finally {
-          downloadKmzBtn.textContent = "Download KMZ";
+          downloadKmzBtn.textContent = "Baixar KMZ";
           downloadKmzBtn.removeAttribute("aria-busy");
           downloadKmzBtn.disabled = placemarkEligible === 0;
         }
@@ -1611,7 +1612,7 @@
 
     <footer class="page-footer">
       <button type="button" id="startOverBtn" class="link-btn">
-        Start over
+        Recomeçar
       </button>
       ·
       <button type="button" id="devToolsToggle" class="link-btn">

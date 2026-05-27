@@ -322,7 +322,7 @@ export function validateBrazilBounds(lat, lon) {
   }
   return {
     valid: false,
-    message: "Coordinates outside Brazil bounds (lat -34 to 5, lon -74 to -35)",
+    message: "Coordenadas fora dos limites do Brasil (lat -34 a 5, lon -74 a -35)",
   };
 }
 

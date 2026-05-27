@@ -271,7 +271,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       ).href;
     }
     // ── Load PDF ────────────────────────────────────────────────────────────
-    onProgress?.({ stage: "loading", message: "Loading PDF…" });
+    onProgress?.({ stage: "loading", message: "Carregando PDF..." });
     const pdfDoc = await pdfjsLib.getDocument(docOpts).promise;
 
     // ── Build OCG layer map ──────────────────────────────────────────────────
@@ -338,7 +338,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         stage: "pages",
         pageNum,
         numPages: pdfDoc.numPages,
-        message: `Reading page ${pageNum} of ${pdfDoc.numPages}…`,
+        message: `Lendo página ${pageNum} de ${pdfDoc.numPages}...`,
       });
       const page = await pdfDoc.getPage(pageNum);
       const pageHeight = page.view[3]; // PDF points
@@ -576,7 +576,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     const calibratedPageNums = pairedViewportBoxes.map((v) => v.pageNum);
     const calibratedPageSet = new Set(calibratedPageNums);
 
-    onProgress?.({ stage: "ocr", message: "Reading post numbers…" });
+    onProgress?.({ stage: "ocr", message: "Lendo números dos postes..." });
     const allOcrResults = [];
     for (const batch of pendingOcrBatches) {
       const pageNum = batch.circles[0]?.pageNum;
