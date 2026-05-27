@@ -4,7 +4,7 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
-import { attachMarkerAnchors } from './post-positioning.js';
+import { attachMarkerAnchors } from "./post-positioning.js";
 
 // ~200 pt: Poste anchors are often on the label block, not at the circle centroid.
 export const PROXIMITY_THRESHOLD = 200;
@@ -32,7 +32,7 @@ function distance2D(a, b) {
  * @returns {{ x: number, y: number }}
  */
 function textAnchor(t) {
-  const w = typeof t.width === 'number' && t.width > 0 ? t.width : 0;
+  const w = typeof t.width === "number" && t.width > 0 ? t.width : 0;
   return { x: w > 0 ? t.x + w * 0.5 : t.x, y: t.y };
 }
 
@@ -54,7 +54,7 @@ function textAnchor(t) {
 export function assemblePostData(textoItems, circles, warnings = []) {
   const posts = [];
 
-  const digitItems = textoItems.filter(t => {
+  const digitItems = textoItems.filter((t) => {
     const s = t.str.trim();
     return /^\d{1,3}$/.test(s) && parseInt(s, 10) >= 1;
   });
@@ -78,7 +78,9 @@ export function assemblePostData(textoItems, circles, warnings = []) {
         if (usedCircle.has(ci)) continue;
         const d = distance2D(anchor, circles[ci]);
         const crossPagePenalty =
-          (text.pageNum != null && circles[ci].pageNum != null && text.pageNum !== circles[ci].pageNum)
+          text.pageNum != null &&
+          circles[ci].pageNum != null &&
+          text.pageNum !== circles[ci].pageNum
             ? CROSS_PAGE_PENALTY
             : 0;
         const score = d + crossPagePenalty;
@@ -95,8 +97,12 @@ export function assemblePostData(textoItems, circles, warnings = []) {
 
     const text = digitItems[bestTi];
     const trimmed = text.str.trim();
-    console.debug(`[postAssembler] "${trimmed}" → circle ${bestCi}: ${bestDist.toFixed(1)} pt` +
-      (bestScore > bestDist ? ` (cross-page, score=${bestScore.toFixed(0)})` : ''));
+    console.debug(
+      `[postAssembler] "${trimmed}" → circle ${bestCi}: ${bestDist.toFixed(1)} pt` +
+        (bestScore > bestDist
+          ? ` (cross-page, score=${bestScore.toFixed(0)})`
+          : ""),
+    );
 
     usedText.add(bestTi);
     usedCircle.add(bestCi);
@@ -126,7 +132,7 @@ export function assemblePostData(textoItems, circles, warnings = []) {
     warnings.push(
       `Post number "${trimmed}" at (${anchor.x.toFixed(1)}, ${anchor.y.toFixed(1)}) ` +
         `has no nearby circle within ${PROXIMITY_THRESHOLD} PDF points` +
-        (nearestIdx !== -1 ? ` (nearest: ${nearestDist.toFixed(1)} pt)` : '')
+        (nearestIdx !== -1 ? ` (nearest: ${nearestDist.toFixed(1)} pt)` : ""),
     );
   }
 
@@ -142,7 +148,7 @@ export function assemblePostData(textoItems, circles, warnings = []) {
  */
 export function deduplicatePosts(allPosts) {
   const seen = new Set();
-  const deduped = allPosts.filter(p => {
+  const deduped = allPosts.filter((p) => {
     if (seen.has(p.number)) return false;
     seen.add(p.number);
     return true;
@@ -165,7 +171,10 @@ export function deduplicatePosts(allPosts) {
  * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} allPosts
  * @param {number[] | null} [calibratedPageNums]
  */
-export function deduplicatePostsPreferLowerPage(allPosts, calibratedPageNums = null) {
+export function deduplicatePostsPreferLowerPage(
+  allPosts,
+  calibratedPageNums = null,
+) {
   const calSet = calibratedPageNums ? new Set(calibratedPageNums) : null;
   const byNum = new Map();
   for (const p of allPosts) {
@@ -175,7 +184,7 @@ export function deduplicatePostsPreferLowerPage(allPosts, calibratedPageNums = n
       byNum.set(n, p);
       continue;
     }
-    const score = post => {
+    const score = (post) => {
       const pg = post.pageNum ?? 0;
       if (calSet) return calSet.has(pg) ? 1000 + pg : pg;
       return pg;
@@ -202,14 +211,17 @@ export function applyPosteHintPositions(ocrResults, posteHints) {
     const pg = circle.pageNum ?? 1;
     for (let hi = 0; hi < posteHints.length; hi++) {
       if ((posteHints[hi].pageNum ?? 1) !== pg) continue;
-      const d = Math.hypot(posteHints[hi].x - circle.x, posteHints[hi].y - circle.y);
+      const d = Math.hypot(
+        posteHints[hi].x - circle.x,
+        posteHints[hi].y - circle.y,
+      );
       if (d < POSTE_POSITION_MAX_PT) candidates.push({ ri, hi, d });
     }
   }
   candidates.sort((a, b) => a.d - b.d);
   const usedResult = new Set();
   const usedHint = new Set();
-  const out = ocrResults.map(r => ({ ...r, circle: { ...r.circle } }));
+  const out = ocrResults.map((r) => ({ ...r, circle: { ...r.circle } }));
   for (const { ri, hi } of candidates) {
     if (usedResult.has(ri) || usedHint.has(hi)) continue;
     out[ri].circle.x = posteHints[hi].x;
@@ -220,7 +232,78 @@ export function applyPosteHintPositions(ocrResults, posteHints) {
   return out;
 }
 
-export { assignPostsByRouteOrder, attachMarkerAnchors } from './post-positioning.js';
+export {
+  assignPostsByRouteOrder,
+  attachMarkerAnchors,
+} from "./post-positioning.js";
+
+/** Same sort key as assemblePostsFromOcr (page → x → y). */
+function sortPostsByRouteOrder(posts) {
+  return [...posts].sort((a, b) => {
+    const pd = (a.pageNum ?? 1) - (b.pageNum ?? 1);
+    if (pd !== 0) return pd;
+    const dx = a.x - b.x;
+    if (Math.abs(dx) > 10) return dx;
+    return a.y - b.y;
+  });
+}
+
+/**
+ * When two circles share the same post number, renumber the lower-priority copy
+ * to the missing integer between its spatial neighbors (e.g. duplicate 49 + 49 → 49 + 50).
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} posts
+ * @param {string[]} [warnings]
+ */
+export function resolveDuplicatePostNumbers(posts, warnings = []) {
+  const used = new Set(posts.map((p) => p.number));
+  const byNum = new Map();
+  for (const p of posts) {
+    if (!byNum.has(p.number)) byNum.set(p.number, []);
+    byNum.get(p.number).push(p);
+  }
+
+  const sorted = sortPostsByRouteOrder(posts);
+  const indexOf = new Map(sorted.map((p, i) => [p, i]));
+
+  for (const [num, group] of byNum) {
+    if (group.length <= 1) continue;
+    group.sort((a, b) => (b.pageNum ?? 0) - (a.pageNum ?? 0));
+    for (let k = 1; k < group.length; k++) {
+      const p = group[k];
+      const idx = indexOf.get(p) ?? -1;
+      let newNum = null;
+
+      const prev = idx > 0 ? sorted[idx - 1] : null;
+      const next = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null;
+      if (prev && next && next.number > prev.number + 1) {
+        for (let m = prev.number + 1; m < next.number; m++) {
+          if (!used.has(m)) {
+            newNum = m;
+            break;
+          }
+        }
+      }
+      if (newNum == null) {
+        for (let m = 1; m <= posts.length; m++) {
+          if (!used.has(m)) {
+            newNum = m;
+            break;
+          }
+        }
+      }
+      if (newNum == null) continue;
+
+      warnings.push(
+        `Post at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) page ${p.pageNum ?? "?"}: ` +
+          `duplicate number ${num} renumbered to ${newNum}`,
+      );
+      used.add(newNum);
+      p.number = newNum;
+    }
+  }
+  return posts;
+}
 
 /**
  * Build posts[] from Tesseract.js OCR results.
@@ -240,8 +323,8 @@ export function assemblePostsFromOcr(ocrResults) {
     const pd = (a.circle.pageNum ?? 1) - (b.circle.pageNum ?? 1);
     if (pd !== 0) return pd;
     const dx = a.circle.x - b.circle.x;
-    if (Math.abs(dx) > 10) return dx;       // clearly distinct columns
-    return a.circle.y - b.circle.y;         // same column — top-to-bottom
+    if (Math.abs(dx) > 10) return dx; // clearly distinct columns
+    return a.circle.y - b.circle.y; // same column — top-to-bottom
   });
 
   // Upper bound on a real post number = total Numero_Poste circle count.
@@ -252,14 +335,53 @@ export function assemblePostsFromOcr(ocrResults) {
   const MAX_PLAUSIBLE_POST = ocrResults.length;
   const posts = [];
 
-  // Pre-compute which entries can serve as sequence-inference anchors:
-  // only OCR reads that pass the plausibility gate qualify. Without this,
-  // an implausible misread (e.g. number=46 on a 22-circle PDF) gets rejected
-  // by the main loop but is still picked up as `lower`/`upper` by the
-  // inference search below, poisoning every interpolated value.
-  const isAnchor = sorted.map(
-    r => r.number !== null && r.number >= 1 && r.number <= MAX_PLAUSIBLE_POST
+  // Pre-compute which entries can serve as sequence-inference anchors.
+  // Range-checking alone misses in-range OCR typos (70→40, 58→8, 50→30).
+  //
+  // Do NOT use broad spatial interpolation on multi-sheet PDFs — route order
+  // (page→x→y) is not numeric order, and that caused mass false rejections on Siriu.
+  //
+  // Narrow rule: if spatial neighbors read N and N+2, the middle circle must be N+1.
+  const inRange = sorted.map(
+    (r) => r.number !== null && r.number >= 1 && r.number <= MAX_PLAUSIBLE_POST,
   );
+
+  const nearestPrevInRangeIdx = (i) => {
+    for (let k = i - 1; k >= 0; k--) if (inRange[k]) return k;
+    return -1;
+  };
+  const nearestNextInRangeIdx = (i) => {
+    for (let k = i + 1; k < sorted.length; k++) if (inRange[k]) return k;
+    return -1;
+  };
+
+  /** True when OCR is clearly wrong in a tight N, ?, N+2 sandwich (e.g. 69, 40, 71). */
+  const isSandwichOutlier = (i) => {
+    const pi = nearestPrevInRangeIdx(i);
+    const ni = nearestNextInRangeIdx(i);
+    if (pi < 0 || ni < 0) return false;
+    const lo = sorted[pi].number;
+    const hi = sorted[ni].number;
+    if (hi - lo !== 2) return false;
+    const expected = lo + 1;
+    const n = sorted[i].number;
+    if (n === expected) return false;
+    return Math.abs(n - expected) >= 5;
+  };
+
+  const isAnchor = inRange.map((ok, i) => {
+    if (!ok) return false;
+    if (!isSandwichOutlier(i)) return true;
+    const pi = nearestPrevInRangeIdx(i);
+    const ni = nearestNextInRangeIdx(i);
+    const expected = sorted[pi].number + 1;
+    warnings.push(
+      `OCR at (${sorted[i].circle.x.toFixed(1)}, ${sorted[i].circle.y.toFixed(1)}) ` +
+        `page ${sorted[i].circle.pageNum ?? "?"}: rejected sandwich outlier ${sorted[i].number} ` +
+        `(expected ${expected} between ${sorted[pi].number} and ${sorted[ni].number})`,
+    );
+    return false;
+  });
 
   for (let i = 0; i < sorted.length; i++) {
     const { circle, number, ringCenter } = sorted[i];
@@ -268,11 +390,11 @@ export function assemblePostsFromOcr(ocrResults) {
       if (number < 1 || number > MAX_PLAUSIBLE_POST) {
         warnings.push(
           `OCR at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
-          `page ${circle.pageNum ?? '?'}: rejected implausible number ${number} ` +
-          `(valid range 1–${MAX_PLAUSIBLE_POST})`
+            `page ${circle.pageNum ?? "?"}: rejected implausible number ${number} ` +
+            `(valid range 1–${MAX_PLAUSIBLE_POST})`,
         );
         // fall through to sequence-inference block
-      } else {
+      } else if (isAnchor[i]) {
         posts.push({
           number,
           x: circle.x,
@@ -282,29 +404,43 @@ export function assemblePostsFromOcr(ocrResults) {
           ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
         });
         continue;
+      } else {
+        // in-range but locally inconsistent; fall through to sequence inference
       }
     }
 
     // OCR failed — infer from nearest plausible OCR anchors in sorted order (D-07).
     warnings.push(
       `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
-      `page ${circle.pageNum ?? '?'}: OCR failed — attempting sequence inference`
+        `page ${circle.pageNum ?? "?"}: OCR failed — attempting sequence inference`,
     );
 
-    let lower = null, lowerIdx = -1;
+    let lower = null,
+      lowerIdx = -1;
     for (let k = i - 1; k >= 0; k--) {
-      if (isAnchor[k]) { lower = sorted[k]; lowerIdx = k; break; }
+      if (isAnchor[k]) {
+        lower = sorted[k];
+        lowerIdx = k;
+        break;
+      }
     }
-    let upper = null, upperIdx = -1;
+    let upper = null,
+      upperIdx = -1;
     for (let k = i + 1; k < sorted.length; k++) {
-      if (isAnchor[k]) { upper = sorted[k]; upperIdx = k; break; }
+      if (isAnchor[k]) {
+        upper = sorted[k];
+        upperIdx = k;
+        break;
+      }
     }
 
     let inferred = null;
     if (lower && upper) {
       const span = upperIdx - lowerIdx;
       const offset = i - lowerIdx;
-      inferred = lower.number + Math.round((upper.number - lower.number) * (offset / span));
+      inferred =
+        lower.number +
+        Math.round((upper.number - lower.number) * (offset / span));
     } else if (lower) {
       inferred = lower.number + 1;
     } else if (upper) {
@@ -322,16 +458,17 @@ export function assemblePostsFromOcr(ocrResults) {
       });
       warnings.push(
         `Post ${inferred}: number inferred from sequence ` +
-        `(OCR failed at page ${circle.pageNum ?? '?'})`
+          `(OCR failed at page ${circle.pageNum ?? "?"})`,
       );
     } else {
       warnings.push(
         `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
-        `page ${circle.pageNum ?? '?'}: OCR failed and sequence inference unavailable — post skipped`
+          `page ${circle.pageNum ?? "?"}: OCR failed and sequence inference unavailable — post skipped`,
       );
     }
   }
 
+  resolveDuplicatePostNumbers(posts, warnings);
   attachMarkerAnchors(posts);
   return { posts, warnings };
 }

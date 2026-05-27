@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build:browser": "esbuild parser/dwg/browser-entry.js --bundle --format=esm --platform=browser --outfile=dist/dwg.bundle.js --external:../coordinate-calculator.js",
-    "dev": "npm run build:browser && npx serve .",
-    "test": "node parser/__tests__/coordinate-calculator.test.mjs && node parser/__tests__/region-pairing.test.mjs"
+    "build": "node scripts/build.mjs",
+    "build:prod": "node scripts/build.mjs --prod",
+    "dev": "npm run build && npx serve .",
+    "dev:watch": "node scripts/build.mjs --watch",
+    "test": "node parser/__tests__/coordinate-calculator.test.mjs && node parser/__tests__/region-pairing.test.mjs && node parser/__tests__/ocr-outlier-repair.test.mjs"
   },
   "keywords": [],
   "author": "",
