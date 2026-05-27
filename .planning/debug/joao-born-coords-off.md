@@ -7,41 +7,42 @@ updated: 2026-05-26
 priority_angle: SOLVED in session 13 — second-pass N3 in parsePdf re-associates distances with post-N3 positions and re-runs N3, putting posts 4-6 on the cable at label-consistent positions before calculateCoordinates runs; LSQ then succeeds, pdfBearing-in-lock helpers gated off
 
 session_13_2026-05-26: |
-  Option C IMPLEMENTED and VERIFIED. parser/pdf-parser.js: after the initial multi-sheet
-  assignPolesGloballyByLabels (N3) at line ~714, the code now resets anchorX/anchorY to
-  the post-N3 (post.x, post.y), re-runs associateDistances, re-runs
-  prefillGapDistancesForPolePlacement, and re-runs assignPolesGloballyByLabels (N3 pass 2).
-  This converges to the same posts-4-6 placement that the harness PARSE DEBUG flow
-  produces, which makes refinePageOriginsByLabelLsq succeed (rmseBefore=3.34m instead of
-  27-37m), which gates off lockPageOriginsAtSheetBreaksFromPriorProjection — the helper
-  that was using the 91.53° pdfBearing(24→25) and producing the 17m error on post 26.
+Option C IMPLEMENTED and VERIFIED. parser/pdf-parser.js: after the initial multi-sheet
+assignPolesGloballyByLabels (N3) at line ~714, the code now resets anchorX/anchorY to
+the post-N3 (post.x, post.y), re-runs associateDistances, re-runs
+prefillGapDistancesForPolePlacement, and re-runs assignPolesGloballyByLabels (N3 pass 2).
+This converges to the same posts-4-6 placement that the harness PARSE DEBUG flow
+produces, which makes refinePageOriginsByLabelLsq succeed (rmseBefore=3.34m instead of
+27-37m), which gates off lockPageOriginsAtSheetBreaksFromPriorProjection — the helper
+that was using the 91.53° pdfBearing(24→25) and producing the 17m error on post 26.
 
 session_13_root_cause_chain: |
-  1) parsePdf calls associateDistances at line 686 with anchorX = Numero_Poste circle
-     centroid (set by attachMarkerAnchors at line 663).
-  2) On joao-born page 3, the Numero_Poste circle for post 4 is at PDF (504.14, 382.38);
-     associateDistances picks up a distant Distância_Poste label as "3→4" and assigns
-     180.1m (browser path) — actually a label belonging to a different segment.
-  3) Then assignPolesGloballyByLabels (N3) at line 714 moves post 4 to PDF
-     (500.42, 356.94), a Poste-layer pole symbol that geometric-snap matched. anchorX
-     stays at (504.14, 382.38) because N3 updates only post.x/post.y (lines 1805, 1933 in
-     parser/post-positioning.js), not anchorX.
-  4) calculateCoordinates uses the stale 180.1m distance map; cable-arc-placer skips
-     posts 4-5 (isOffRouteCablePost=true on those positions); LSQ sees 27m RMSE and
-     refuses to improve; lock helpers fire with pdfBearing(24→25)=91.53° (16° off true
-     UTM bearing); page 5 origin shifted 17m → posts 26-34 carry 15-24m error.
 
-  Why the harness was different all along:
-    debug-run-calc.mjs LOADS PARSE DEBUG positions (which include post-N3 .x and
-    pre-N3 anchorX captured from a prior pdf-parser run), then explicitly re-runs
-    associateDistances + prefill + N3 with those positions. That re-run uses
-    anchorX = pre-N3 Numero_Poste (which DOES match the right Distância_Poste label),
-    re-associates 3→4 = 38.9m, re-prefills, and N3 then chooses (528.38, 597.38, 629.72)
-    for posts 4-6 — label-consistent positions on the cable. So the harness was
-    inadvertently running a TWO-PASS N3 while the browser was running ONE-PASS.
+1. parsePdf calls associateDistances at line 686 with anchorX = Numero_Poste circle
+   centroid (set by attachMarkerAnchors at line 663).
+2. On joao-born page 3, the Numero_Poste circle for post 4 is at PDF (504.14, 382.38);
+   associateDistances picks up a distant Distância_Poste label as "3→4" and assigns
+   180.1m (browser path) — actually a label belonging to a different segment.
+3. Then assignPolesGloballyByLabels (N3) at line 714 moves post 4 to PDF
+   (500.42, 356.94), a Poste-layer pole symbol that geometric-snap matched. anchorX
+   stays at (504.14, 382.38) because N3 updates only post.x/post.y (lines 1805, 1933 in
+   parser/post-positioning.js), not anchorX.
+4. calculateCoordinates uses the stale 180.1m distance map; cable-arc-placer skips
+   posts 4-5 (isOffRouteCablePost=true on those positions); LSQ sees 27m RMSE and
+   refuses to improve; lock helpers fire with pdfBearing(24→25)=91.53° (16° off true
+   UTM bearing); page 5 origin shifted 17m → posts 26-34 carry 15-24m error.
+
+Why the harness was different all along:
+debug-run-calc.mjs LOADS PARSE DEBUG positions (which include post-N3 .x and
+pre-N3 anchorX captured from a prior pdf-parser run), then explicitly re-runs
+associateDistances + prefill + N3 with those positions. That re-run uses
+anchorX = pre-N3 Numero_Poste (which DOES match the right Distância_Poste label),
+re-associates 3→4 = 38.9m, re-prefills, and N3 then chooses (528.38, 597.38, 629.72)
+for posts 4-6 — label-consistent positions on the cable. So the harness was
+inadvertently running a TWO-PASS N3 while the browser was running ONE-PASS.
 
 session_13_implementation: |
-  parser/pdf-parser.js lines 712-755 (new block after the existing multi-sheet N3 call):
+parser/pdf-parser.js lines 712-755 (new block after the existing multi-sheet N3 call):
 
       assignPolesGloballyByLabels(posts, allPosteRaw, allCablePaths, distances, ...)  // pass 1
       // D-N3-PASS2:
@@ -54,146 +55,148 @@ session_13_implementation: |
       prefillGapDistancesForPolePlacement(posts, distances, buildCablesByPage(allCablePaths));
       assignPolesGloballyByLabels(posts, allPosteRaw, allCablePaths, distances, ...)  // pass 2
 
-  The "splice back" of distances ensures the existing `distances` array reference seen by
-  downstream code is updated in-place (since other code holds the reference from line 686).
-  Single-sheet routes are NOT affected (the if/else at line 712 keeps them on the greedy
-  branch). Valmor has 2 viewport boxes → multiSheetRoute=false → second-pass N3 not run.
+The "splice back" of distances ensures the existing `distances` array reference seen by
+downstream code is updated in-place (since other code holds the reference from line 686).
+Single-sheet routes are NOT affected (the if/else at line 712 keeps them on the greedy
+branch). Valmor has 2 viewport boxes → multiSheetRoute=false → second-pass N3 not run.
 
 session_13_verification: |
-  Browser path (debug-browser-path.mjs joao-born):
-    BEFORE fix:
-      Post 24: 6.48m, 25: 6.12m, 26: 17.33m, 27: 18.40m, 28: 16.76m, 29: 18.07m,
-      30: 18.44m, 31: 17.21m, 32: 19.07m, 33: 23.90m, 34: 15.88m  (<5m: 13/34)
-      Warnings: [cable-arc-placer] 11 posts on 1 page; [boundary-locked] fires;
-      [label-lsq] no improvement.
-    AFTER fix:
-      Post 24: 7.50m, 25: 7.29m, 26: 0.36m, 27: 1.60m, 28: 0.71m, 29: 2.46m,
-      30: 3.90m, 31: 3.29m, 32: 4.57m, 33: 8.69m, 34: 1.16m  (<5m: 20/34)
-      Warnings: [cable-arc-placer] 11 posts on 1 page;
-      [label-lsq] Global label fit: RMSE 3.34 m → 3.34 m (33 segments, 2 page(s) adjusted);
-      [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
+Browser path (debug-browser-path.mjs joao-born):
+BEFORE fix:
+Post 24: 6.48m, 25: 6.12m, 26: 17.33m, 27: 18.40m, 28: 16.76m, 29: 18.07m,
+30: 18.44m, 31: 17.21m, 32: 19.07m, 33: 23.90m, 34: 15.88m (<5m: 13/34)
+Warnings: [cable-arc-placer] 11 posts on 1 page; [boundary-locked] fires;
+[label-lsq] no improvement.
+AFTER fix:
+Post 24: 7.50m, 25: 7.29m, 26: 0.36m, 27: 1.60m, 28: 0.71m, 29: 2.46m,
+30: 3.90m, 31: 3.29m, 32: 4.57m, 33: 8.69m, 34: 1.16m (<5m: 20/34)
+Warnings: [cable-arc-placer] 11 posts on 1 page;
+[label-lsq] Global label fit: RMSE 3.34 m → 3.34 m (33 segments, 2 page(s) adjusted);
+[seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
 
-  Harness (debug-run-calc.mjs joao-born) — UNCHANGED (harness overrides parsed.posts
-  with PARSE DEBUG positions, so second-pass effect on parsed.posts is irrelevant):
-    Max 16.19m, <5m: 20/34. Posts 26-34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69,
-    1.16m. Posts 9/10/11: 15.64, 9.74, 4.24m. Identical to session 12 baseline.
+Harness (debug-run-calc.mjs joao-born) — UNCHANGED (harness overrides parsed.posts
+with PARSE DEBUG positions, so second-pass effect on parsed.posts is irrelevant):
+Max 16.19m, <5m: 20/34. Posts 26-34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69,
+1.16m. Posts 9/10/11: 15.64, 9.74, 4.24m. Identical to session 12 baseline.
 
-  Tests: node --test parser/__tests__/coordinate-calculator.test.mjs — 22/22 pass.
-  Pre-existing failures in post-positioning.test.mjs (3 tests) confirmed unrelated
-  (same failures before fix via git stash).
+Tests: node --test parser/**tests**/coordinate-calculator.test.mjs — 22/22 pass.
+Pre-existing failures in post-positioning.test.mjs (3 tests) confirmed unrelated
+(same failures before fix via git stash).
 
-  Valmor: multiSheetRoute=false (only 2 viewport boxes) → second-pass N3 gate not
-  triggered → no behavioral change. (Aside: debug-valmor-browser.mjs and the harness
-  Valmor flow are pre-existing-broken for unrelated reasons; the real Valmor invariant
-  is validated through the app pipeline / coordinate-calculator tests.)
+Valmor: multiSheetRoute=false (only 2 viewport boxes) → second-pass N3 gate not
+triggered → no behavioral change. (Aside: debug-valmor-browser.mjs and the harness
+Valmor flow are pre-existing-broken for unrelated reasons; the real Valmor invariant
+is validated through the app pipeline / coordinate-calculator tests.)
 
 session_13_files_changed: |
-  parser/pdf-parser.js — added D-N3-PASS2 block (40 lines) after line 724.
+parser/pdf-parser.js — added D-N3-PASS2 block (40 lines) after line 724.
 
 session_13_diff_summary: |
-  +40 lines, 0 lines removed, 0 lines moved. Pure addition of a second-pass N3 gated on
-  the existing multiSheetRoute condition. No public API change. No new dependencies
-  (re-uses associateDistances, prefillGapDistancesForPolePlacement, buildCablesByPage,
-  assignPolesGloballyByLabels — all already imported).
++40 lines, 0 lines removed, 0 lines moved. Pure addition of a second-pass N3 gated on
+the existing multiSheetRoute condition. No public API change. No new dependencies
+(re-uses associateDistances, prefillGapDistancesForPolePlacement, buildCablesByPage,
+assignPolesGloballyByLabels — all already imported).
 
 session_12_2026-05-26: |
-  Root cause CONFIRMED for "posts 26-34 at 15-24m" symptom (browser path).
-  Investigation isolated a divergent code path between harness and browser pipeline,
-  identified pdfBearing math error as proximate cause, quantified exactly, and
-  surveyed candidate fixes. No code change applied — fixes risk regressing the
-  harness baseline (which currently relies on a self-calibrated wrong path).
+Root cause CONFIRMED for "posts 26-34 at 15-24m" symptom (browser path).
+Investigation isolated a divergent code path between harness and browser pipeline,
+identified pdfBearing math error as proximate cause, quantified exactly, and
+surveyed candidate fixes. No code change applied — fixes risk regressing the
+harness baseline (which currently relies on a self-calibrated wrong path).
 
 session_12_findings: |
-  1) Harness vs browser-path divergence:
 
-     Harness (debug-run-calc.mjs joao-born) — UNCHANGED HEAD baseline:
-       Max 16.19m; <5m: 20/34; Post 9: 15.64m; Post 25: 7.29m;
-       Posts 26-34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69, 1.16m  ← GOOD
-       Warnings:
-         [cable-arc-placer] Repositioned 13 post(s) on 2 page(s)
-         [label-lsq] Global label fit: RMSE 3.86 m → 3.86 m (33 segments, 2 page(s) adjusted; θ: p4=-0.20°, p5=-0.47°).
-         [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
+1. Harness vs browser-path divergence:
 
-     Browser path (debug-browser-path.mjs) — UNCHANGED HEAD baseline:
-       Posts 24-34: 6.48, 6.12, 17.33, 18.40, 16.76, 18.07, 18.44, 17.21, 19.07, 23.90, 15.88m  ← BAD
-       Warnings:
-         [cable-arc-placer] Repositioned 11 post(s) on 1 page(s)
-         [boundary-locked] 2 page origin(s) at sheet breaks from prior-page UTM exit bearing + label (not post-1 walk).
-         [seam-lock] Skipped — multi-sheet route (boundary-locked at sheet breaks).
-         [boundary-locked] 2 page origin(s) re-aligned after label chain at sheet breaks.
+   Harness (debug-run-calc.mjs joao-born) — UNCHANGED HEAD baseline:
+   Max 16.19m; <5m: 20/34; Post 9: 15.64m; Post 25: 7.29m;
+   Posts 26-34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69, 1.16m ← GOOD
+   Warnings:
+   [cable-arc-placer] Repositioned 13 post(s) on 2 page(s)
+   [label-lsq] Global label fit: RMSE 3.86 m → 3.86 m (33 segments, 2 page(s) adjusted; θ: p4=-0.20°, p5=-0.47°).
+   [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
 
-  2) Why the divergence:
+   Browser path (debug-browser-path.mjs) — UNCHANGED HEAD baseline:
+   Posts 24-34: 6.48, 6.12, 17.33, 18.40, 16.76, 18.07, 18.44, 17.21, 19.07, 23.90, 15.88m ← BAD
+   Warnings:
+   [cable-arc-placer] Repositioned 11 post(s) on 1 page(s)
+   [boundary-locked] 2 page origin(s) at sheet breaks from prior-page UTM exit bearing + label (not post-1 walk).
+   [seam-lock] Skipped — multi-sheet route (boundary-locked at sheet breaks).
+   [boundary-locked] 2 page origin(s) re-aligned after label chain at sheet breaks.
 
-     The harness runs assignPolesGloballyByLabels (N3) BEFORE calling calculateCoordinates,
-     which RELOCATES posts 4, 5, 6 on page 3 to label-distance-consistent positions:
-       parsePdf →    N3 →
-       Post 4 (500.42, 356.94) → (911.90, 225.66)
-       Post 5 (528.38, 321.90) → (1012.46, 223.98)
-       Post 6 (597.38, 305.82) → (1111.82, 199.14)
-     These posts end up among posts 11-14 in PDF space.
+2. Why the divergence:
 
-     Browser path runs calculateCoordinates on parsed.posts directly (no N3 reassign).
-     Posts 4-6 stay at their original (label-inconsistent) positions.
+   The harness runs assignPolesGloballyByLabels (N3) BEFORE calling calculateCoordinates,
+   which RELOCATES posts 4, 5, 6 on page 3 to label-distance-consistent positions:
+   parsePdf → N3 →
+   Post 4 (500.42, 356.94) → (911.90, 225.66)
+   Post 5 (528.38, 321.90) → (1012.46, 223.98)
+   Post 6 (597.38, 305.82) → (1111.82, 199.14)
+   These posts end up among posts 11-14 in PDF space.
 
-     Effect on refinePageOriginsByLabelLsq:
-       rmseBefore in harness:      3.86m → improved=true → page 4 θ=-0.20°, page 5 θ=-0.47° applied
-       rmseBefore in browser-path: 27.13m → improved=false → all transforms REVERTED to initial
-                                            → labelLsqImproved=false → boundary-lock helpers fire
+   Browser path runs calculateCoordinates on parsed.posts directly (no N3 reassign).
+   Posts 4-6 stay at their original (label-inconsistent) positions.
 
-  3) Direct measurement of the pdfBearing bug in the lock helper
-     (lockSheetBreaksFromChainedGps, parser/coordinate-calculator.js:147-209):
+   Effect on refinePageOriginsByLabelLsq:
+   rmseBefore in harness: 3.86m → improved=true → page 4 θ=-0.20°, page 5 θ=-0.47° applied
+   rmseBefore in browser-path: 27.13m → improved=false → all transforms REVERTED to initial
+   → labelLsqImproved=false → boundary-lock helpers fire
 
-     For prev=25, curr=26, prevPrev=24 on the page-4→5 seam:
-       pdfBearing(24, 25): atan2(dx=96.72, dy=-2.58) = 91.53°
-       chained prev.lat/lon (post 25): (-27.640216, -48.656125)  err vs ref 25: 6.12m
-       label 25→26: 33.70m
-       gpsCurr at 91.53°,33.70m: (-27.640224, -48.655783)
-       err vs ref post 26 (-27.64006833, -48.65577853): 17.33m   ← MATCHES OBSERVED ERROR EXACTLY
-       Then lockPageOriginAtGps shifts page 5 origin so PDF post-26 (134.18, 330.42) projects
-       to that location → entire page 5 inherits the 17m offset.
+3. Direct measurement of the pdfBearing bug in the lock helper
+   (lockSheetBreaksFromChainedGps, parser/coordinate-calculator.js:147-209):
 
-     Bearing comparison at the seam (computed in node):
-       pdfBearing(24,25) raw                          : 91.53°  → post 26 lock err 17.33m
-       pdfBearing with y flipped (atan2(dx, -dy))     : 88.47°  → 15.53m
-       gpsBearing(projected24, projected25), theta=0  : 87.37°  ← what bearingAtSheetBreakEntry uses in chain
-       true UTM bearing of ref 24→25                  : 75.50°  → 8.12m
-       true UTM bearing of ref 25→26                  : 73.57°  → 7.12m
-       true UTM bearing of ref 23→24                  : 79.94°
-     The PDF drawing on page 4 is rotated ~14-16° relative to the UTM grid; with the page 4
-     transform stuck at θ=0, no bearing derived from PDF coords or projected coords on
-     page 4 can recover the true route bearing.
+   For prev=25, curr=26, prevPrev=24 on the page-4→5 seam:
+   pdfBearing(24, 25): atan2(dx=96.72, dy=-2.58) = 91.53°
+   chained prev.lat/lon (post 25): (-27.640216, -48.656125) err vs ref 25: 6.12m
+   label 25→26: 33.70m
+   gpsCurr at 91.53°,33.70m: (-27.640224, -48.655783)
+   err vs ref post 26 (-27.64006833, -48.65577853): 17.33m ← MATCHES OBSERVED ERROR EXACTLY
+   Then lockPageOriginAtGps shifts page 5 origin so PDF post-26 (134.18, 330.42) projects
+   to that location → entire page 5 inherits the 17m offset.
 
-  4) Why the bug doesn't bite the harness path:
-     With labelLsqImproved=true, lockPageOriginsAtSheetBreaksFromPriorProjection is GATED
-     OFF (n=0 — line 1184-1192). Then lockSheetBreaksFromChainedGps still fires (line 1512)
-     but the chain’s applyDistanceLabelGpsChain already set page-5 posts via the same
-     bearingAtSheetBreakEntry=87.37° bearing from prev.lat/lon, and the LSQ has shifted
-     page 5 origin (theta=-0.47°) so that projection LARGELY cancels the 87.37° walk
-     error — net page-5 result 0-8m. (Tested in node; the harness’s low <5m count comes
-     from this cosmetic cancellation, not from a correct bearing.)
+   Bearing comparison at the seam (computed in node):
+   pdfBearing(24,25) raw : 91.53° → post 26 lock err 17.33m
+   pdfBearing with y flipped (atan2(dx, -dy)) : 88.47° → 15.53m
+   gpsBearing(projected24, projected25), theta=0 : 87.37° ← what bearingAtSheetBreakEntry uses in chain
+   true UTM bearing of ref 24→25 : 75.50° → 8.12m
+   true UTM bearing of ref 25→26 : 73.57° → 7.12m
+   true UTM bearing of ref 23→24 : 79.94°
+   The PDF drawing on page 4 is rotated ~14-16° relative to the UTM grid; with the page 4
+   transform stuck at θ=0, no bearing derived from PDF coords or projected coords on
+   page 4 can recover the true route bearing.
+
+4. Why the bug doesn't bite the harness path:
+   With labelLsqImproved=true, lockPageOriginsAtSheetBreaksFromPriorProjection is GATED
+   OFF (n=0 — line 1184-1192). Then lockSheetBreaksFromChainedGps still fires (line 1512)
+   but the chain’s applyDistanceLabelGpsChain already set page-5 posts via the same
+   bearingAtSheetBreakEntry=87.37° bearing from prev.lat/lon, and the LSQ has shifted
+   page 5 origin (theta=-0.47°) so that projection LARGELY cancels the 87.37° walk
+   error — net page-5 result 0-8m. (Tested in node; the harness’s low <5m count comes
+   from this cosmetic cancellation, not from a correct bearing.)
 
 session_12_eliminated: |
-  - hypothesis: pdfBearing y-flip alone is sufficient (88.47° instead of 91.53°)
-    evidence:   88.47° still lands post 26 15.53m off — only saves ~2m, not the ~10m needed.
-                The drawing rotation is the dominant error source, not the y-flip.
 
-  - hypothesis: switching lock bearing to cableExitBearingAtPost would fix it
-    evidence:   cablesByPage is null at lock time on João Born (cable fragmented, 24 and
-                20 sub-paths on pages 4/5). cableExitBearingAtPost would return null.
+- hypothesis: pdfBearing y-flip alone is sufficient (88.47° instead of 91.53°)
+  evidence: 88.47° still lands post 26 15.53m off — only saves ~2m, not the ~10m needed.
+  The drawing rotation is the dominant error source, not the y-flip.
 
-  - hypothesis: chained curr.lat/lon (already set by applyDistanceLabelGpsChain) could
-                replace pdfBearing in the lock
-    evidence:   session 5 already tried this (max 27m, reverted). The chain’s
-                bearingAtSheetBreakEntry=87.37° is itself off by ~12° from true; pinning
-                lock to the chained post-26 position transfers that error directly.
+- hypothesis: switching lock bearing to cableExitBearingAtPost would fix it
+  evidence: cablesByPage is null at lock time on João Born (cable fragmented, 24 and
+  20 sub-paths on pages 4/5). cableExitBearingAtPost would return null.
+
+- hypothesis: chained curr.lat/lon (already set by applyDistanceLabelGpsChain) could
+  replace pdfBearing in the lock
+  evidence: session 5 already tried this (max 27m, reverted). The chain’s
+  bearingAtSheetBreakEntry=87.37° is itself off by ~12° from true; pinning
+  lock to the chained post-26 position transfers that error directly.
 
 session_12_proposed_fix_plan: |
-  Option A — UTM-grid-aware page bearing (cleanest, untested):
-    In lockSheetBreaksFromChainedGps and applyDistanceLabelGpsChain’s
-    bearingAtSheetBreakEntry, compute the bearing from the page-4 UTM-grid orientation
-    detected during buildPageTransforms (pageGridOrientationRad / similar field on the
-    transform). Use that to rotate the PDF dx,dy into UTM (E,N) space, then take
-    atan2(E, N). This captures the true page rotation regardless of theta=0 transform.
+Option A — UTM-grid-aware page bearing (cleanest, untested):
+In lockSheetBreaksFromChainedGps and applyDistanceLabelGpsChain’s
+bearingAtSheetBreakEntry, compute the bearing from the page-4 UTM-grid orientation
+detected during buildPageTransforms (pageGridOrientationRad / similar field on the
+transform). Use that to rotate the PDF dx,dy into UTM (E,N) space, then take
+atan2(E, N). This captures the true page rotation regardless of theta=0 transform.
 
     Caveat: utm-grid rotation may differ from posts-regression rotation. Need to test
     that the resulting bearing aligns with the reference 24->25 bearing of ~75°.
@@ -202,11 +205,11 @@ session_12_proposed_fix_plan: |
     but 2nd lock at line 1512 still fires). Need to verify harness page-5 stays at
     0-8m after the switch.
 
-  Option B — Derive seam bearing from the SAME label-driven posts-regression bearing
-    that cable-arc-placer logs ("posts regression bearing (76.1°)" for page 4). This
-    76.1° is much closer to the truth (75.5°) than the 87-91° pdfBearing variants.
-    Plumb that bearing into lockSheetBreaksFromChainedGps as a fallback when
-    cableExitBearingAtPost returns null and the source page has >=4 posts.
+Option B — Derive seam bearing from the SAME label-driven posts-regression bearing
+that cable-arc-placer logs ("posts regression bearing (76.1°)" for page 4). This
+76.1° is much closer to the truth (75.5°) than the 87-91° pdfBearing variants.
+Plumb that bearing into lockSheetBreaksFromChainedGps as a fallback when
+cableExitBearingAtPost returns null and the source page has >=4 posts.
 
     Implementation sketch:
       - Expose pageRegressionBearing from cable-arc-placer (or recompute via simple
@@ -216,45 +219,41 @@ session_12_proposed_fix_plan: |
       - Same change in bearingAtSheetBreakEntry’s final fallback (line 632-634 in
         coordinate-calculator.js).
 
-  Option C — Replace pdfBearing with utmProjectedBearing AND simultaneously improve the
-    LSQ guard so labelLsqImproved=true on the browser path. The current 27m RMSE on
-    browser path is because posts 4-6 are at original PDF positions; LSQ cannot fit
-    pages 4-5 origins without first “fixing” page 3 posts. Run cable-arc-placer
-    BEFORE refinePageOriginsByLabelLsq (currently cable-arc-placer is gated on viewport
-    boxes etc. — verify ordering). If cable-arc-placer moves posts 4-6 to label-fit
-    positions before LSQ, browser-path RMSE will drop to ~4m and LSQ will improve,
-    so the lock helpers won’t fire, so the pdfBearing bug doesn’t bite.
+Option C — Replace pdfBearing with utmProjectedBearing AND simultaneously improve the
+LSQ guard so labelLsqImproved=true on the browser path. The current 27m RMSE on
+browser path is because posts 4-6 are at original PDF positions; LSQ cannot fit
+pages 4-5 origins without first “fixing” page 3 posts. Run cable-arc-placer
+BEFORE refinePageOriginsByLabelLsq (currently cable-arc-placer is gated on viewport
+boxes etc. — verify ordering). If cable-arc-placer moves posts 4-6 to label-fit
+positions before LSQ, browser-path RMSE will drop to ~4m and LSQ will improve,
+so the lock helpers won’t fire, so the pdfBearing bug doesn’t bite.
 
     This is the LOWEST-RISK fix because it doesn’t touch the pdfBearing math at all —
     it just makes the LSQ succeed on the browser path the same way it does on the
     harness path. Test against Valmor (multiSheetRoute=false, gate not triggered) to
     confirm no regression.
 
-  RECOMMENDED ORDER: try C first (move cable-arc-placer before LSQ, or add a guard to
-  run cable-arc-placer first on browser-path-equivalent inputs). If C succeeds the
-  pdfBearing math is unchanged and self-calibration remains intact. If C fails or
-  causes regression, fall back to A or B.
+RECOMMENDED ORDER: try C first (move cable-arc-placer before LSQ, or add a guard to
+run cable-arc-placer first on browser-path-equivalent inputs). If C succeeds the
+pdfBearing math is unchanged and self-calibration remains intact. If C fails or
+causes regression, fall back to A or B.
 
 session_12_verification_required: |
-  Before any fix is committed, verify:
-    - Harness joao-born: max remains ≤ 16.19m, 20/34 < 5m, posts 26-34 stay 0-8m.
-    - Browser-path joao-born: posts 26-34 drop from 15-24m to <10m.
-    - Posts 9/10/11: max remains < 10m (D-P911-01).
-    - Valmor: max 9.14m, 9/11 < 5m (uses browser pipeline, not harness; verify in app).
-    - node --test parser/__tests__/coordinate-calculator.test.mjs: 22 passing
-      (confirmed clean baseline 2026-05-26).
+Before any fix is committed, verify: - Harness joao-born: max remains ≤ 16.19m, 20/34 < 5m, posts 26-34 stay 0-8m. - Browser-path joao-born: posts 26-34 drop from 15-24m to <10m. - Posts 9/10/11: max remains < 10m (D-P911-01). - Valmor: max 9.14m, 9/11 < 5m (uses browser pipeline, not harness; verify in app). - node --test parser/**tests**/coordinate-calculator.test.mjs: 22 passing
+(confirmed clean baseline 2026-05-26).
 
 session_12_notes: |
-  - Valmor harness (`node debug-run-calc.mjs`) is broken: max 361m. This is a pre-existing
-    issue: harness uses pure parsePdf positions for Valmor (no PARSE DEBUG, no fixture),
-    and Valmor’s parsePdf positions give posts on page 4 at PDF (720-1139, 356-414)
-    which don’t match Valmor’s actual reference. The Valmor invariant (9.14m / 9/11)
-    refers to the BROWSER pipeline, not this harness. Out of scope for session 12.
-  - debug_results.txt was uncommitted and overwritten in earlier (non-session-12) sessions;
-    `git checkout HEAD -- debug_results.txt` restores the PARSE DEBUG dump for harness use.
-  - All temporary diagnostic logging added to parser/coordinate-calculator.js and
-    parser/geo/label-lsq-calibrator.js during session 12 has been REVERTED. The repo
-    parser tree is clean at session 12 close.
+
+- Valmor harness (`node debug-run-calc.mjs`) is broken: max 361m. This is a pre-existing
+  issue: harness uses pure parsePdf positions for Valmor (no PARSE DEBUG, no fixture),
+  and Valmor’s parsePdf positions give posts on page 4 at PDF (720-1139, 356-414)
+  which don’t match Valmor’s actual reference. The Valmor invariant (9.14m / 9/11)
+  refers to the BROWSER pipeline, not this harness. Out of scope for session 12.
+- debug_results.txt was uncommitted and overwritten in earlier (non-session-12) sessions;
+  `git checkout HEAD -- debug_results.txt` restores the PARSE DEBUG dump for harness use.
+- All temporary diagnostic logging added to parser/coordinate-calculator.js and
+  parser/geo/label-lsq-calibrator.js during session 12 has been REVERTED. The repo
+  parser tree is clean at session 12 close.
 
 session_9_hypothesis: |
 After anchor-refit, mid-page anchor posts still exceed the Procrustes floor because
@@ -603,14 +602,23 @@ Post 6 root cause: refineGpsToPdfRouteCorridor reflected GPS across auxiliary ne
 Fix: corridorChordNeighbors() skips auxiliary posts and uses route chord 3–8 for post 6.
 Harness/browser: post 6 13.80m → 6.03m; posts 9–11 unchanged (9.90 / 7.79 / 6.97m).
 
+session_14b_2026-05-26 (posts 3 & 7): |
+Post 3: skip corridor reflection when exactly one immediate neighbor is auxiliary (tap 4
+between 3–5); label-distance gate only on extended chords or post 9. Harness post 3
+12–13m → 2.10m.
+Post 7: off-cable auxiliary; label bracket along on-cable neighbors 6–8. Early snap of all
+aux posts (4–5–7) breaks LSQ (post 3 → 13.7m, 9–11 regress). Fix: snapOffCable… after
+route-corridor, requireOnCableNeighbors (only post 7 on page 3), reproject GPS for snapped
+posts only. Harness post 7 11.78m → 5.61m; posts 3/9–11 held (2.10 / 9.90 / 7.79 / 6.97m).
+
 current_state_2026-05-26: |
 Session 13 VERIFIED (b2d2f65): D-N3-PASS2 in parser/pdf-parser.js after first multi-sheet N3.
 
 Browser path AFTER session 13 (2026-05-26):
-  Max 13.80m (post 6), 20/34 <5m. Page 3: posts 4–5 ~5m, 9–11 ~7–10m (was 23–28m).
-  Posts 26–34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69, 1.16m (was 15–24m).
-  Warnings: label-lsq RMSE 3.34→3.34m; boundary-locked at sheet breaks; no erroneous
-  lockSheetBreaksFromChainedGps 17m page-5 shift.
+Max 13.80m (post 6), 20/34 <5m. Page 3: posts 4–5 ~5m, 9–11 ~7–10m (was 23–28m).
+Posts 26–34: 0.36, 1.60, 0.71, 2.46, 3.90, 3.29, 4.57, 8.69, 1.16m (was 15–24m).
+Warnings: label-lsq RMSE 3.34→3.34m; boundary-locked at sheet breaks; no erroneous
+lockSheetBreaksFromChainedGps 17m page-5 shift.
 
 Also shipped (earlier 2026-05-26): corridor clamp (5b51798), sheet-break nudge + detail
 clamp (b1536a9), UI polish (32fbdc5).

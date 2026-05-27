@@ -1,13 +1,13 @@
 // parser/geo/label-lsq-calibrator.js
 // Approach 3: global least-squares fit of per-page UTM origins to Distância_Poste labels.
 
-import { cableArcLengthPt, isOffRouteCablePost } from '../cable-builder.js';
+import { cableArcLengthPt, isOffRouteCablePost } from "../cable-builder.js";
 import {
   latLonToUtm,
   utmToLatLon,
   rotatePdfPoint,
   utmFromPdfPoint,
-} from './utm-calibrator.js';
+} from "./utm-calibrator.js";
 
 /** PDF span for a post pair: cable arc when it exceeds straight chord (pole-between-neighbors). */
 function pdfSpanPt(prev, curr, cablesByPage) {
@@ -30,7 +30,11 @@ function postPdfPos(post) {
  */
 function utmAtPost(p, t, o) {
   if (t.affine) {
-    return utmFromPdfPoint(p.x, p.y, { ...t, origin_e: o.origin_e, origin_n: o.origin_n });
+    return utmFromPdfPoint(p.x, p.y, {
+      ...t,
+      origin_e: o.origin_e,
+      origin_n: o.origin_n,
+    });
   }
   const { rx, ry } = rotatePdfPoint(p.x, p.y, t.theta ?? 0);
   return {
@@ -45,7 +49,7 @@ function utmThetaJacobian(px, py, theta, scale, axis) {
   const cos = Math.cos(theta);
   const drx = -sin * px + cos * py;
   const dry = -cos * px - sin * py;
-  if (axis === 'e') return drx * scale;
+  if (axis === "e") return drx * scale;
   return -dry * scale;
 }
 
@@ -100,7 +104,13 @@ function rmse(residuals) {
  * @param {string[]} warnings
  * @returns {{ adjusted: number, rmseBefore: number|null, rmseAfter: number|null }}
  */
-export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, post1Gps, warnings) {
+export function refinePageOriginsByLabelLsq(
+  transforms,
+  sortedPosts,
+  distMap,
+  post1Gps,
+  warnings,
+) {
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
   if (sorted.length < 2 || transforms.size < 2) {
     return { adjusted: 0, rmseBefore: null, rmseAfter: null, improved: false };
@@ -128,7 +138,11 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
   const pos1 = postPdfPos(post1);
   const { easting: e1, northing: n1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
   const tAnchor = transforms.get(anchorPage);
-  const { rx: rx1, ry: ry1 } = rotatePdfPoint(pos1.x, pos1.y, tAnchor.theta ?? 0);
+  const { rx: rx1, ry: ry1 } = rotatePdfPoint(
+    pos1.x,
+    pos1.y,
+    tAnchor.theta ?? 0,
+  );
 
   /** @type {Map<number, { origin_e: number, origin_n: number }>} */
   const origins = new Map();
@@ -143,7 +157,9 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
     }
   }
 
-  const freePages = [...transforms.keys()].filter(p => p !== anchorPage).sort((a, b) => a - b);
+  const freePages = [...transforms.keys()]
+    .filter((p) => p !== anchorPage)
+    .sort((a, b) => a - b);
   if (freePages.length === 0) {
     return { adjusted: 0, rmseBefore: null, rmseAfter: null, improved: false };
   }
@@ -201,8 +217,8 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
         if (!tp?.affine) {
           const th = tp.theta ?? 0;
           J[k][vi + 2] =
-            -uE * utmThetaJacobian(pp.x, pp.y, th, tp.x_scale_sf, 'e') +
-            -uN * utmThetaJacobian(pp.x, pp.y, th, tp.y_scale_sf, 'n');
+            -uE * utmThetaJacobian(pp.x, pp.y, th, tp.x_scale_sf, "e") +
+            -uN * utmThetaJacobian(pp.x, pp.y, th, tp.y_scale_sf, "n");
         }
       }
       const pj = pageIndex.get(curr.pageNum);
@@ -213,8 +229,8 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
         if (!tc?.affine) {
           const th = tc.theta ?? 0;
           J[k][vj + 2] +=
-            uE * utmThetaJacobian(pc.x, pc.y, th, tc.x_scale_sf, 'e') +
-            uN * utmThetaJacobian(pc.x, pc.y, th, tc.y_scale_sf, 'n');
+            uE * utmThetaJacobian(pc.x, pc.y, th, tc.x_scale_sf, "e") +
+            uN * utmThetaJacobian(pc.x, pc.y, th, tc.y_scale_sf, "n");
         }
       }
     }
@@ -253,17 +269,23 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
   for (const { prev, curr } of segments) {
     if (prev.pageNum !== curr.pageNum) {
       if (crossPageLabelCount.has(prev.pageNum)) {
-        crossPageLabelCount.set(prev.pageNum, crossPageLabelCount.get(prev.pageNum) + 1);
+        crossPageLabelCount.set(
+          prev.pageNum,
+          crossPageLabelCount.get(prev.pageNum) + 1,
+        );
       }
       if (crossPageLabelCount.has(curr.pageNum)) {
-        crossPageLabelCount.set(curr.pageNum, crossPageLabelCount.get(curr.pageNum) + 1);
+        crossPageLabelCount.set(
+          curr.pageNum,
+          crossPageLabelCount.get(curr.pageNum) + 1,
+        );
       }
     }
   }
   // Pages with < 2 cross-page links are rotation-degenerate.
   // Use a strong prior (lambda=10) for degenerate pages; weak (lambda=0.01) otherwise.
   /** @type {number[]} per-free-page theta prior weight, indexed like freePages */
-  const thetaPriorLambda = freePages.map(p => {
+  const thetaPriorLambda = freePages.map((p) => {
     const links = crossPageLabelCount.get(p) ?? 0;
     return links < 2 ? 10.0 : 0.01;
   });
@@ -282,7 +304,7 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
 
     for (let k = 0; k < segments.length; k++) {
       for (let a = 0; a < nVar; a++) {
-        Jtr[a] += J[k][a] * (-r[k]);
+        Jtr[a] += J[k][a] * -r[k];
         for (let b = 0; b < nVar; b++) {
           JtJ[a][b] += J[k][a] * J[k][b];
         }
@@ -360,7 +382,11 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
       if (t) {
         let theta = t.theta ?? 0;
         const snap = initialState.get(pn);
-        if (snap && Math.abs(snap.theta) < 1e-6 && Math.abs(theta) > maxLsqThetaRad) {
+        if (
+          snap &&
+          Math.abs(snap.theta) < 1e-6 &&
+          Math.abs(theta) > maxLsqThetaRad
+        ) {
           theta = 0;
         }
         transforms.set(pn, {
@@ -387,14 +413,14 @@ export function refinePageOriginsByLabelLsq(transforms, sortedPosts, distMap, po
 
   if (improved) {
     const thetaNote = freePages
-      .map(p => {
+      .map((p) => {
         const th = transforms.get(p)?.theta ?? 0;
         return `p${p}=${((th * 180) / Math.PI).toFixed(2)}°`;
       })
-      .join(', ');
+      .join(", ");
     warnings.push(
       `[label-lsq] Global label fit: RMSE ${rmseBefore.toFixed(2)} m → ${rmseAfter.toFixed(2)} m ` +
-        `(${segments.length} segments, ${freePages.length} page(s) adjusted; θ: ${thetaNote}).`
+        `(${segments.length} segments, ${freePages.length} page(s) adjusted; θ: ${thetaNote}).`,
     );
   }
 
@@ -454,13 +480,13 @@ export function refineAnchorPageByDownstreamChord(
   const tAnchor = transforms.get(anchorPage);
   if (tAnchor.affine) return false;
 
-  const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
+  const anchorPagePosts = sorted.filter((p) => p.pageNum === anchorPage);
   if (anchorPagePosts.length < 4) return false;
 
   // Find the last post on the anchor page and the first post on the next page.
   // They MUST be consecutive in the route (post number K and K+1) to use the label.
   const lastOnAnchor = anchorPagePosts[anchorPagePosts.length - 1];
-  const lastIdx = sorted.findIndex(p => p.number === lastOnAnchor.number);
+  const lastIdx = sorted.findIndex((p) => p.number === lastOnAnchor.number);
   const firstDownstream = sorted[lastIdx + 1];
   if (
     !firstDownstream ||
@@ -470,19 +496,28 @@ export function refineAnchorPageByDownstreamChord(
   ) {
     return false;
   }
-  const labelKtoK1 = distMap.get(`${lastOnAnchor.number}->${firstDownstream.number}`);
+  const labelKtoK1 = distMap.get(
+    `${lastOnAnchor.number}->${firstDownstream.number}`,
+  );
   if (labelKtoK1 == null || labelKtoK1 <= 0) return false;
 
   // True UTM for post 1 (exact) and projected UTM for first-downstream (post-chain).
-  const { easting: e1, northing: n1, zone: zone1 } = latLonToUtm(post1Gps.lat, post1Gps.lon);
-  const { easting: eK1, northing: nK1 } = latLonToUtm(firstDownstream.lat, firstDownstream.lon);
+  const {
+    easting: e1,
+    northing: n1,
+    zone: zone1,
+  } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const { easting: eK1, northing: nK1 } = latLonToUtm(
+    firstDownstream.lat,
+    firstDownstream.lon,
+  );
 
   // Estimate UTM bearing of the chord (post 1 → post K+1), which approximates the chord
   // (post 1 → post K) on the anchor sheet (route nearly continues straight at the seam).
   const chordE = eK1 - e1;
   const chordN = nK1 - n1;
   const chordLen = Math.hypot(chordE, chordN);
-  if (chordLen < labelKtoK1) return false;  // sanity: chord must be longer than the last segment
+  if (chordLen < labelKtoK1) return false; // sanity: chord must be longer than the last segment
   const utmBrgRad = Math.atan2(chordE, chordN);
 
   // Walk back from first-downstream's UTM by label distance to estimate post K's UTM.
@@ -514,7 +549,10 @@ export function refineAnchorPageByDownstreamChord(
   ) {
     return false;
   }
-  if (Math.abs(newTheta - initialTheta) > (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180) {
+  if (
+    Math.abs(newTheta - initialTheta) >
+    (MAX_ANCHOR_REFINE_THETA_DEG * Math.PI) / 180
+  ) {
     warnings.push(
       `[anchor-refit] Page ${anchorPage}: theta change ${(((newTheta - initialTheta) * 180) / Math.PI).toFixed(2)}° exceeds ±${MAX_ANCHOR_REFINE_THETA_DEG}° guard — skipped.`,
     );
@@ -566,7 +604,7 @@ export function refineAnchorPageByDownstreamChord(
     `[anchor-refit] Page ${anchorPage}: refined scale ${initialScale.toFixed(6)}→${newScale.toFixed(6)} ` +
       `(×${(newScale / initialScale).toFixed(4)}), θ ${((initialTheta * 180) / Math.PI).toFixed(2)}°→${((newTheta * 180) / Math.PI).toFixed(2)}° ` +
       `using post 1 + post ${firstDownstream.number} chord (${chordLen.toFixed(1)}m); ` +
-      `label RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m.`
+      `label RMSE ${rmseBefore?.toFixed(2) ?? "?"}→${rmseAfter?.toFixed(2) ?? "?"} m.`,
   );
   return true;
 }
@@ -598,7 +636,9 @@ export function labelDistanceRmse(transforms, sortedPosts, distMap) {
     const oc = { origin_e: tc.origin_e, origin_n: tc.origin_n };
     const uI = utmAtPost(postPdfPos(prev), tp, op);
     const uJ = utmAtPost(postPdfPos(curr), tc, oc);
-    residuals.push(Math.hypot(uJ.easting - uI.easting, uJ.northing - uI.northing) - m);
+    residuals.push(
+      Math.hypot(uJ.easting - uI.easting, uJ.northing - uI.northing) - m,
+    );
   }
   return residuals.length ? rmse(residuals) : null;
 }
@@ -632,7 +672,7 @@ export function inferMissingSegmentMeters(
   postByNum = null,
 ) {
   const list = [...sorted].sort((a, b) => a.number - b.number);
-  const i = list.findIndex(p => p.number === toNum);
+  const i = list.findIndex((p) => p.number === toNum);
   if (i < 1 || list[i - 1].number !== fromNum) return null;
 
   const prev = list[i - 1];
@@ -685,8 +725,7 @@ export function inferMissingSegmentMeters(
       ? distMap.get(`${prevPrev.number}->${prev.number}`)
       : null;
     const mOut = next ? distMap.get(`${curr.number}->${next.number}`) : null;
-    const neighborAvg =
-      mIn > 0 && mOut > 0 ? (mIn + mOut) / 2 : null;
+    const neighborAvg = mIn > 0 && mOut > 0 ? (mIn + mOut) / 2 : null;
     let blended = Math.max(
       estIn,
       estOut,
@@ -708,7 +747,11 @@ export function inferMissingSegmentMeters(
   return null;
 }
 
-export function fillAdjacentMissingDistances(sorted, distMap, cablesByPage = null) {
+export function fillAdjacentMissingDistances(
+  sorted,
+  distMap,
+  cablesByPage = null,
+) {
   const map = new Map(distMap);
   let filled = 0;
   /** @type {Set<string>} */
@@ -720,7 +763,11 @@ export function fillAdjacentMissingDistances(sorted, distMap, cablesByPage = nul
     const prev = list[i - 1];
     const curr = list[i];
     if (curr.number !== prev.number + 1) continue;
-    if (prev.pageNum == null || curr.pageNum == null || prev.pageNum !== curr.pageNum) {
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum !== curr.pageNum
+    ) {
       continue;
     }
 
@@ -752,7 +799,11 @@ export function augmentCrossPageDistances(sorted, distMap) {
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1];
     const curr = sorted[i];
-    if (prev.pageNum == null || curr.pageNum == null || prev.pageNum === curr.pageNum) {
+    if (
+      prev.pageNum == null ||
+      curr.pageNum == null ||
+      prev.pageNum === curr.pageNum
+    ) {
       continue;
     }
     const key = `${prev.number}->${curr.number}`;
@@ -826,11 +877,13 @@ export function refineAnchorPageBySplitRegion(
     return false;
   }
 
-  const anchorPagePosts = sorted.filter(p => p.pageNum === anchorPage);
+  const anchorPagePosts = sorted.filter((p) => p.pageNum === anchorPage);
 
   // ── Activation guard 2: need at least 6 posts to split meaningfully ──
   if (anchorPagePosts.length < 6) {
-    warnings.push(`[split-region] anchor page has ${anchorPagePosts.length} posts (<6) — skipped.`);
+    warnings.push(
+      `[split-region] anchor page has ${anchorPagePosts.length} posts (<6) — skipped.`,
+    );
     return false;
   }
 
@@ -870,7 +923,10 @@ export function refineAnchorPageBySplitRegion(
   const residuals = [];
   for (const post of anchorPagePosts) {
     const fc = forwardUtm.get(post.number);
-    if (!fc) { residuals.push(null); continue; }
+    if (!fc) {
+      residuals.push(null);
+      continue;
+    }
     const proj = utmAtPost({ x: post.x, y: post.y }, tAnchor, tAnchor);
     residuals.push(Math.hypot(fc.e - proj.easting, fc.n - proj.northing));
   }
@@ -880,7 +936,9 @@ export function refineAnchorPageBySplitRegion(
   const midResidual = residuals[midIdx];
   const MID_THRESHOLD_M = 8;
   if (midResidual == null || midResidual < MID_THRESHOLD_M) {
-    warnings.push(`[split-region] midpoint residual ${midResidual?.toFixed(2) ?? 'null'}m < ${MID_THRESHOLD_M}m threshold — skipped.`);
+    warnings.push(
+      `[split-region] midpoint residual ${midResidual?.toFixed(2) ?? "null"}m < ${MID_THRESHOLD_M}m threshold — skipped.`,
+    );
     return false;
   }
 
@@ -890,7 +948,7 @@ export function refineAnchorPageBySplitRegion(
   //   (b) satisfies ≥3 posts on each side (indices [3 .. length-4]).
   // If no post in the constrained window satisfies (a), relax to the max-residual post
   // in the window (any residual > 0) — the RMSE guard below will revert if unhelpful.
-  const validResiduals = residuals.filter(r => r != null);
+  const validResiduals = residuals.filter((r) => r != null);
   const sortedRes = [...validResiduals].sort((a, b) => a - b);
   const medianRes = sortedRes[Math.floor(sortedRes.length / 2)] ?? 0;
 
@@ -903,7 +961,10 @@ export function refineAnchorPageBySplitRegion(
   for (let i = LO_K; i <= HI_K; i++) {
     const r = residuals[i];
     if (r == null || r < MID_THRESHOLD_M) continue;
-    if (r > kResidual) { kResidual = r; kIdx = i; }
+    if (r > kResidual) {
+      kResidual = r;
+      kIdx = i;
+    }
   }
 
   if (kIdx < 0) {
@@ -911,19 +972,26 @@ export function refineAnchorPageBySplitRegion(
     for (let i = LO_K; i <= HI_K; i++) {
       const r = residuals[i];
       if (r == null) continue;
-      if (r > kResidual) { kResidual = r; kIdx = i; }
+      if (r > kResidual) {
+        kResidual = r;
+        kIdx = i;
+      }
     }
   }
 
   if (kIdx < 0) {
-    warnings.push(`[split-region] residual spike not detected (max ${Math.max(...validResiduals).toFixed(2)}m / median ${medianRes.toFixed(2)}m) — skipped.`);
+    warnings.push(
+      `[split-region] residual spike not detected (max ${Math.max(...validResiduals).toFixed(2)}m / median ${medianRes.toFixed(2)}m) — skipped.`,
+    );
     return false;
   }
 
   const K = anchorPagePosts[kIdx];
   const fcK = forwardUtm.get(K.number);
   if (!fcK) {
-    warnings.push(`[split-region] cannot satisfy ≥3 posts/region (length ${anchorPagePosts.length}) — skipped.`);
+    warnings.push(
+      `[split-region] cannot satisfy ≥3 posts/region (length ${anchorPagePosts.length}) — skipped.`,
+    );
     return false;
   }
 
@@ -940,7 +1008,12 @@ export function refineAnchorPageBySplitRegion(
     const v = (dy * dE + dx * dN) / det;
     const newScale = Math.hypot(u, v);
     const newTheta = Math.atan2(v, u);
-    if (!Number.isFinite(newScale) || !Number.isFinite(newTheta) || newScale <= 0) return null;
+    if (
+      !Number.isFinite(newScale) ||
+      !Number.isFinite(newTheta) ||
+      newScale <= 0
+    )
+      return null;
     const c = Math.cos(newTheta);
     const s = Math.sin(newTheta);
     const rxA = c * postA.x + s * postA.y;
@@ -955,7 +1028,9 @@ export function refineAnchorPageBySplitRegion(
 
   const r1 = applyTwoPointSimilarity(post1, e0, n0, K, fcK.e, fcK.n);
   if (!r1) {
-    warnings.push(`[split-region] region1 transform computation failed (det < 1) — skipped.`);
+    warnings.push(
+      `[split-region] region1 transform computation failed (det < 1) — skipped.`,
+    );
     return false;
   }
 
@@ -964,13 +1039,24 @@ export function refineAnchorPageBySplitRegion(
   const lastPost = anchorPagePosts[anchorPagePosts.length - 1];
   const fcLast = forwardUtm.get(lastPost.number);
   if (!fcLast) {
-    warnings.push(`[split-region] cannot reach last anchor post via forward chain — skipped.`);
+    warnings.push(
+      `[split-region] cannot reach last anchor post via forward chain — skipped.`,
+    );
     return false;
   }
 
-  const r2 = applyTwoPointSimilarity(K, fcK.e, fcK.n, lastPost, fcLast.e, fcLast.n);
+  const r2 = applyTwoPointSimilarity(
+    K,
+    fcK.e,
+    fcK.n,
+    lastPost,
+    fcLast.e,
+    fcLast.n,
+  );
   if (!r2) {
-    warnings.push(`[split-region] region2 transform computation failed (det < 1) — skipped.`);
+    warnings.push(
+      `[split-region] region2 transform computation failed (det < 1) — skipped.`,
+    );
     return false;
   }
 
@@ -988,8 +1074,8 @@ export function refineAnchorPageBySplitRegion(
   if (!r1ThetaOk || !r1ScaleOk || !r2ThetaOk || !r2ScaleOk) {
     warnings.push(
       `[split-region] region1/region2 transform exceeded ±${MAX_ANCHOR_REFINE_THETA_DEG}°/±${(MAX_ANCHOR_REFINE_SCALE_FRAC * 100).toFixed(0)}% guard — skipped. ` +
-      `r1: scale=${r1.scale.toFixed(4)}(${((r1.scale/initialScale-1)*100).toFixed(1)}%) θ=${((r1.theta-initialTheta)*180/Math.PI).toFixed(2)}°; ` +
-      `r2: scale=${r2.scale.toFixed(4)}(${((r2.scale/initialScale-1)*100).toFixed(1)}%) θ=${((r2.theta-initialTheta)*180/Math.PI).toFixed(2)}°`
+        `r1: scale=${r1.scale.toFixed(4)}(${((r1.scale / initialScale - 1) * 100).toFixed(1)}%) θ=${(((r1.theta - initialTheta) * 180) / Math.PI).toFixed(2)}°; ` +
+        `r2: scale=${r2.scale.toFixed(4)}(${((r2.scale / initialScale - 1) * 100).toFixed(1)}%) θ=${(((r2.theta - initialTheta) * 180) / Math.PI).toFixed(2)}°`,
     );
     return false;
   }
@@ -999,7 +1085,7 @@ export function refineAnchorPageBySplitRegion(
   // directly (not via transforms map), so labelDistanceRmse won't reflect the change.
   const latLonRmse = (posts, dMap) => {
     const residualsLL = [];
-    const postsByNum = new Map(posts.map(p => [p.number, p]));
+    const postsByNum = new Map(posts.map((p) => [p.number, p]));
     for (let i = 0; i < posts.length - 1; i++) {
       const prev = posts[i];
       const curr = posts[i + 1];
@@ -1016,7 +1102,11 @@ export function refineAnchorPageBySplitRegion(
   const rmseBefore = latLonRmse(anchorPagePosts, distMap);
 
   // ── Snapshot for revert ──
-  const snapshot = anchorPagePosts.map(p => ({ post: p, lat: p.lat, lon: p.lon }));
+  const snapshot = anchorPagePosts.map((p) => ({
+    post: p,
+    lat: p.lat,
+    lon: p.lon,
+  }));
 
   // ── Step 9: Apply transforms — write lat/lon directly ──
   const makeTransform = (r) => ({
@@ -1053,7 +1143,7 @@ export function refineAnchorPageBySplitRegion(
       post.lon = lon;
     }
     warnings.push(
-      `[split-region] label RMSE worsened ${rmseBefore.toFixed(2)}→${rmseAfter.toFixed(2)}m (>${ANCHOR_REFINE_RMSE_TOLERANCE_M}m tolerance) — reverted.`
+      `[split-region] label RMSE worsened ${rmseBefore.toFixed(2)}→${rmseAfter.toFixed(2)}m (>${ANCHOR_REFINE_RMSE_TOLERANCE_M}m tolerance) — reverted.`,
     );
     return false;
   }
@@ -1063,9 +1153,9 @@ export function refineAnchorPageBySplitRegion(
   const r2ThetaDeg = (r2.theta * 180) / Math.PI;
   warnings.push(
     `[split-region] Page ${anchorPage}: K=${K.number} (index ${kIdx}/${anchorPagePosts.length - 1}), ` +
-    `region1 scale ${r1.scale.toFixed(4)} θ ${r1ThetaDeg.toFixed(2)}°, ` +
-    `region2 scale ${r2.scale.toFixed(4)} θ ${r2ThetaDeg.toFixed(2)}°; ` +
-    `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m.`
+      `region1 scale ${r1.scale.toFixed(4)} θ ${r1ThetaDeg.toFixed(2)}°, ` +
+      `region2 scale ${r2.scale.toFixed(4)} θ ${r2ThetaDeg.toFixed(2)}°; ` +
+      `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? "?"}→${rmseAfter?.toFixed(2) ?? "?"} m.`,
   );
   return true;
 }
@@ -1109,7 +1199,7 @@ function walkAnchorPageLabelChain(
   const scale = tAnchor.x_scale_sf;
   const theta = tAnchor.theta ?? 0;
 
-  if (direction === 'forward') {
+  if (direction === "forward") {
     for (let i = 1; i < anchorPagePosts.length; i++) {
       const prev = anchorPagePosts[i - 1];
       const curr = anchorPagePosts[i];
@@ -1175,7 +1265,14 @@ const LABEL_BRACKET_CHORD_RATIO = 1.55;
  * Short tap-pole connector (e.g. 4→5) when inbound label is along cable but chord is tiny.
  * @returns {number|null}
  */
-export function inferTapConnectorMeters(mBefore, mAfter, prev, post, next, cablesByPage) {
+export function inferTapConnectorMeters(
+  mBefore,
+  mAfter,
+  prev,
+  post,
+  next,
+  cablesByPage,
+) {
   if (!(mBefore > 0) || !(mAfter > 0)) return null;
   const pdfEuc = Math.hypot(next.x - post.x, next.y - post.y);
   const pdfIn = pdfSpanPt(prev, post, cablesByPage);
@@ -1227,7 +1324,8 @@ export function prefillGapDistancesForPolePlacement(
       const prev = sorted[i - 1];
       const post = sorted[i];
       const next = sorted[i + 1];
-      if (post.pageNum !== prev.pageNum || next.pageNum !== post.pageNum) continue;
+      if (post.pageNum !== prev.pageNum || next.pageNum !== post.pageNum)
+        continue;
       if (!isOffRouteCablePost(post, postByNum, cablesByPage)) continue;
 
       const keyOut = `${post.number}->${next.number}`;
@@ -1263,7 +1361,14 @@ export function prefillGapDistancesForPolePlacement(
 /**
  * @param {{ relaxForAuxiliary?: boolean, mAfterOverride?: number }} [opts]
  */
-function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, opts = {}) {
+function tryLabelBracketPdfSnap(
+  prev,
+  post,
+  next,
+  distMap,
+  warnings,
+  opts = {},
+) {
   const mBefore =
     distMap.get(`${prev.number}->${post.number}`) ??
     distMap.get(`${post.number}->${prev.number}`);
@@ -1271,7 +1376,8 @@ function tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, opts = {}) 
     opts.mAfterOverride ??
     distMap.get(`${post.number}->${next.number}`) ??
     distMap.get(`${next.number}->${post.number}`);
-  if (mBefore == null || mBefore <= 0 || mAfter == null || mAfter <= 0) return false;
+  if (mBefore == null || mBefore <= 0 || mAfter == null || mAfter <= 0)
+    return false;
 
   const chordBefore = Math.hypot(post.x - prev.x, post.y - prev.y);
   const chordAfter = Math.hypot(next.x - post.x, next.y - post.y);
@@ -1348,12 +1454,12 @@ export function refineAuxiliaryPostsPdfByLabelBracket(
       const prev = postsOnPage[i - 1];
       const post = postsOnPage[i];
       const next = postsOnPage[i + 1];
-      if (post.number !== prev.number + 1 || next.number !== post.number + 1) continue;
+      if (post.number !== prev.number + 1 || next.number !== post.number + 1)
+        continue;
 
       const keyIn = `${prev.number}->${post.number}`;
       const keyOut = `${post.number}->${next.number}`;
-      const gapFilled =
-        filledKeys?.has(keyIn) || filledKeys?.has(keyOut);
+      const gapFilled = filledKeys?.has(keyIn) || filledKeys?.has(keyOut);
       if (!gapFilled) continue;
 
       if (!isAuxiliaryRoutePost(post, postByNum, cablesByPage)) continue;
@@ -1369,6 +1475,84 @@ export function refineAuxiliaryPostsPdfByLabelBracket(
   }
 
   return adjusted;
+}
+
+/**
+ * Snap off-cable auxiliary poles when label bracket target is ≥8 pt away (e.g. post 7).
+ * @returns {number[]} post numbers whose PDF position was adjusted
+ */
+export function snapOffCableAuxiliaryPostsByLabelBracket(
+  sortedPosts,
+  distMap,
+  cablesByPage,
+  warnings,
+  opts = {},
+) {
+  if (!cablesByPage?.size) return [];
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(sorted.map((p) => [p.number, p]));
+  const initialAuxNums = new Set(
+    sorted
+      .filter((p) => isAuxiliaryRoutePost(p, postByNum, cablesByPage))
+      .map((p) => p.number),
+  );
+  const adjustedNums = [];
+
+  const byPage = new Map();
+  for (const p of sorted) {
+    if (p.pageNum == null) continue;
+    if (!byPage.has(p.pageNum)) byPage.set(p.pageNum, []);
+    byPage.get(p.pageNum).push(p);
+  }
+
+  for (const postsOnPage of byPage.values()) {
+    postsOnPage.sort((a, b) => a.number - b.number);
+    for (let i = 1; i < postsOnPage.length - 1; i++) {
+      const prev = postsOnPage[i - 1];
+      const post = postsOnPage[i];
+      const next = postsOnPage[i + 1];
+      if (post.number !== prev.number + 1 || next.number !== post.number + 1) {
+        continue;
+      }
+      if (!initialAuxNums.has(post.number)) continue;
+      if (opts.requireOnCableNeighbors) {
+        if (
+          isAuxiliaryRoutePost(prev, postByNum, cablesByPage) ||
+          isAuxiliaryRoutePost(next, postByNum, cablesByPage)
+        ) {
+          continue;
+        }
+      }
+
+      const mBefore =
+        distMap.get(`${prev.number}->${post.number}`) ??
+        distMap.get(`${post.number}->${prev.number}`);
+      const mAfter =
+        distMap.get(`${post.number}->${next.number}`) ??
+        distMap.get(`${next.number}->${post.number}`);
+      if (mBefore == null || mBefore <= 0 || mAfter == null || mAfter <= 0) {
+        continue;
+      }
+      const frac = mBefore / (mBefore + mAfter);
+      const snapX = prev.x + frac * (next.x - prev.x);
+      const snapY = prev.y + frac * (next.y - prev.y);
+      if (
+        Math.hypot(post.x - snapX, post.y - snapY) < LABEL_BRACKET_MIN_MOVE_PT
+      ) {
+        continue;
+      }
+
+      if (
+        tryLabelBracketPdfSnap(prev, post, next, distMap, warnings, {
+          relaxForAuxiliary: true,
+        })
+      ) {
+        adjustedNums.push(post.number);
+      }
+    }
+  }
+
+  return adjustedNums;
 }
 
 const GPS_PAST_AUX_MAX_DOWNSTREAM = 5;
@@ -1410,7 +1594,11 @@ export function refineGpsPastAuxiliaryPostsOnAnchorPage(
   }
   if (firstAuxNum == null) return false;
 
-  const { easting: e0, northing: n0, zone } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const {
+    easting: e0,
+    northing: n0,
+    zone,
+  } = latLonToUtm(post1Gps.lat, post1Gps.lon);
   const forward = walkAnchorPageLabelChain(
     onPage,
     distMap,
@@ -1418,7 +1606,7 @@ export function refineGpsPastAuxiliaryPostsOnAnchorPage(
     post1.number,
     e0,
     n0,
-    'forward',
+    "forward",
     0.68,
   );
   const rmseBefore = anchorPageLatLonLabelRmse(onPage, distMap);
@@ -1426,7 +1614,8 @@ export function refineGpsPastAuxiliaryPostsOnAnchorPage(
   let downstreamNudged = 0;
 
   for (const post of onPage) {
-    if (post.number <= firstAuxNum || post.lat == null || post.lon == null) continue;
+    if (post.number <= firstAuxNum || post.lat == null || post.lon == null)
+      continue;
     if (isAuxiliaryRoutePost(post, postByNum, cablesByPage)) continue;
     if (downstreamNudged >= GPS_PAST_AUX_MAX_DOWNSTREAM) break;
 
@@ -1468,8 +1657,8 @@ export function refineGpsPastAuxiliaryPostsOnAnchorPage(
   }
   const rmseAfter = anchorPageLatLonLabelRmse(onPage, distMap);
   warnings.push(
-    `[auxiliary-post-gps] Page ${anchorPage}: posts ${adjusted.join(', ')} nudged past auxiliary ` +
-      `#${firstAuxNum} (lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m).`,
+    `[auxiliary-post-gps] Page ${anchorPage}: posts ${adjusted.join(", ")} nudged past auxiliary ` +
+      `#${firstAuxNum} (lat/lon RMSE ${rmseBefore?.toFixed(2) ?? "?"}→${rmseAfter?.toFixed(2) ?? "?"} m).`,
   );
   return true;
 }
@@ -1480,7 +1669,11 @@ export function refineGpsPastAuxiliaryPostsOnAnchorPage(
  *
  * @returns {boolean} true if at least one post moved
  */
-export function refineAnchorPagePdfByLabelBracket(sortedPosts, distMap, warnings) {
+export function refineAnchorPagePdfByLabelBracket(
+  sortedPosts,
+  distMap,
+  warnings,
+) {
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
   const anchorPage = sorted[0]?.pageNum;
   if (anchorPage == null) return false;
@@ -1493,7 +1686,15 @@ export function refineAnchorPagePdfByLabelBracket(sortedPosts, distMap, warnings
   let adjusted = false;
   for (let i = 1; i < onPage.length - 1; i++) {
     if (i <= innerLo || i > innerHi) continue;
-    if (tryLabelBracketPdfSnap(onPage[i - 1], onPage[i], onPage[i + 1], distMap, warnings)) {
+    if (
+      tryLabelBracketPdfSnap(
+        onPage[i - 1],
+        onPage[i],
+        onPage[i + 1],
+        distMap,
+        warnings,
+      )
+    ) {
       adjusted = true;
     }
   }
@@ -1525,6 +1726,8 @@ export function refineAnchorPageByDistortionZoneBias(
   distMap,
   post1Gps,
   warnings,
+  cablesByPage = null,
+  postByNum = null,
 ) {
   const ZONE_FWD_BACK_MIN_M = 8;
   const ZONE_CUM_DRIFT_MIN_M = 6;
@@ -1565,7 +1768,11 @@ export function refineAnchorPageByDistortionZoneBias(
     return false;
   }
 
-  const { easting: e0, northing: n0, zone } = latLonToUtm(post1Gps.lat, post1Gps.lon);
+  const {
+    easting: e0,
+    northing: n0,
+    zone,
+  } = latLonToUtm(post1Gps.lat, post1Gps.lon);
   const { easting: eLast, northing: nLast } = latLonToUtm(
     lastOnAnchor.lat,
     lastOnAnchor.lon,
@@ -1578,7 +1785,7 @@ export function refineAnchorPageByDistortionZoneBias(
     post1.number,
     e0,
     n0,
-    'forward',
+    "forward",
     0,
   );
   const forwardCorr = walkAnchorPageLabelChain(
@@ -1588,7 +1795,7 @@ export function refineAnchorPageByDistortionZoneBias(
     post1.number,
     e0,
     n0,
-    'forward',
+    "forward",
     SEG_SCALE_CORR_EXP,
   );
   const backwardCorr = walkAnchorPageLabelChain(
@@ -1598,7 +1805,7 @@ export function refineAnchorPageByDistortionZoneBias(
     lastOnAnchor.number,
     eLast,
     nLast,
-    'backward',
+    "backward",
     SEG_SCALE_CORR_EXP,
   );
 
@@ -1620,8 +1827,7 @@ export function refineAnchorPageByDistortionZoneBias(
       const prev = anchorPagePosts[i - 1];
       const m = distMap.get(`${prev.number}->${post.number}`);
       if (m != null && m > 0) {
-        const chordM =
-          Math.hypot(post.x - prev.x, post.y - prev.y) * scale;
+        const chordM = Math.hypot(post.x - prev.x, post.y - prev.y) * scale;
         segDrift = m - chordM;
         cumDrift += segDrift;
       }
@@ -1664,7 +1870,10 @@ export function refineAnchorPageByDistortionZoneBias(
     zoneCumMax = Math.max(zoneCumMax, Math.abs(s.cumDrift));
   }
 
-  if (zoneFwdBackMax < ZONE_FWD_BACK_MIN_M && zoneCumMax < ZONE_CUM_DRIFT_MIN_M) {
+  if (
+    zoneFwdBackMax < ZONE_FWD_BACK_MIN_M &&
+    zoneCumMax < ZONE_CUM_DRIFT_MIN_M
+  ) {
     warnings.push(
       `[distortion-zone] zone inactive (max fwd↔back ${zoneFwdBackMax.toFixed(2)}m, max |cumDrift| ${zoneCumMax.toFixed(1)}m) — skipped.`,
     );
@@ -1682,6 +1891,13 @@ export function refineAnchorPageByDistortionZoneBias(
     if (s.index < lo || s.index > hi) continue;
     if (s.index < innerLo || s.index > innerHi + 1) continue;
     if (s.post.lat == null || s.post.lon == null) continue;
+    if (
+      cablesByPage?.size &&
+      postByNum &&
+      isAuxiliaryRoutePost(s.post, postByNum, cablesByPage)
+    ) {
+      continue;
+    }
 
     const segOk =
       Math.abs(s.segDrift) >= POST_SEG_DRIFT_MIN_M ||
@@ -1693,10 +1909,7 @@ export function refineAnchorPageByDistortionZoneBias(
 
     const fwdBack =
       s.forwardCorr &&
-      Math.hypot(
-        target.e - s.forwardCorr.e,
-        target.n - s.forwardCorr.n,
-      );
+      Math.hypot(target.e - s.forwardCorr.e, target.n - s.forwardCorr.n);
     if (fwdBack != null && fwdBack < ZONE_FWD_BACK_MIN_M * 0.5) continue;
 
     if (s.fcGapBack >= s.fcGapFwd * 0.98 && s.fcGapFwd < POST_FC_GAP_MIN_M) {
@@ -1808,16 +2021,18 @@ export function refineAnchorPageByDistortionZoneBias(
   }
 
   if (adjustedNums.length === 0) {
-    warnings.push(`[distortion-zone] zone active but no post passed per-post RMSE gate — skipped.`);
+    warnings.push(
+      `[distortion-zone] zone active but no post passed per-post RMSE gate — skipped.`,
+    );
     return false;
   }
 
   const rmseAfter = anchorPageLatLonLabelRmse(anchorPagePosts, distMap);
 
   warnings.push(
-    `[distortion-zone] Page ${anchorPage}: adjusted posts ${adjustedNums.join(', ')} ` +
+    `[distortion-zone] Page ${anchorPage}: adjusted posts ${adjustedNums.join(", ")} ` +
       `(zone fwd↔back≤${zoneFwdBackMax.toFixed(1)}m |cumDrift|≤${zoneCumMax.toFixed(1)}m; ` +
-      `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? '?'}→${rmseAfter?.toFixed(2) ?? '?'} m).`,
+      `lat/lon RMSE ${rmseBefore?.toFixed(2) ?? "?"}→${rmseAfter?.toFixed(2) ?? "?"} m).`,
   );
   return true;
 }
@@ -1830,7 +2045,7 @@ export function refinePageOriginsByLabelCalibration(
   sortedPosts,
   distMap,
   post1Gps,
-  warnings
+  warnings,
 ) {
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
   const { map: augMap, filled } = augmentCrossPageDistances(sorted, distMap);
@@ -1839,7 +2054,7 @@ export function refinePageOriginsByLabelCalibration(
     sortedPosts,
     augMap,
     post1Gps,
-    warnings
+    warnings,
   );
   return {
     adjusted: lsq.adjusted,

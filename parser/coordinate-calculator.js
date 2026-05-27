@@ -34,7 +34,7 @@ import { attachMarkerAnchors } from "./post-positioning.js";
 import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
-  refineAuxiliaryPostsPdfByLabelBracket,
+  snapOffCableAuxiliaryPostsByLabelBracket,
   refineGpsPastAuxiliaryPostsOnAnchorPage,
   refineAnchorPageByDownstreamChord,
   refineAnchorPageBySplitRegion,
@@ -1133,20 +1133,6 @@ export function calculateCoordinates(
             `[label-lsq] Inferred ${gapFilled} same-page gap distance(s) from neighbors for global fit.`,
           );
         }
-        if (gapCablesByPage) {
-          const auxPdf = refineAuxiliaryPostsPdfByLabelBracket(
-            sorted,
-            distWithGaps,
-            gapCablesByPage,
-            warnings,
-            gapFilledKeys,
-          );
-          if (auxPdf) {
-            warnings.push(
-              "[label-lsq] Auxiliary off-cable post(s) repositioned along neighbor label brackets.",
-            );
-          }
-        }
         const crossAug = augmentCrossPageDistances(sorted, distWithGaps);
         augDistMap = crossAug.map;
         augDistMapForSeams = augDistMap;
@@ -1632,7 +1618,11 @@ export function calculateCoordinates(
     // Page-level origin nudge at sheet breaks (RMSE-gated):
     // If an incoming page has a consistent lateral drift from the cable corridor, shift the
     // entire page origin slightly toward the corridor.
-    if (auxCablesForCorridor && pageTransforms.size > 0 && augDistMapForSeams?.size) {
+    if (
+      auxCablesForCorridor &&
+      pageTransforms.size > 0 &&
+      augDistMapForSeams?.size
+    ) {
       const list = [...sorted].sort((a, b) => a.number - b.number);
       const incomingPages = new Set();
       for (let i = 1; i < list.length; i++) {
@@ -1643,7 +1633,11 @@ export function calculateCoordinates(
         if (pPrev !== pCurr) incomingPages.add(pCurr);
       }
 
-      const rmseBefore = labelDistanceRmse(pageTransforms, list, augDistMapForSeams);
+      const rmseBefore = labelDistanceRmse(
+        pageTransforms,
+        list,
+        augDistMapForSeams,
+      );
       const backups = new Map();
       let nudgedPages = 0;
       let maxShift = 0;
@@ -1654,7 +1648,11 @@ export function calculateCoordinates(
         backups.set(pg, { origin_e: tf.origin_e, origin_n: tf.origin_n });
 
         const onPage = list.filter(
-          (p) => (p.pageNum ?? 1) === pg && p.lat != null && p.lon != null && !skipAux(p),
+          (p) =>
+            (p.pageNum ?? 1) === pg &&
+            p.lat != null &&
+            p.lon != null &&
+            !skipAux(p),
         );
         if (onPage.length < 4) continue;
 
@@ -1664,8 +1662,14 @@ export function calculateCoordinates(
         let sumDy = 0;
         let n = 0;
         for (const p of onPage) {
-          const hit = nearestPointOnCablesOnPage(p.x, p.y, pg, auxCablesForCorridor);
-          if (!Number.isFinite(hit.d) || hit.d > OFF_CABLE_FOR_LABEL_CHAIN_PT) continue;
+          const hit = nearestPointOnCablesOnPage(
+            p.x,
+            p.y,
+            pg,
+            auxCablesForCorridor,
+          );
+          if (!Number.isFinite(hit.d) || hit.d > OFF_CABLE_FOR_LABEL_CHAIN_PT)
+            continue;
           const corridor = projectPost(hit.x, hit.y, tf);
           sumDx += (corridor.lon - p.lon) * 111320 * cosLat;
           sumDy += (corridor.lat - p.lat) * 110540;
@@ -1687,7 +1691,11 @@ export function calculateCoordinates(
         maxShift = Math.max(maxShift, meanMag * k);
       }
 
-      const rmseAfter = labelDistanceRmse(pageTransforms, list, augDistMapForSeams);
+      const rmseAfter = labelDistanceRmse(
+        pageTransforms,
+        list,
+        augDistMapForSeams,
+      );
       if (
         nudgedPages > 0 &&
         rmseBefore != null &&
@@ -1721,7 +1729,9 @@ export function calculateCoordinates(
       }
     }
 
-    corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings);
+    corridorFixed += refineGpsToPdfRouteCorridor(sorted, skipAux, warnings, {
+      distMap: augDistMapForSeams,
+    });
     if (auxCablesForCorridor && pageTransforms.size > 0) {
       corridorFixed += clampGpsToRouteCableCorridor(
         sorted,
@@ -1736,6 +1746,31 @@ export function calculateCoordinates(
       warnings.push(
         `[route-corridor] Adjusted ${corridorFixed} post GPS position(s) to match plan corridor.`,
       );
+    }
+
+    if (augDistMapForSeams?.size && cableSegments?.length) {
+      const auxSnapCables = buildCablesByPage(cableSegments);
+      const snappedNums = snapOffCableAuxiliaryPostsByLabelBracket(
+        sorted,
+        augDistMapForSeams,
+        auxSnapCables,
+        warnings,
+        { requireOnCableNeighbors: true },
+      );
+      if (snappedNums.length > 0) {
+        for (const num of snappedNums) {
+          const post = postMap.get(num);
+          const transform = post && pageTransforms.get(post.pageNum);
+          if (!post || !transform) continue;
+          const { lat, lon } = projectPost(post.x, post.y, transform);
+          post.lat = lat;
+          post.lon = lon;
+        }
+        warnings.push(
+          `[label-lsq] Off-cable auxiliary post(s) ${snappedNums.join(", ")} snapped ` +
+            `along on-cable neighbor brackets (post-corridor GPS reproject).`,
+        );
+      }
     }
   }
 

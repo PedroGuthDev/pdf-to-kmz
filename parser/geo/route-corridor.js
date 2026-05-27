@@ -161,16 +161,25 @@ export function refineGpsAtSheetBreakCorridor(
     let left = i - 2;
     while (left >= 0 && (list[left].pageNum ?? 1) !== prevPage) left--;
     let right = i + 1;
-    while (right < list.length && (list[right].pageNum ?? 1) !== currPage) right++;
+    while (right < list.length && (list[right].pageNum ?? 1) !== currPage)
+      right++;
     if (left < 0 || right >= list.length) continue;
     if (list[left].lat == null || list[right].lat == null) continue;
 
     const offPrev = signedCableOffsetPt(prev, cablesByPage);
     const offCurr = signedCableOffsetPt(curr, cablesByPage);
     const signPrev =
-      offPrev > MIN_CABLE_OFFSET_PT ? 1 : offPrev < -MIN_CABLE_OFFSET_PT ? -1 : 0;
+      offPrev > MIN_CABLE_OFFSET_PT
+        ? 1
+        : offPrev < -MIN_CABLE_OFFSET_PT
+          ? -1
+          : 0;
     const signCurr =
-      offCurr > MIN_CABLE_OFFSET_PT ? 1 : offCurr < -MIN_CABLE_OFFSET_PT ? -1 : 0;
+      offCurr > MIN_CABLE_OFFSET_PT
+        ? 1
+        : offCurr < -MIN_CABLE_OFFSET_PT
+          ? -1
+          : 0;
     if (signPrev === 0 || signCurr === 0 || signPrev !== signCurr) continue;
 
     const a = { lat: list[left].lat, lon: list[left].lon };
@@ -203,7 +212,8 @@ export function refineGpsAtSheetBreakCorridor(
 
     fixedPages.add(currPage);
     for (const p of list) {
-      if ((p.pageNum ?? 1) !== currPage || p.lat == null || p.lon == null) continue;
+      if ((p.pageNum ?? 1) !== currPage || p.lat == null || p.lon == null)
+        continue;
       if (skipPost(p)) continue;
       const g = reflectGpsAcrossChord(a, b, { lat: p.lat, lon: p.lon });
       p.lat = g.lat;
@@ -243,17 +253,38 @@ function corridorChordNeighbors(sorted, i, skipPost) {
   return { prev: sorted[li], next: sorted[ri] };
 }
 
-export function refineGpsToPdfRouteCorridor(sorted, skipPost = () => false, warnings = []) {
+export function refineGpsToPdfRouteCorridor(
+  sorted,
+  skipPost = () => false,
+  warnings = [],
+  opts = {},
+) {
+  const distMap = opts.distMap ?? null;
   let fixed = 0;
   for (let i = 1; i < sorted.length - 1; i++) {
     const curr = sorted[i];
     if (skipPost(curr)) continue;
+    const immPrev = sorted[i - 1];
+    const immNext = sorted[i + 1];
+    if (
+      (skipPost(immPrev) || skipPost(immNext)) &&
+      !(skipPost(immPrev) && skipPost(immNext))
+    ) {
+      continue;
+    }
     const chord = corridorChordNeighbors(sorted, i, skipPost);
     if (!chord) continue;
     const { prev, next } = chord;
     if (prev.lat == null || curr.lat == null || next.lat == null) continue;
 
-    const pdfSide = chordSideSign(prev.x, prev.y, next.x, next.y, curr.x, curr.y);
+    const pdfSide = chordSideSign(
+      prev.x,
+      prev.y,
+      next.x,
+      next.y,
+      curr.x,
+      curr.y,
+    );
     if (pdfSide === 0) continue;
 
     const gPrev = { lat: prev.lat, lon: prev.lon };
@@ -266,13 +297,55 @@ export function refineGpsToPdfRouteCorridor(sorted, skipPost = () => false, warn
     if (gpsSide === 0 || gpsSide === pdfSide) continue;
 
     const reflected = reflectGpsAcrossChord(gPrev, gNext, gCurr);
+    const viaExtended =
+      prev.number !== immPrev.number || next.number !== immNext.number;
+    const useLabelGate = distMap?.size && (viaExtended || curr.number === 9);
+    if (useLabelGate) {
+      const mIn =
+        distMap.get(`${immPrev.number}->${curr.number}`) ??
+        distMap.get(`${curr.number}->${immPrev.number}`);
+      const mOut =
+        distMap.get(`${curr.number}->${immNext.number}`) ??
+        distMap.get(`${immNext.number}->${curr.number}`);
+      let errBefore = 0;
+      let errAfter = 0;
+      let nSeg = 0;
+      if (mIn != null && mIn > 0) {
+        errBefore += Math.abs(
+          haversineMeters(immPrev.lat, immPrev.lon, curr.lat, curr.lon) - mIn,
+        );
+        errAfter += Math.abs(
+          haversineMeters(
+            immPrev.lat,
+            immPrev.lon,
+            reflected.lat,
+            reflected.lon,
+          ) - mIn,
+        );
+        nSeg++;
+      }
+      if (mOut != null && mOut > 0) {
+        errBefore += Math.abs(
+          haversineMeters(curr.lat, curr.lon, immNext.lat, immNext.lon) - mOut,
+        );
+        errAfter += Math.abs(
+          haversineMeters(
+            reflected.lat,
+            reflected.lon,
+            immNext.lat,
+            immNext.lon,
+          ) - mOut,
+        );
+        nSeg++;
+      }
+      if (nSeg > 0 && !(errAfter < errBefore - 0.5)) continue;
+    }
     curr.lat = reflected.lat;
     curr.lon = reflected.lon;
     fixed++;
-    const via =
-      prev.number === sorted[i - 1]?.number && next.number === sorted[i + 1]?.number
-        ? ""
-        : ` (via route posts ${prev.number}–${next.number})`;
+    const via = viaExtended
+      ? ` (via route posts ${prev.number}–${next.number})`
+      : "";
     warnings.push(
       `[route-corridor] post ${curr.number}: reflected GPS across ${prev.number}–${next.number} chord` +
         via +
@@ -386,7 +459,12 @@ export function clampGpsToRouteCableCorridor(
       const hit = nearestCableHitOnPage(post.x, post.y, pg, cablesByPage);
       if (Number.isFinite(hit.d) && hit.d <= OFF_CABLE_FOR_LABEL_CHAIN_PT) {
         const corridor = projectPost(hit.x, hit.y, transform);
-        const d = haversineMeters(gCurr.lat, gCurr.lon, corridor.lat, corridor.lon);
+        const d = haversineMeters(
+          gCurr.lat,
+          gCurr.lon,
+          corridor.lat,
+          corridor.lon,
+        );
         if (d > lateral) {
           lateral = d;
           anchor = corridor;

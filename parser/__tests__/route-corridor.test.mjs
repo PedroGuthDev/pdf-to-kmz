@@ -42,9 +42,29 @@ describe("route-corridor", () => {
     assert.match(w[0], /via route posts 3–8/);
   });
 
+  it("refineGpsToPdfRouteCorridor skips reflection when one immediate neighbor is auxiliary", () => {
+    const posts = [
+      { number: 2, pageNum: 3, x: 0, y: 0, lat: -27.64, lon: -48.656 },
+      { number: 3, pageNum: 3, x: 40, y: 6, lat: -27.6399, lon: -48.6555 },
+      { number: 4, pageNum: 3, x: 60, y: 2, lat: -27.63985, lon: -48.6554 },
+      { number: 5, pageNum: 3, x: 100, y: 0, lat: -27.63992, lon: -48.65516 },
+    ];
+    posts[1].lat = -27.6405;
+    const w = [];
+    const n = refineGpsToPdfRouteCorridor(posts, (p) => p.number === 4, w);
+    assert.equal(n, 0);
+  });
+
   it("refineGpsToPdfRouteCorridor flips GPS when opposite PDF side", () => {
     const posts = [
-      { number: 26, pageNum: 5, x: 134, y: 330, lat: -27.64007, lon: -48.65578 },
+      {
+        number: 26,
+        pageNum: 5,
+        x: 134,
+        y: 330,
+        lat: -27.64007,
+        lon: -48.65578,
+      },
       {
         number: 27,
         pageNum: 5,
@@ -53,7 +73,14 @@ describe("route-corridor", () => {
         lat: -27.63999,
         lon: -48.65547,
       },
-      { number: 28, pageNum: 5, x: 310, y: 284, lat: -27.63992, lon: -48.65516 },
+      {
+        number: 28,
+        pageNum: 5,
+        x: 310,
+        y: 284,
+        lat: -27.63992,
+        lon: -48.65516,
+      },
     ];
     // Push 27 to wrong side of chord in GPS (east offset)
     posts[1].lon = -48.6562;
@@ -106,11 +133,19 @@ describe("route-corridor", () => {
     posts[2].lat = -27.642;
     posts[2].lon = -48.6565;
     const w = [];
-    const n = refineGpsAtSheetBreakCorridor(posts, cablesByPage, () => false, w);
+    const n = refineGpsAtSheetBreakCorridor(
+      posts,
+      cablesByPage,
+      () => false,
+      w,
+    );
     assert.ok(n >= 2);
     const a = { lat: posts[0].lat, lon: posts[0].lon };
     const b = { lat: posts[3].lat, lon: posts[3].lon };
-    assert.equal(gpsChordSide(a, b, { lat: posts[1].lat, lon: posts[1].lon }), gpsChordSide(a, b, { lat: posts[2].lat, lon: posts[2].lon }));
+    assert.equal(
+      gpsChordSide(a, b, { lat: posts[1].lat, lon: posts[1].lon }),
+      gpsChordSide(a, b, { lat: posts[2].lat, lon: posts[2].lon }),
+    );
   });
 
   it("clampGpsToRouteCableCorridor shrinks lateral offset beyond 8 m", () => {
