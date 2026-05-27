@@ -574,6 +574,26 @@
           placeholder="-27.645312, -48.671234"
         />
       </div>
+      <div class="panel" style="margin-top: var(--space-sm)">
+        <strong>Biblioteca de regiões DXF</strong>
+        <p class="hint" style="margin-top: 6px">
+          Carregue um arquivo DXF regional para coordenadas de maior precisão.
+        </p>
+        <div class="field-row">
+          <input
+            type="text"
+            id="dxfRegionName"
+            placeholder="Nome da região (ex: Siriu)"
+          />
+        </div>
+        <input type="file" id="dxfFileInput" accept=".dxf" style="display: none" />
+        <div class="btn-row" style="margin-top: var(--space-xs)">
+          <button type="button" id="dxfUploadBtn" class="btn-secondary">
+            Carregar região DXF
+          </button>
+        </div>
+        <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
+      </div>
       <button
         type="button"
         id="secondAnchorToggle"
@@ -780,11 +800,16 @@
         mergeOptions,
         CALC_PIPELINE_ID,
       } from "./parser/pdf-parser.js";
+      import { calculateCoordinatesWithDwg } from "./parser/dwg/coordinate-calculator-dwg.js";
+      import { createRegionLibrary } from "./parser/dwg/region-library.js";
       import { PRESET_COLORS, DEFAULT_OPTIONS } from "./parser/kmz-defaults.js";
       import {
         computeScaleFactor,
         buildPageTransforms,
       } from "./parser/geo/utm-calibrator.js";
+
+      // ── DWG Region Library ──────────────────────────────────────────────────
+      const regionLibrary = createRegionLibrary(); // uses browser IndexedDB
 
       // ── Debug helpers ──────────────────────────────────────────────────────────
       const debugSection = document.getElementById("debugSection");
@@ -918,6 +943,10 @@
       const gpsInput = document.getElementById("gpsInput");
       const gpsInputLast = document.getElementById("gpsInputLast");
       const calcBtn = document.getElementById("calcBtn");
+      const dxfUploadBtn = document.getElementById("dxfUploadBtn");
+      const dxfFileInput = document.getElementById("dxfFileInput");
+      const dxfRegionName = document.getElementById("dxfRegionName");
+      const dxfUploadStatus = document.getElementById("dxfUploadStatus");
       const coordWarning = document.getElementById("coordWarning");
       const secondAnchorToggle = document.getElementById("secondAnchorToggle");
       const secondAnchorPanel = document.getElementById("secondAnchorPanel");
@@ -945,6 +974,60 @@
       let lastKmzObjectUrl = null;
       let lastPdfFile = null;
       let devToolsVisible = false;
+
+      // ── DWG DXF upload handler ────────────────────────────────────────────────
+      if (dxfUploadBtn && dxfFileInput) {
+        dxfUploadBtn.addEventListener("click", () => dxfFileInput.click());
+      }
+
+      if (dxfFileInput) {
+        dxfFileInput.addEventListener("change", async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+
+          const name =
+            (dxfRegionName?.value ?? "").trim() ||
+            file.name.replace(/\.dxf$/i, "");
+
+          if (dxfUploadStatus) {
+            dxfUploadStatus.textContent = "Processando DXF...";
+            dxfUploadStatus.style.color = "var(--ink-muted)";
+          }
+
+          // Pitfall #5: detect binary DWG by reading first 4 bytes.
+          try {
+            const headerBytes = await file.slice(0, 4).arrayBuffer();
+            const header = new TextDecoder().decode(headerBytes);
+            if (header.startsWith("AC1")) {
+              if (dxfUploadStatus) {
+                dxfUploadStatus.textContent =
+                  "Erro: arquivo DWG binário detectado. Re-exporte como DXF no AutoCAD (Arquivo → Salvar Como → AutoCAD DXF).";
+                dxfUploadStatus.style.color = "var(--error)";
+              }
+              e.target.value = "";
+              return;
+            }
+          } catch (err) {
+            // Non-fatal: still try to parse via region library.
+          }
+
+          try {
+            await regionLibrary.addRegion(name, file);
+            if (dxfUploadStatus) {
+              dxfUploadStatus.textContent = `Região "${name}" carregada com sucesso.`;
+              dxfUploadStatus.style.color = "var(--success)";
+            }
+          } catch (err) {
+            const msg = String(err?.message ?? err);
+            if (dxfUploadStatus) {
+              dxfUploadStatus.textContent = `Erro ao carregar DXF: ${msg}`;
+              dxfUploadStatus.style.color = "var(--error)";
+            }
+          } finally {
+            e.target.value = "";
+          }
+        });
+      }
 
       function revokeKmzObjectUrl() {
         if (lastKmzObjectUrl) {
@@ -1307,7 +1390,7 @@
         if (file) handlePdfFile(file);
       });
 
-      calcBtn.addEventListener("click", () => {
+      calcBtn.addEventListener("click", async () => {
         coordWarning.style.display = "none";
         resultSection.style.display = "none";
         revokeKmzObjectUrl();
@@ -1361,13 +1444,14 @@
           distanceLabelItems: currentParseData.distanceLabelItems,
           ...(lastParsed ? { lastPostGps: lastParsed } : {}),
         };
-        const result = calculateCoordinates(
+        const result = await calculateCoordinatesWithDwg(
           postsCopy,
           currentParseData.distances,
           lat,
           lon,
           currentParseData.cableSegments,
           opts,
+          regionLibrary,
         );
         const { posts: calculatedPosts, connections } = result;
 
@@ -1612,13 +1696,14 @@
           posteRawCentroids: currentParseData.posteRawCentroids,
           ...(lastPostGps ? { lastPostGps } : {}),
         };
-        const calcResult = calculateCoordinates(
+        const calcResult = await calculateCoordinatesWithDwg(
           postsCopy,
           currentParseData.distances,
           ref1.lat,
           ref1.lon,
           currentParseData.cableSegments,
           calcOpts,
+          regionLibrary,
         );
         const calcPosts = calcResult.posts;
         const calcWarnings = calcResult.warnings ?? [];
