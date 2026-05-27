@@ -18,9 +18,8 @@ async function getPdfjsLib() {
   if (!_pdfjsLibPromise) {
     _pdfjsLibPromise = (async () => {
       if (typeof process !== "undefined" && process.versions?.node) {
-        const { ensureNodeCanvasPolyfills } = await import(
-          "./node-canvas-setup.js"
-        );
+        const { ensureNodeCanvasPolyfills } =
+          await import("./node-canvas-setup.js");
         await ensureNodeCanvasPolyfills();
         const lib = await import("pdfjs-dist/legacy/build/pdf.mjs");
         lib.GlobalWorkerOptions.workerSrc = new URL(
@@ -323,9 +322,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
         try {
           const layerName = idToName[id] ?? idToName[String(id)] ?? "";
-          const isOcrLayer = OCR_LAYER_NAMES.includes(
-            normalizeName(layerName),
-          );
+          const isOcrLayer = OCR_LAYER_NAMES.includes(normalizeName(layerName));
           ocConfig.setVisibility(id, isOcrLayer);
         } catch (_) {}
       }
@@ -586,6 +583,9 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
 
     onProgress?.({ stage: "ocr", message: "Lendo números dos postes..." });
     const allOcrResults = [];
+    let ocrSortIndex = 0;
+    const ocrDebugDir =
+      typeof hooks.ocrDebugDir === "string" ? hooks.ocrDebugDir : null;
     for (const batch of pendingOcrBatches) {
       const pageNum = batch.circles[0]?.pageNum;
       if (!calibratedPageSet.has(pageNum)) {
@@ -600,7 +600,11 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         batch.circles,
         ocrOcPromise,
         ocrWorker,
+        ocrDebugDir
+          ? { debugDir: ocrDebugDir, sortIndexBase: ocrSortIndex }
+          : {},
       );
+      ocrSortIndex += pageOcrResults.length;
       allOcrResults.push(...pageOcrResults);
     }
 
@@ -805,6 +809,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     // ── Return success contract (D-16) ───────────────────────────────────────
     return {
       posts,
+      ocrResults: allOcrResults,
       distances,
       cableSegments,
       warnings,

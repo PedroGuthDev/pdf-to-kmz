@@ -46,6 +46,15 @@ async function canvasToPngBytes(canvas) {
   return canvas.toBuffer('image/png');
 }
 
+/** @param {string} dir */
+async function writeDebugPng(dir, name, canvas) {
+  if (!dir || typeof process === 'undefined' || !process.versions?.node) return;
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), await canvasToPngBytes(canvas));
+}
+
 /**
  * Create and configure a Tesseract worker for digit OCR.
  * Caller is responsible for calling worker.terminate() when done.
@@ -84,9 +93,13 @@ export async function createOcrWorker() {
  *   Circle centroids with flipY already applied (y = pageHeight - rawY, y increases downward).
  * @param {object|null} ocConfigPromise  Optional OptionalContentConfig promise for forcing all layers visible.
  * @param {import('tesseract.js').Worker} worker  Pre-created Tesseract worker (WR-05: shared across pages).
- * @returns {Promise<Array<{circle: {x: number, y: number, pageNum?: number}, number: number|null}>>}
+ * @param {{ debugDir?: string, sortIndexBase?: number }} [options]
+ *   debugDir: save color/binarized/upscaled PNGs + JSON per crop (Node only).
+ *   sortIndexBase: global index in route sort order for filenames (debug tooling).
+ * @returns {Promise<Array<{circle: {x: number, y: number, pageNum?: number}, number: number|null, ocrDebug?: object}>>}
  */
-export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise = null, worker) {
+export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise = null, worker, options = {}) {
+  const { debugDir = null, sortIndexBase = 0 } = options;
   if (circles.length === 0) return [];
 
   // STEP 2 — Render full page to OffscreenCanvas. Scale 6× because the overview
@@ -193,7 +206,9 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
   let cropsLogged = 0;
   const DEBUG_CROPS_PER_PAGE = 6;
 
-  for (const circle of circles) {
+  for (let ci = 0; ci < circles.length; ci++) {
+    const circle = circles[ci];
+    const sortIdx = sortIndexBase + ci;
     const rawCx = Math.round(circle.x * SCALE);
     const rawCy = Math.round(circle.y * SCALE);
 
@@ -256,6 +271,13 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     const cropCtx = cropCanvas.getContext('2d');
     cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
+    const debugStem = debugDir
+      ? `idx${String(sortIdx + 1).padStart(3, '0')}_p${circle.pageNum ?? 0}_ocr`
+      : null;
+    if (debugStem) {
+      await writeDebugPng(debugDir, `${debugStem}_color.png`, cropCanvas);
+    }
+
     // Binarise to black-on-white: any dark pixel becomes the digit, everything
     // else (red ring outline, off-white background, anti-aliasing halo) becomes
     // pure white. Gives Tesseract a textbook OCR input.
@@ -271,6 +293,9 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       cd[i + 3] = 255;
     }
     cropCtx.putImageData(cropImg, 0, 0);
+    if (debugStem) {
+      await writeDebugPng(debugDir, `${debugStem}_bin.png`, cropCanvas);
+    }
 
     // Upscale tiny crops (page-overview rings) with high-quality smoothing so
     // Tesseract has enough pixels per digit to commit (≥25 px char height).
@@ -292,6 +317,10 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       results.push({ circle, number: null, ringCenter: ringCenterPt });
       continue;
     }
+    if (debugStem && ocrSource !== cropCanvas) {
+      await writeDebugPng(debugDir, `${debugStem}_upscale.png`, ocrSource);
+    }
+
     const { data } = await worker.recognize(pngBytes);
     const text = data.text.trim();
     // Lenient parse: pick the last digit run (Tesseract may emit "001" when the
@@ -299,6 +328,40 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     // run is the digit inside the ring. MAX_PLAUSIBLE_POST gating happens later.
     const runs = text.match(/\d{1,3}/g);
     const num = runs && runs.length > 0 ? parseInt(runs[runs.length - 1], 10) : null;
+
+    const ocrDebug = debugStem
+      ? {
+          sortIndex: sortIdx + 1,
+          pageNum: circle.pageNum,
+          circle: { x: circle.x, y: circle.y },
+          ringFound: !!ring,
+          ringPx: ring ? { w: ring.width, h: ring.height } : null,
+          ringShrink: ring ? Math.max(2, Math.floor(Math.min(ring.width, ring.height) * 0.15)) : null,
+          cropPx: { w: cropW, h: cropH },
+          upscaled: ocrSource !== cropCanvas,
+          ocrText: text,
+          digitRuns: runs,
+          parsedNumber: num,
+          words: (data.words ?? []).map((w) => ({
+            text: w.text,
+            conf: w.confidence,
+            bbox: w.bbox,
+          })),
+          symbols: (data.symbols ?? []).slice(0, 20).map((s) => ({
+            text: s.text,
+            conf: s.confidence,
+          })),
+        }
+      : undefined;
+
+    if (debugStem) {
+      const { writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      writeFileSync(
+        join(debugDir, `${debugStem}.json`),
+        JSON.stringify(ocrDebug, null, 2),
+      );
+    }
     console.info(
       `[ocr] page=${circle.pageNum ?? '?'} circle=(${circle.x.toFixed(0)},${circle.y.toFixed(0)})` +
       ` ocr=${JSON.stringify(text)} → number=${num}`
@@ -315,7 +378,7 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       cropsLogged++;
     }
 
-    results.push({ circle, number: num, ringCenter: ringCenterPt });
+    results.push({ circle, number: num, ringCenter: ringCenterPt, ocrDebug });
   }
 
   return results;
