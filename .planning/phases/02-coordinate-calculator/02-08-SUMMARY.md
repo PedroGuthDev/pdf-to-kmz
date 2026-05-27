@@ -27,7 +27,8 @@ key_files:
     - package-lock.json
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "913fe28 chore(02-08): add DWG deps and Siriu fixtures"
 ---
 
 # Phase 2 Plan 08: DWG deps + Siriu fixtures — Summary
