@@ -18,6 +18,10 @@ async function getPdfjsLib() {
   if (!_pdfjsLibPromise) {
     _pdfjsLibPromise = (async () => {
       if (typeof process !== "undefined" && process.versions?.node) {
+        const { ensureNodeCanvasPolyfills } = await import(
+          "./node-canvas-setup.js"
+        );
+        await ensureNodeCanvasPolyfills();
         const lib = await import("pdfjs-dist/legacy/build/pdf.mjs");
         lib.GlobalWorkerOptions.workerSrc = new URL(
           "../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
@@ -263,12 +267,20 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
   try {
     const pdfjsLib = await getPdfjsLib();
     const isNode = typeof process !== "undefined" && process.versions?.node;
-    const docOpts = { data: arrayBuffer };
+    const pdfBytes =
+      arrayBuffer instanceof Uint8Array
+        ? arrayBuffer
+        : arrayBuffer instanceof ArrayBuffer
+          ? new Uint8Array(arrayBuffer)
+          : new Uint8Array(arrayBuffer);
+    const docOpts = { data: pdfBytes };
     if (isNode) {
       docOpts.standardFontDataUrl = new URL(
         "../node_modules/pdfjs-dist/standard_fonts/",
         import.meta.url,
       ).href;
+      // Vector post markers do not need embedded fonts; avoids noisy font fetch on Windows paths.
+      docOpts.disableFontFace = true;
     }
     // ── Load PDF ────────────────────────────────────────────────────────────
     onProgress?.({ stage: "loading", message: "Carregando PDF..." });
@@ -296,32 +308,28 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     // ── OCR collector (D-06) — run after viewport pairing (calibrated pages only) ─
     const pendingOcrBatches = [];
 
-    // Selective OCG visibility for OCR rendering (F-01) — browser only.
-    // Node: pdf.js + node-canvas currently rasterizes blank pages; OCR is skipped and
-    // post numbers fall back to route-order assignment after assembly.
+    // Selective OCG visibility for OCR rendering (F-01) — Numero_Poste + TEXTO only.
     let ocrOcPromise = null;
     try {
       const ocConfig = await pdfDoc.getOptionalContentConfig();
-      if (!isNode) {
-        const OCR_LAYER_NAMES = [
-          normalizeName("Numero_Poste"),
-          normalizeName("TEXTO"),
-        ];
-        const flatOrder = (arr) =>
-          (arr ?? []).flatMap((item) =>
-            Array.isArray(item) ? flatOrder(item) : [item],
+      const OCR_LAYER_NAMES = [
+        normalizeName("Numero_Poste"),
+        normalizeName("TEXTO"),
+      ];
+      const flatOrder = (arr) =>
+        (arr ?? []).flatMap((item) =>
+          Array.isArray(item) ? flatOrder(item) : [item],
+        );
+      for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
+        try {
+          const layerName = idToName[id] ?? idToName[String(id)] ?? "";
+          const isOcrLayer = OCR_LAYER_NAMES.includes(
+            normalizeName(layerName),
           );
-        for (const id of flatOrder(ocConfig.getOrder?.() ?? [])) {
-          try {
-            const layerName = idToName[id] ?? idToName[String(id)] ?? "";
-            const isOcrLayer = OCR_LAYER_NAMES.includes(
-              normalizeName(layerName),
-            );
-            ocConfig.setVisibility(id, isOcrLayer);
-          } catch (_) {}
-        }
-        ocrOcPromise = Promise.resolve(ocConfig);
+          ocConfig.setVisibility(id, isOcrLayer);
+        } catch (_) {}
       }
+      ocrOcPromise = Promise.resolve(ocConfig);
     } catch (_) {}
 
     // ── Distance fallback collector ──────────────────────────────────────────
@@ -330,7 +338,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     // ── WR-05: Create Tesseract worker once before page loop ─────────────────
     // Creating a worker per page caused N CDN imports and N WASM inits on multi-page PDFs.
     // The worker is shared across all pages and terminated after the loop.
-    const ocrWorker = isNode ? null : await createOcrWorker();
+    const ocrWorker = await createOcrWorker();
 
     // ── Process all pages (D-09): each page is independent user space; results merged below ─
     for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
@@ -586,22 +594,13 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         );
         continue;
       }
-      let pageOcrResults;
-      if (isNode) {
-        pageOcrResults = batch.circles.map((circle) => ({
-          circle,
-          number: null,
-          ringCenter: null,
-        }));
-      } else {
-        pageOcrResults = await ocrCircleNumbers(
-          batch.page,
-          batch.pageHeight,
-          batch.circles,
-          ocrOcPromise,
-          ocrWorker,
-        );
-      }
+      const pageOcrResults = await ocrCircleNumbers(
+        batch.page,
+        batch.pageHeight,
+        batch.circles,
+        ocrOcPromise,
+        ocrWorker,
+      );
       allOcrResults.push(...pageOcrResults);
     }
 

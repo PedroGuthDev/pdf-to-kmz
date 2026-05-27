@@ -10,18 +10,19 @@
 
 export const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
-/** @type {((w: number, h: number) => import('canvas').Canvas) | null} */
+/** @type {((w: number, h: number) => import('@napi-rs/canvas').Canvas) | null} */
 let _nodeCreateCanvas = null;
 
 async function getNodeCreateCanvas() {
   if (!_nodeCreateCanvas) {
-    ({ createCanvas: _nodeCreateCanvas } = await import('canvas'));
+    const { createNodeCanvas } = await import('./node-canvas-setup.js');
+    _nodeCreateCanvas = createNodeCanvas;
   }
   return _nodeCreateCanvas;
 }
 
 /**
- * Browser OffscreenCanvas or Node `canvas` package (debug-run-calc.mjs).
+ * Browser OffscreenCanvas or Node @napi-rs/canvas (via node-canvas-setup.js).
  * @param {number} w
  * @param {number} h
  */
@@ -31,12 +32,12 @@ async function createOcrCanvas(w, h) {
   }
   if (typeof process !== 'undefined' && process.versions?.node) {
     const createCanvas = await getNodeCreateCanvas();
-    return createCanvas(w, h);
+    return await createCanvas(w, h);
   }
-  throw new Error('No canvas implementation (OffscreenCanvas or canvas package)');
+  throw new Error('No canvas implementation (OffscreenCanvas or @napi-rs/canvas)');
 }
 
-/** @param {OffscreenCanvas | import('canvas').Canvas} */
+/** @param {OffscreenCanvas | import('@napi-rs/canvas').Canvas} */
 async function canvasToPngBytes(canvas) {
   if (typeof canvas.convertToBlob === 'function') {
     const blob = await canvas.convertToBlob({ type: 'image/png' });
