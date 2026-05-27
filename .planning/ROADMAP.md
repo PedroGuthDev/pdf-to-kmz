@@ -41,7 +41,7 @@ Plans:
 
 **Goal:** Implement GPS coordinate calculation from a user-provided starting point, using per-page UTM-grid calibration from PDF layout
 **Mode:** mvp
-**Plans:** 4 active plans (02-01/02-02 obsolete; 02-03/02-04/02-05 shipped; 02-06 planned)
+**Plans:** 13 plans (02-01/02-02 obsolete; 02-03 through 02-07 shipped/planned; 02-08 through 02-13 DWG iteration)
 
 Plans:
 
@@ -51,6 +51,23 @@ Plans:
 - [x] 02-04-PLAN.md — Coordinate calculation rewrite: calculateCoordinates() UTM projection, detectGaps() page filter, index.html wiring ✓ 2026-05-15
 - [x] 02-05-PLAN.md — Accuracy fix: Poste-symbol PDF positions + cable-aware match; Palhoça 11/11 < 5 m ✓ 2026-05-18
 - [ ] 02-06-PLAN.md — N1+Viterbi-HMM accuracy iteration: Viterbi symbol assignment, N1 default-on, 60 pt cable-proximity, Valmor p4 fixture (D-V-*, D-SYM-*, D-N1-*, D-N2-01)
+- [ ] 02-07-PLAN.md — Posts 9-11 under 10m: diagnose refineAnchorPageByDownstreamChord silent failure + split-region calibration (D-P911-01..12)
+
+**DWG iteration (02-08 through 02-13):**
+
+**Wave 1**
+- [ ] 02-08-PLAN.md — npm install (dxf-parser, idb, rbush, fake-indexeddb) + test fixture generation (siriu-ground-truth.json, siriu-subset.json)
+
+**Wave 2** *(depends on 02-08)*
+- [ ] 02-09-PLAN.md — DWG core modules: parser/dwg/dxf-loader.js + parser/dwg/region-pairing.js (strict pairing algorithm, rbush spatial index, adjacency graph)
+
+**Wave 3** *(depends on 02-09)*
+- [ ] 02-10-PLAN.md — DWG orchestration: parser/dwg/region-library.js (IndexedDB CRUD) + parser/dwg/coordinate-calculator-dwg.js (calculateCoordinatesWithDwg wrapper)
+- [ ] 02-11-PLAN.md — Unit tests: parser/__tests__/region-pairing.test.mjs (7+ tests, siriu-subset.json fixture)
+
+**Wave 4** *(depends on 02-10 + 02-11)*
+- [ ] 02-12-PLAN.md — G-3 validation harness: debug-run-calc-dwg.mjs (30/30 siriu posts, max <= 6m)
+- [ ] 02-13-PLAN.md — Minimal UI affordance: "Carregar região DXF" button + calculateCoordinatesWithDwg wiring in index.html (has human checkpoint)
 
 **Success Criteria**:
 
@@ -59,6 +76,8 @@ Plans:
 3. GPS coordinates are calculated for all posts using per-page UTM-grid calibration (not sequential chaining)
 4. Branching routes produce correct coordinates on each branch
 5. Route gaps are handled (disconnected segments get correct positions)
+6. (DWG path) When a regional DXF is loaded, GPS coordinates are derived from DWG INSERT positions (max error <= DWG drafting precision, ~6m for siriu.dxf)
+7. (DWG path) PDF-only fallback fires transparently when no DWG region covers the user's GPS
 
 **Requirements:** COORD-01, COORD-02, COORD-03, COORD-04, COORD-05
 
@@ -124,4 +143,4 @@ All phases are sequential — each depends on the previous phase's output.
 ---
 
 _Roadmap created: 2026-05-12_
-_Last updated: 2026-05-18 — Plan 02-04 complete, Plan 02-05 in progress (accuracy iteration)_
+_Last updated: 2026-05-27 — DWG iteration plans 02-08 through 02-13 added_
