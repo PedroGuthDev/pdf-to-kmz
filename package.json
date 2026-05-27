@@ -13,10 +13,16 @@
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
     "canvas": "^3.2.3",
+    "dxf-parser": "^1.1.2",
+    "idb": "^8.0.3",
     "jszip": "^3.10.1",
     "pdf-parse": "^2.4.5",
     "pdf2json": "^4.0.3",
     "pdfjs-dist": "^5.7.284",
+    "rbush": "^4.0.1",
     "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
   }
 }
