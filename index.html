@@ -63,9 +63,9 @@
         font-family: var(--font-ui);
         font-size: 1rem;
         line-height: 1.55;
-        max-width: 64rem;
+        max-width: 72rem;
         margin: 0 auto;
-        padding: var(--space-xl) var(--space-md);
+        padding: var(--space-lg) var(--space-md);
         color: var(--ink);
         background: var(--canvas);
       }
@@ -86,7 +86,7 @@
       h2 {
         font-size: 1.125rem;
         font-weight: 600;
-        margin: var(--space-xl) 0 var(--space-xs);
+        margin: var(--space-lg) 0 var(--space-xs);
       }
 
       h2:first-child {
@@ -100,7 +100,7 @@
       }
 
       .lede {
-        margin: 0 0 var(--space-lg);
+        margin: 0 0 var(--space-md);
         color: var(--ink-muted);
         max-width: 70ch;
       }
@@ -206,7 +206,7 @@
 
       #status {
         display: none;
-        margin: var(--space-sm) 0;
+        margin: var(--space-xs) 0;
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
         font-weight: 600;
@@ -232,7 +232,7 @@
 
       .panel {
         display: none;
-        margin: var(--space-sm) 0;
+        margin: var(--space-xs) 0;
         padding: var(--space-md);
         border-radius: var(--radius-md);
         border: 1px solid var(--border);
@@ -279,17 +279,37 @@
 
       #coordForm {
         display: none;
-        margin-top: var(--space-xl);
-        padding: var(--space-lg);
+        margin: 0;
+        padding: var(--space-md);
         background: var(--surface-step);
         border: 1px solid var(--border);
         border-radius: var(--radius-md);
       }
 
-      #coordForm p {
-        margin: 0 0 var(--space-md);
-        color: var(--ink-muted);
-        font-style: italic;
+      #coordForm[style*="block"] {
+        display: block !important;
+      }
+
+      #coordForm > h2 {
+        margin: 0 0 var(--space-sm);
+        font-size: 1rem;
+      }
+
+      #coordForm > .btn-row {
+        margin-top: var(--space-sm);
+      }
+
+      .post-read-grid {
+        display: grid;
+        grid-template-columns: minmax(18rem, 0.8fr) minmax(24rem, 1.2fr);
+        gap: var(--space-sm);
+        align-items: stretch;
+        margin-top: var(--space-xs);
+      }
+
+      .post-read-grid .panel {
+        margin: 0;
+        height: 100%;
       }
 
       .field-row {
@@ -324,6 +344,33 @@
         background: var(--debug-bg);
         color: var(--debug-ink);
         border-color: var(--ink);
+      }
+
+      .debug-accordion {
+        margin: var(--space-sm) 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface-muted);
+      }
+
+      .debug-accordion summary {
+        padding: var(--space-sm) var(--space-md);
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .debug-accordion summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .debug-accordion > :not(summary) {
+        margin: 0 var(--space-md) var(--space-md);
+      }
+
+      .debug-accordion pre {
+        max-height: 28rem;
+        overflow: auto;
       }
 
       .hint {
@@ -366,7 +413,25 @@
       }
 
       .appearance-group {
-        margin: var(--space-md) 0;
+        margin: 0;
+      }
+
+      .appearance-settings {
+        margin-top: var(--space-md);
+      }
+
+      .appearance-settings h3 {
+        margin: 0 0 var(--space-sm);
+      }
+
+      .appearance-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(13rem, 1fr));
+        gap: var(--space-md);
+      }
+
+      .appearance-description {
+        grid-column: 1 / -1;
       }
 
       .appearance-group label {
@@ -417,7 +482,7 @@
       }
 
       .section-gap {
-        margin-top: var(--space-xl);
+        margin-top: var(--space-lg);
       }
 
       .muted {
@@ -431,7 +496,7 @@
       }
 
       .page-footer {
-        margin-top: var(--space-xl);
+        margin-top: var(--space-lg);
         padding-top: var(--space-md);
         border-top: 1px solid var(--border);
         font-size: 0.875rem;
@@ -453,6 +518,13 @@
       .page-footer a:hover,
       .page-footer button.link-btn:hover {
         color: var(--accent-hover);
+      }
+
+      @media (max-width: 760px) {
+        .post-read-grid,
+        .appearance-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
@@ -486,23 +558,20 @@
 
     <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
-    <div id="summary" class="panel">
-      <strong>Leitura do PDF:</strong>
-      <ul id="summaryList"></ul>
-    </div>
+    <div class="post-read-grid">
+      <div id="summary" class="panel">
+        <strong>Leitura do PDF:</strong>
+        <ul id="summaryList"></ul>
+      </div>
 
-    <section id="coordForm">
-      <h2>Etapa 2: informe as coordenadas do primeiro poste</h2>
-      <p>
-        Use as coordenadas GPS do poste 1 para calcular toda a rota.
-      </p>
-      <label for="gpsInput">Coordenadas do poste 1 (lat, lon)</label>
+      <section id="coordForm">
+        <h2>Etapa 2: informe as coordenadas do primeiro poste</h2>
+        <label for="gpsInput">Coordenadas do poste 1 (lat, lon)</label>
       <div class="field-row">
         <input
           type="text"
           id="gpsInput"
           placeholder="-27.645312, -48.671234"
-          aria-describedby="coordHint"
         />
       </div>
       <button
@@ -524,7 +593,20 @@
           placeholder="-27.659066, -48.702999"
         />
       </div>
-      <h3>Aparência do KMZ</h3>
+      <div class="btn-row">
+        <button type="button" id="calcBtn" class="btn-primary">
+          Calcular rota
+        </button>
+      </div>
+      <div id="coordWarning"></div>
+      </section>
+    </div>
+
+    <section id="resultSection" class="section-gap" style="display: none">
+      <h2>Etapa 3: gerar KMZ</h2>
+      <div class="appearance-settings">
+        <h3>Aparência do KMZ</h3>
+        <div class="appearance-grid">
       <div class="appearance-group" id="appearanceIconColor">
         <label>Cor do ícone dos postes</label>
         <div
@@ -543,7 +625,7 @@
           aria-label="Cor da linha da rota"
         ></div>
       </div>
-      <div class="appearance-group">
+      <div class="appearance-group appearance-line-width">
         <label for="lineWidthSelect">Espessura da linha</label>
         <select id="lineWidthSelect"></select>
       </div>
@@ -556,7 +638,7 @@
           aria-label="Cor dos rótulos"
         ></div>
       </div>
-      <div class="appearance-group">
+      <div class="appearance-group appearance-label-scale">
         <label for="labelScaleSelect">Tamanho dos rótulos</label>
         <select id="labelScaleSelect">
           <option value="0.8">0.8</option>
@@ -565,7 +647,7 @@
           <option value="1.5">1.5</option>
         </select>
       </div>
-      <div class="appearance-group">
+      <div class="appearance-group appearance-description">
         <label for="lineDescriptionInput">Observação da rota</label>
         <textarea
           id="lineDescriptionInput"
@@ -573,22 +655,8 @@
           placeholder="Observação opcional exibida na linha da rota no Google Earth"
         ></textarea>
       </div>
-      <div class="btn-row">
-        <button type="button" id="calcBtn" class="btn-primary">
-          Calcular rota
-        </button>
+        </div>
       </div>
-      <p id="coordHint" class="hint">
-        Cole latitude e longitude do poste 1. O formato é validado antes do
-        cálculo, e coordenadas fora do Brasil geram um aviso.
-      </p>
-      <div id="coordWarning"></div>
-    </section>
-
-    <section id="resultSection" class="section-gap" style="display: none">
-      <h2>Etapa 3: gerar KMZ</h2>
-      <p>Prévia dos postes calculados, até os 10 primeiros:</p>
-      <pre id="outputPreview"></pre>
       <div style="margin-top: var(--space-md)">
         <label for="kmzFilenameInput">Nome do arquivo KMZ (opcional)</label>
         <input
@@ -611,13 +679,30 @@
       </div>
     </section>
 
+    <footer class="page-footer">
+      <button type="button" id="startOverBtn" class="link-btn">
+        Recomeçar
+      </button>
+      ·
+      <button type="button" id="devToolsToggle" class="link-btn">
+        Show developer tools
+      </button>
+    </footer>
+
     <section id="debugSection" class="section-gap" style="display: none">
-      <div id="warnings" class="panel">
-        <h3>Developer info</h3>
+      <details class="debug-accordion" id="warnings">
+        <summary>Developer info</summary>
         <ul id="warningsList"></ul>
-      </div>
-      <h2>Debug: Calibration Data</h2>
-      <pre id="debugOutput"></pre>
+      </details>
+      <details class="debug-accordion">
+        <summary>Prévia dos postes calculados</summary>
+        <p class="hint">Até os 10 primeiros postes.</p>
+        <pre id="outputPreview"></pre>
+      </details>
+      <details class="debug-accordion">
+        <summary>Debug: Calibration Data</summary>
+        <pre id="debugOutput"></pre>
+      </details>
     </section>
 
     <section id="refCompareSection" class="section-gap" style="display: none">
@@ -707,7 +792,6 @@
 
       function showDebug(text) {
         debugOutput.textContent = text;
-        debugSection.style.display = "block";
       }
 
       function dumpCalibrationData(parseResult) {
@@ -854,6 +938,7 @@
       const compareOutput = document.getElementById("compareOutput");
       const devToolsToggle = document.getElementById("devToolsToggle");
       const startOverBtn = document.getElementById("startOverBtn");
+      const debugAccordions = document.querySelectorAll(".debug-accordion");
 
       let currentParseData = null;
       let lastCalcResult = null;
@@ -1046,6 +1131,7 @@
         setUploadIdle();
         debugSection.style.display = "none";
         refCompareSection.style.display = "none";
+        for (const accordion of debugAccordions) accordion.open = false;
         devToolsVisible = false;
         devToolsToggle.textContent = "Show developer tools";
         compareOutput.style.display = "none";
@@ -1609,15 +1695,5 @@
       compareBtn1.addEventListener("click", () => runReferenceCompare(false));
       compareBtn2.addEventListener("click", () => runReferenceCompare(true));
     </script>
-
-    <footer class="page-footer">
-      <button type="button" id="startOverBtn" class="link-btn">
-        Recomeçar
-      </button>
-      ·
-      <button type="button" id="devToolsToggle" class="link-btn">
-        Show developer tools
-      </button>
-    </footer>
   </body>
 </html>
