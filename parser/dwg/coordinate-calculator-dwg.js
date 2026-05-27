@@ -1,12 +1,6 @@
-import { buildAdjacencyGraph, buildPostIndex, pairPostsAgainstRegion } from "./region-pairing.js";
+import { calculateCoordinates } from "../coordinate-calculator.js";
 
-/** Browser sets globalThis.__pdfToKmzCalculateCoordinates before loading dist/dwg.bundle.js. */
-async function resolveCalculateCoordinates() {
-  const injected = globalThis.__pdfToKmzCalculateCoordinates;
-  if (typeof injected === "function") return injected;
-  const { calculateCoordinates } = await import("../coordinate-calculator.js");
-  return calculateCoordinates;
-}
+import { buildAdjacencyGraph, buildPostIndex, pairPostsAgainstRegion } from "./region-pairing.js";
 
 export async function calculateCoordinatesWithDwg(
   posts,
@@ -17,7 +11,6 @@ export async function calculateCoordinatesWithDwg(
   opts,
   regionLibrary,
 ) {
-  const calculateCoordinates = await resolveCalculateCoordinates();
 
   if (!regionLibrary) {
     // D-DWG-COEXIST-01: exact delegation, no extra processing.
