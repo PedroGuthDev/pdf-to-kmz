@@ -1650,7 +1650,7 @@
         compareOutput.style.display = "none";
       });
 
-      function runReferenceCompare(twoAnchors) {
+      async function runReferenceCompare(twoAnchors) {
         if (!currentParseData) {
           compareOutput.textContent = "No parse data yet — upload a PDF first.";
           compareOutput.style.display = "block";
