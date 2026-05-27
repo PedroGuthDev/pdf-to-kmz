@@ -5,7 +5,7 @@ export const DEFAULT_TOLERANCE_M = 15;
 export const GAP_TOLERANCE_M = 25;
 export const ADJACENCY_SNAP_M = 3;
 
-class PostIndex extends RBush {
+export class PostIndex extends RBush {
   toBBox(post) {
     return { minX: post.x, minY: post.y, maxX: post.x, maxY: post.y };
   }
@@ -21,6 +21,12 @@ export function buildPostIndex(posts) {
   const tree = new PostIndex();
   if (!Array.isArray(posts) || posts.length === 0) return tree;
   return tree.load(posts);
+}
+
+export function restorePostIndexFromDump(rbushDump) {
+  const tree = new PostIndex();
+  if (!rbushDump) return tree;
+  return tree.fromJSON(rbushDump);
 }
 
 function nearestPostIndexWithin(posts, x, y, tol) {
