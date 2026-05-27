@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PDF para KMZ</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "idb": "/node_modules/idb/build/index.js",
+          "rbush": "/node_modules/rbush/index.js",
+          "quickselect": "/node_modules/quickselect/index.js",
+          "dxf-parser": "/node_modules/dxf-parser/dist/index.js"
+        }
+      }
+    </script>
     <style>
       :root {
         --canvas: #f7f5f1;
@@ -556,13 +566,17 @@
       </div>
     </section>
 
-    <section id="dxfLibrarySection" class="panel section-gap" aria-label="Biblioteca de regiões DXF">
+    <section
+      id="dxfLibrarySection"
+      class="panel section-gap"
+      aria-label="Biblioteca de regiões DXF"
+    >
       <h2 style="margin: 0 0 var(--space-xs); font-size: 1rem">
         Biblioteca de regiões DXF
       </h2>
       <p class="hint" style="margin: 0 0 var(--space-sm)">
-        Carregue um arquivo DXF regional para coordenadas de maior precisão. Pode
-        fazer isso antes ou depois de enviar o PDF.
+        Carregue um arquivo DXF regional para coordenadas de maior precisão.
+        Pode fazer isso antes ou depois de enviar o PDF.
       </p>
       <label for="dxfRegionName">Nome da região</label>
       <div class="field-row">
@@ -572,7 +586,12 @@
           placeholder="Nome da região (ex: Siriu)"
         />
       </div>
-      <input type="file" id="dxfFileInput" accept=".dxf" style="display: none" />
+      <input
+        type="file"
+        id="dxfFileInput"
+        accept=".dxf"
+        style="display: none"
+      />
       <div class="btn-row" style="margin-top: var(--space-xs)">
         <button type="button" id="dxfUploadBtn" class="btn-secondary">
           Carregar região DXF
