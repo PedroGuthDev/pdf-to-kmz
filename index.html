@@ -556,6 +556,31 @@
       </div>
     </section>
 
+    <section id="dxfLibrarySection" class="panel section-gap" aria-label="Biblioteca de regiões DXF">
+      <h2 style="margin: 0 0 var(--space-xs); font-size: 1rem">
+        Biblioteca de regiões DXF
+      </h2>
+      <p class="hint" style="margin: 0 0 var(--space-sm)">
+        Carregue um arquivo DXF regional para coordenadas de maior precisão. Pode
+        fazer isso antes ou depois de enviar o PDF.
+      </p>
+      <label for="dxfRegionName">Nome da região</label>
+      <div class="field-row">
+        <input
+          type="text"
+          id="dxfRegionName"
+          placeholder="Nome da região (ex: Siriu)"
+        />
+      </div>
+      <input type="file" id="dxfFileInput" accept=".dxf" style="display: none" />
+      <div class="btn-row" style="margin-top: var(--space-xs)">
+        <button type="button" id="dxfUploadBtn" class="btn-secondary">
+          Carregar região DXF
+        </button>
+      </div>
+      <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
+    </section>
+
     <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div class="post-read-grid">
@@ -573,31 +598,6 @@
             id="gpsInput"
             placeholder="-27.645312, -48.671234"
           />
-        </div>
-        <div class="panel" style="margin-top: var(--space-sm)">
-          <strong>Biblioteca de regiões DXF</strong>
-          <p class="hint" style="margin-top: 6px">
-            Carregue um arquivo DXF regional para coordenadas de maior precisão.
-          </p>
-          <div class="field-row">
-            <input
-              type="text"
-              id="dxfRegionName"
-              placeholder="Nome da região (ex: Siriu)"
-            />
-          </div>
-          <input
-            type="file"
-            id="dxfFileInput"
-            accept=".dxf"
-            style="display: none"
-          />
-          <div class="btn-row" style="margin-top: var(--space-xs)">
-            <button type="button" id="dxfUploadBtn" class="btn-secondary">
-              Carregar região DXF
-            </button>
-          </div>
-          <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
         </div>
         <button
           type="button"
@@ -791,20 +791,6 @@
           for (const v of values) sum += v;
           return sum;
         };
-      }
-    </script>
-
-    <!-- UMD build sets globalThis.DxfParser for the browser import-map shim -->
-    <script src="./node_modules/dxf-parser/dist/dxf-parser.js"></script>
-
-    <script type="importmap">
-      {
-        "imports": {
-          "idb": "./node_modules/idb/build/index.js",
-          "rbush": "./node_modules/rbush/index.js",
-          "quickselect": "./node_modules/quickselect/index.js",
-          "dxf-parser": "./parser/dwg/dxf-parser-shim.js"
-        }
       }
     </script>
 
@@ -1255,6 +1241,8 @@
         toggle(lineDescriptionInput, !blocked);
         toggle(kmzFilenameInput, !blocked);
         toggle(secondAnchorToggle, !blocked);
+        toggle(dxfUploadBtn, !blocked);
+        toggle(dxfRegionName, !blocked);
         for (const sw of document.querySelectorAll(".swatch")) {
           toggle(sw, !blocked);
         }
