@@ -18,7 +18,8 @@ key_files:
     - parser/dwg/region-pairing.js
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "22470bc feat(02-09): add DXF loader and strict DWG pairing"
 ---
 
 # Phase 2 Plan 09: DWG DXF loader + strict pairing — Summary
