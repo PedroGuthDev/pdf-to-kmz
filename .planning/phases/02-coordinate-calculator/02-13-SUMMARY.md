@@ -16,7 +16,8 @@ key_files:
     - index.html
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "89da6ff feat(02-13): add DXF region upload and DWG calculation wiring"
 ---
 
 # Phase 2 Plan 13: Wire DWG path into UI — Summary
