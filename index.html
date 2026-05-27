@@ -55,11 +55,15 @@
         box-sizing: border-box;
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       body {
         font-family: var(--font-ui);
         font-size: 1rem;
         line-height: 1.55;
-        max-width: 42rem;
+        max-width: 64rem;
         margin: 0 auto;
         padding: var(--space-xl) var(--space-md);
         color: var(--ink);
@@ -146,6 +150,12 @@
         transition:
           background-color 0.15s ease-out,
           border-color 0.15s ease-out;
+      }
+
+      .btn-compact {
+        padding: 6px 10px;
+        font-size: 0.875rem;
+        line-height: 1.35;
       }
 
       .btn-primary {
@@ -242,14 +252,14 @@
       }
 
       #warnings {
-        background: var(--warning-bg);
-        border-color: var(--warning-border);
+        background: var(--surface-muted);
+        border-color: var(--border);
       }
 
       #warnings h3 {
         margin: 0 0 var(--space-xs);
         font-size: 0.95em;
-        color: var(--warning);
+        color: var(--ink);
       }
 
       #warnings ul {
@@ -260,7 +270,7 @@
       #warnings li {
         margin: 4px 0;
         font-size: 0.9em;
-        color: var(--warning);
+        color: var(--ink-muted);
       }
 
       #refInput {
@@ -398,8 +408,12 @@
         padding: 10px 12px;
       }
 
-      #secondAnchorPanel {
+      #secondAnchorToggle {
         margin-top: var(--space-sm);
+      }
+
+      #secondAnchorPanel {
+        margin-top: var(--space-md);
       }
 
       .section-gap {
@@ -445,8 +459,8 @@
   <body>
     <h1>PDF to KMZ</h1>
     <p class="lede">
-      Upload an INFOVIAS route PDF, anchor post #1 in GPS, customize how it looks
-      in Google Earth, then download a KMZ file.
+      Upload an INFOVIAS route PDF, anchor post #1 in GPS, customize how it
+      looks in Google Earth, then download a KMZ file.
     </p>
 
     <section id="uploadSection" aria-label="Upload PDF">
@@ -460,7 +474,11 @@
       </div>
       <div id="uploadSelected" hidden>
         <span id="uploadFileName"></span>
-        <button type="button" id="changeFileBtn" class="btn-secondary">
+        <button
+          type="button"
+          id="changeFileBtn"
+          class="btn-secondary btn-compact"
+        >
           Change file
         </button>
       </div>
@@ -471,11 +489,6 @@
     <div id="summary" class="panel">
       <strong>Parse results:</strong>
       <ul id="summaryList"></ul>
-    </div>
-
-    <div id="warnings" class="panel">
-      <h3>Parser warnings</h3>
-      <ul id="warningsList"></ul>
     </div>
 
     <section id="coordForm">
@@ -495,7 +508,7 @@
       <button
         type="button"
         id="secondAnchorToggle"
-        class="btn-secondary"
+        class="btn-secondary btn-compact"
         aria-expanded="false"
         aria-controls="secondAnchorPanel"
       >
@@ -599,6 +612,10 @@
     </section>
 
     <section id="debugSection" class="section-gap" style="display: none">
+      <div id="warnings" class="panel">
+        <h3>Developer info</h3>
+        <ul id="warningsList"></ul>
+      </div>
       <h2>Debug: Calibration Data</h2>
       <pre id="debugOutput"></pre>
     </section>
@@ -678,10 +695,7 @@
         mergeOptions,
         CALC_PIPELINE_ID,
       } from "./parser/pdf-parser.js";
-      import {
-        PRESET_COLORS,
-        DEFAULT_OPTIONS,
-      } from "./parser/kmz-defaults.js";
+      import { PRESET_COLORS, DEFAULT_OPTIONS } from "./parser/kmz-defaults.js";
       import {
         computeScaleFactor,
         buildPageTransforms,
@@ -825,7 +839,9 @@
       const secondAnchorPanel = document.getElementById("secondAnchorPanel");
       const lineWidthSelect = document.getElementById("lineWidthSelect");
       const labelScaleSelect = document.getElementById("labelScaleSelect");
-      const lineDescriptionInput = document.getElementById("lineDescriptionInput");
+      const lineDescriptionInput = document.getElementById(
+        "lineDescriptionInput",
+      );
       const kmzFilenameInput = document.getElementById("kmzFilenameInput");
       const resultSection = document.getElementById("resultSection");
       const outputPreview = document.getElementById("outputPreview");
@@ -914,8 +930,7 @@
           );
           if (!row) continue;
           for (const btn of row.querySelectorAll(".swatch")) {
-            const isDefault =
-              btn.dataset.preset === DEFAULT_OPTIONS[target];
+            const isDefault = btn.dataset.preset === DEFAULT_OPTIONS[target];
             btn.setAttribute("aria-checked", isDefault ? "true" : "false");
           }
         }
@@ -985,8 +1000,7 @@
               e.preventDefault();
               const radios = Array.from(row.querySelectorAll(".swatch"));
               const currentIndex = Math.max(0, radios.indexOf(btn));
-              const dir =
-                key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
+              const dir = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
               const nextIndex =
                 (currentIndex + dir + radios.length) % radios.length;
               const next = radios[nextIndex];
@@ -1178,7 +1192,10 @@
       secondAnchorToggle.addEventListener("click", () => {
         const open = secondAnchorPanel.hidden;
         secondAnchorPanel.hidden = !open;
-        secondAnchorToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        secondAnchorToggle.setAttribute(
+          "aria-expanded",
+          open ? "true" : "false",
+        );
       });
       devToolsToggle.addEventListener("click", () => {
         devToolsVisible = !devToolsVisible;
@@ -1593,7 +1610,9 @@
     </script>
 
     <footer class="page-footer">
-      <button type="button" id="startOverBtn" class="link-btn">Start over</button>
+      <button type="button" id="startOverBtn" class="link-btn">
+        Start over
+      </button>
       ·
       <button type="button" id="devToolsToggle" class="link-btn">
         Show developer tools
