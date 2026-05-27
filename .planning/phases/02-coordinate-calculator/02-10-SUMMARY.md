@@ -20,7 +20,8 @@ key_files:
     - parser/dwg/region-pairing.js
 metrics:
   last_updated: "2026-05-27"
-  commits: []
+  commits:
+    - "43e52fe feat(02-10): add region library and DWG coordinate entrypoint"
 ---
 
 # Phase 2 Plan 10: IndexedDB region library + DWG orchestrator — Summary
