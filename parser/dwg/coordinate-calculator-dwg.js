@@ -134,6 +134,13 @@ export async function calculateCoordinatesWithDwg(
       ? opts.connections
       : (pdfResult.connections ?? []);
 
+  const gpsByPostNumber = new Map();
+  for (const p of pdfResult.posts ?? []) {
+    if (p?.number != null && p.lat != null && p.lon != null) {
+      gpsByPostNumber.set(p.number, { lat: p.lat, lon: p.lon });
+    }
+  }
+
   const pairing = pairPostsAgainstRegion({
     posts,
     distances,
@@ -144,6 +151,7 @@ export async function calculateCoordinatesWithDwg(
     postIndex,
     adjacencyGraph,
     warnings,
+    gpsByPostNumber,
   });
 
   if (!pairing.ok) {

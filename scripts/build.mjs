@@ -22,6 +22,8 @@ const browserExternals = [
   "tesseract.js/*",
   "canvas",
   "@napi-rs/canvas",
+  "node:fs",
+  "node:path",
 ];
 
 const buildOpts = {

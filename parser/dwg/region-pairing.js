@@ -1,5 +1,5 @@
 import RBush from "rbush";
-import { latLonToUtm, utmToLatLon } from "../geo/utm-calibrator.js";
+import { gpsBearing, latLonToUtm, utmToLatLon } from "../geo/utm-calibrator.js";
 
 export const DEFAULT_TOLERANCE_M = 15;
 export const GAP_TOLERANCE_M = 25;
@@ -121,6 +121,37 @@ function buildPostByNumber(posts) {
   return m;
 }
 
+/**
+ * When PDF-page bearing misses, pick an unclaimed cable neighbour whose span length
+ * matches the Distância_Poste label (DWG topology is more reliable than page rotation).
+ */
+function pickCableNeighbourByDistance(
+  fromDwg,
+  fromIdx,
+  meters,
+  tol,
+  regionPosts,
+  claimed,
+  adjacencyGraph,
+) {
+  const neighbours = fromIdx != null ? adjacencyGraph?.get(fromIdx) : null;
+  if (!neighbours?.size) return null;
+
+  let best = null;
+  let bestDelta = Infinity;
+  for (const nIdx of neighbours) {
+    if (claimed.has(nIdx)) continue;
+    const c = regionPosts[nIdx];
+    const span = Math.hypot(c.x - fromDwg.x, c.y - fromDwg.y);
+    const delta = Math.abs(span - meters);
+    if (delta <= tol && delta < bestDelta) {
+      bestDelta = delta;
+      best = c;
+    }
+  }
+  return best;
+}
+
 function closestCandidate(candidates, predE, predN, fromIdx, adjacencyGraph, postToIndex) {
   let best = null;
   let bestScore = Infinity;
@@ -153,6 +184,7 @@ export function pairPostsAgainstRegion({
   postIndex,
   adjacencyGraph,
   warnings,
+  /** @type {Map<number, { lat: number, lon: number }>} */ gpsByPostNumber,
 }) {
   const warn = (w) => {
     if (Array.isArray(warnings)) warnings.push(w);
@@ -241,43 +273,66 @@ export function pairPostsAgainstRegion({
     const fromDwg = dwgByPostNumber.get(fromNum);
     if (!fromDwg) return true;
 
-    const bearingDeg = pdfBearingDeg(fromPdf, toPdf);
-    const bearingRad = (bearingDeg * Math.PI) / 180;
-    const dE = meters * Math.sin(bearingRad);
-    const dN = meters * Math.cos(bearingRad);
-    const predE = fromDwg.x + dE;
-    const predN = fromDwg.y + dN;
-
+    const fromIdx = postToIndex.get(fromDwg);
     const tol = edge.gap ? GAP_TOLERANCE_M : DEFAULT_TOLERANCE_M;
-    const candidates = tree.search({
+
+    const fromGps = gpsByPostNumber?.get(fromNum);
+    const toGps = gpsByPostNumber?.get(toNum);
+    let bearingDeg = pdfBearingDeg(fromPdf, toPdf);
+    if (
+      fromGps?.lat != null &&
+      fromGps?.lon != null &&
+      toGps?.lat != null &&
+      toGps?.lon != null
+    ) {
+      bearingDeg = gpsBearing(fromGps.lat, fromGps.lon, toGps.lat, toGps.lon);
+    }
+
+    const bearingRad = (bearingDeg * Math.PI) / 180;
+    const predE = fromDwg.x + meters * Math.sin(bearingRad);
+    const predN = fromDwg.y + meters * Math.cos(bearingRad);
+
+    let candidates = tree.search({
       minX: predE - tol,
       minY: predN - tol,
       maxX: predE + tol,
       maxY: predN + tol,
     });
 
-    if (!candidates.length) {
-      warn({
-        kind: "dwg-pair-fail",
-        at_post: toNum,
-        predicted: { easting: predE, northing: predN },
-        nearest_dwg_distance_m: null,
-        tolerance_m: tol,
-      });
-      return { ok: false, failedAt: toNum, nearestDistance: null };
+    let best = null;
+    let bestRawDist = Infinity;
+    let viaCableGraph = false;
+
+    if (candidates.length) {
+      const pick = closestCandidate(
+        candidates,
+        predE,
+        predN,
+        fromIdx,
+        adjacencyGraph,
+        postToIndex,
+      );
+      best = pick.best;
+      bestRawDist = pick.bestRawDist;
     }
 
-    const fromIdx = postToIndex.get(fromDwg);
-    const { best, bestRawDist } = closestCandidate(
-      candidates,
-      predE,
-      predN,
-      fromIdx,
-      adjacencyGraph,
-      postToIndex,
-    );
-
     if (!best || bestRawDist > tol) {
+      const cablePick = pickCableNeighbourByDistance(
+        fromDwg,
+        fromIdx,
+        meters,
+        tol,
+        regionPosts,
+        claimed,
+        adjacencyGraph,
+      );
+      if (cablePick) {
+        best = cablePick;
+        viaCableGraph = true;
+      }
+    }
+
+    if (!best || (!viaCableGraph && bestRawDist > tol)) {
       warn({
         kind: "dwg-pair-fail",
         at_post: toNum,
