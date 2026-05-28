@@ -68,6 +68,17 @@ if (posts.length < 20) {
   console.warn("[dwg+pdf] WARNING: unusually low post count; OCR may have failed.");
 }
 
+// Debug override labels for Siriu branch region (manual ground truth).
+// Enable with: DWG_LABEL_OVERRIDE=1
+const LABEL_OVERRIDE = process.env.DWG_LABEL_OVERRIDE === "1";
+const OVERRIDES = new Map([
+  ["3->4", 20.0],
+  ["4->5", 32.6],
+  ["5->6", 28.5],
+  ["6->7", 23.0],
+  ["5->10", 29.5],
+]);
+
 // Prefer distance labels associated from PDF text items when available.
 let distances = parsed.distances ?? [];
 if (posts.length && parsed.distanceLabelItems?.length) {
@@ -96,6 +107,37 @@ if (posts.length && parsed.distanceLabelItems?.length) {
     distances = assoc;
     console.log(`[dwg+pdf] Using associated Distância_Poste labels: ${labeled} edges`);
   }
+}
+
+if (LABEL_OVERRIDE) {
+  const byKey = new Map();
+  for (const d of distances) {
+    if (d?.from == null || d?.to == null) continue;
+    const key = `${d.from}->${d.to}`;
+    byKey.set(key, d);
+  }
+
+  const applied = [];
+  for (const [k, meters] of OVERRIDES) {
+    const [fromStr, toStr] = k.split("->");
+    const from = parseInt(fromStr, 10);
+    const to = parseInt(toStr, 10);
+    const existing = byKey.get(k);
+    if (existing) {
+      existing.meters = meters;
+      applied.push(`${k}=${meters}`);
+      continue;
+    }
+    distances.push({
+      from,
+      to,
+      meters,
+      source: "debug-override",
+    });
+    applied.push(`${k}=${meters}(new)`);
+  }
+
+  console.log(`[dwg+pdf] Applied DWG_LABEL_OVERRIDE: ${applied.join(", ")}`);
 }
 
 const regionLibrary = createRegionLibrary(globalThis.indexedDB);
