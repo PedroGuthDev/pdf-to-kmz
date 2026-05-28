@@ -402,6 +402,23 @@ export function pairPostsByGraphWalk({
   const visitedIdx = [anchorIdx];
   const visitedPostNums = [posts[0].number];
 
+  const buildPartialCoords = () => {
+    const coords = [];
+    for (const p of posts) {
+      const dwg = dwgByNum.get(p.number);
+      if (!dwg) break;
+      const { lat, lon } = utmToLatLon(dwg.x, dwg.y, zoneExpected);
+      coords.push({
+        postNumber: p.number,
+        lat,
+        lon,
+        source: "dwg",
+        dwg_block: dwg.block,
+      });
+    }
+    return coords;
+  };
+
   // Step 2 — Pre-compute lookups
   const distMap = buildDistanceMap(distances);
   const connMap = buildConnectionMap(connections);
@@ -427,6 +444,9 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: null,
+        ...(process.env.GW_RETURN_PARTIAL === "1"
+          ? { partialCoords: buildPartialCoords() }
+          : {}),
         ...(process.env.GW_RETURN_IDX === "1"
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
@@ -781,6 +801,9 @@ export function pairPostsByGraphWalk({
           ok: false,
           failedAt: toNum,
           nearestDistance: caseADirectBestSpan,
+          ...(process.env.GW_RETURN_PARTIAL === "1"
+            ? { partialCoords: buildPartialCoords() }
+            : {}),
           ...(process.env.GW_RETURN_IDX === "1"
             ? { idxByPostNumber: Object.fromEntries(idxByNum) }
             : {}),
@@ -804,6 +827,9 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: null,
+        ...(process.env.GW_RETURN_PARTIAL === "1"
+          ? { partialCoords: buildPartialCoords() }
+          : {}),
         ...(process.env.GW_RETURN_IDX === "1"
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
@@ -877,6 +903,9 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: p.number,
         nearestDistance: null,
+        ...(process.env.GW_RETURN_PARTIAL === "1"
+          ? { partialCoords: buildPartialCoords() }
+          : {}),
         ...(process.env.GW_RETURN_IDX === "1"
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),

@@ -17,6 +17,8 @@ import { calculateCoordinatesWithDwg } from "./parser/dwg/coordinate-calculator-
 import { createRegionLibrary } from "./parser/dwg/region-library.js";
 import { associateDistances } from "./parser/distance-associator.js";
 import { computeScaleFactor, haversineMeters } from "./parser/geo/utm-calibrator.js";
+import { pairPostsByGraphWalk } from "./parser/dwg/graph-walker.js";
+import { buildAdjacencyGraph, buildPostIndex } from "./parser/dwg/region-pairing.js";
 
 const PDF = "./INFOVIAS_PJC INTERNET_Garopaba_Praia do Siriu_v01.pdf";
 const DXF = "./siriu.dxf";
@@ -100,6 +102,13 @@ const regionLibrary = createRegionLibrary(globalThis.indexedDB);
 const dxfText = readFileSync(DXF, "utf8");
 await regionLibrary.addRegion("siriu", new Blob([dxfText], { type: "text/plain" }));
 
+const region = await regionLibrary.getRegionWithIndex("siriu");
+const regionPosts = region.posts ?? [];
+const regionEdges = region.cableEdges ?? [];
+const postIndex = region.postIndex ?? buildPostIndex(regionPosts);
+const adjacencyGraph =
+  region.adjacencyGraph ?? buildAdjacencyGraph(regionPosts, regionEdges);
+
 const result = await calculateCoordinatesWithDwg(
   posts,
   distances,
@@ -124,6 +133,32 @@ const has1011 =
       (c.from === 11 && c.to === 10),
   );
 console.log(`[dwg+pdf] has connection 10↔11: ${has1011}`);
+
+// If full DWG failed, still compare partial DWG walk (e.g. posts 1..26).
+if ((result.dwgStatus ?? "") === "pdf-fallback") {
+  const gw = pairPostsByGraphWalk({
+    posts,
+    distances,
+    connections: result.connections ?? [],
+    startLat: start.lat,
+    startLon: start.lon,
+    region: { id: "siriu", posts: regionPosts, cableEdges: regionEdges },
+    postIndex,
+    adjacencyGraph,
+    warnings: [],
+  });
+  const partial = gw.partialCoords ?? [];
+  if (partial.length) {
+    console.log(`\n[dwg+pdf] Partial DWG coords: ${partial.length} post(s)\n`);
+    console.log("Post  err(m)  (DWG partial)");
+    for (const c of partial) {
+      const ref = refByNum.get(c.postNumber);
+      if (!ref) continue;
+      const err = haversineMeters(c.lat, c.lon, ref.lat, ref.lon);
+      console.log(`${String(c.postNumber).padStart(3)}  ${err.toFixed(2).padStart(7)}`);
+    }
+  }
+}
 
 const errors = [];
 let within5 = 0;
