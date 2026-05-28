@@ -51,13 +51,18 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
 
   const sortedPosts = [...posts].sort((a, b) => a.number - b.number);
   const overviewSf = opts.scaleFactor ?? null;
+  /** @type {Set<number>} */
+  const excludedLabelIndices =
+    opts.excludedLabelIndices instanceof Set
+      ? opts.excludedLabelIndices
+      : new Set();
 
   const pdfPos = (p) => ({
     x: p.anchorX ?? p.x,
     y: p.anchorY ?? p.y,
   });
 
-  /** @type {Array<{ segIdx: number, labelKey: string, score: number, meters: number }>} */
+  /** @type {Array<{ segIdx: number, labelKey: string, li: number, score: number, meters: number }>} */
   const candidates = [];
 
   for (let i = 0; i < sortedPosts.length - 1; i++) {
@@ -71,6 +76,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
 
     for (let li = 0; li < distItems.length; li++) {
+      if (excludedLabelIndices.has(li)) continue;
       const dt = distItems[li];
       const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
       if (!/^\d+(\.\d+)?$/.test(normalized)) continue;
@@ -108,6 +114,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       candidates.push({
         segIdx: i,
         labelKey,
+        li,
         score: gap + ratioPenalty,
         meters,
       });
@@ -118,6 +125,8 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
 
   const assignedSeg = new Set();
   const assignedLabel = new Set();
+  /** @type {Set<number>} */
+  const usedLabelIndices = new Set();
   /** @type {Array<{ from: number, to: number, meters: number|null }>} */
   const pairs = sortedPosts.slice(0, -1).map((from, i) => ({
     from: from.number,
@@ -131,6 +140,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     pairs[c.segIdx].meters = c.meters;
     assignedSeg.add(c.segIdx);
     assignedLabel.add(c.labelKey);
+    usedLabelIndices.add(c.li);
   }
 
   for (let i = 0; i < pairs.length; i++) {
@@ -143,7 +153,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     distances.push(pair);
   }
 
-  return { distances, warnings };
+  return { distances, warnings, usedLabelIndices };
 }
 
 /**
@@ -728,18 +738,20 @@ export function associateDistancesRich(
   warnings = [],
   opts = {},
 ) {
-  const inferred = inferDistanceEdgesFromLabels(
-    posts,
-    distItems,
-    warnings,
-    opts,
-  );
+  // Step 1: run inferred (with tight heuristics) to claim non-sequential
+  // branch-return labels like 5→10 BEFORE the sequential greedy pass can
+  // misassign them to a sequential pair. Then run legacy sequential with the
+  // inferred-consumed labels excluded so the sequential pass uses only
+  // labels that genuinely belong to N→N+1 spans (see
+  // .planning/debug/siriu-branch-return-labels.md).
+  const { edges: inferred, usedLabelIndices: inferUsed } =
+    inferDistanceEdgesFromLabels(posts, distItems, warnings, opts);
 
   const { distances: legacySeq, warnings: w0 } = associateDistances(
     posts,
     distItems,
     [],
-    opts,
+    { ...opts, excludedLabelIndices: inferUsed },
   );
   warnings.push(...w0);
   /** @type {Array<{ from: number, to: number, meters: number|null, source?: string }>} */
@@ -1014,11 +1026,25 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
 
   const pos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
 
-  const TOP_K_POSTS = 10;
-  const MAX_LABEL_GAP_PT = 75; // label should sit close-ish to its chord
-  const MAX_SCORE = 140;
+  // Tighter than legacy defaults — inferred non-sequential edges are easy to
+  // hallucinate (any two posts whose chord happens to pass near a label become
+  // candidates). The legacy sequential pass already consumes the "obvious"
+  // labels; the inferred pass exists for genuine branch returns where a label
+  // sits near a non-consecutive chord. So we restrict to the immediate
+  // neighbourhood of the label (4 nearest posts) and a tight chord gap.
+  const TOP_K_POSTS = 4;
+  const MAX_LABEL_GAP_PT = 30;
+  const MAX_SCORE = 80;
+  const MAX_NUMBER_SPAN = 6; // reject inferred edges spanning too many sequential posts
+  /** @type {Set<number>} */
+  const excludedLabelIndices =
+    opts.excludedLabelIndices instanceof Set
+      ? opts.excludedLabelIndices
+      : new Set();
 
-  for (const it of distItems) {
+  for (let li = 0; li < distItems.length; li++) {
+    if (excludedLabelIndices.has(li)) continue;
+    const it = distItems[li];
     const meters = parseDistanceMeters(it.str);
     if (meters == null) continue;
 
@@ -1060,13 +1086,27 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
         const gap = distPointToSegment(lx, ly, ap.x, ap.y, bp.x, bp.y);
         if (gap > MAX_LABEL_GAP_PT) continue;
 
-        const pdfPt = Math.hypot(bp.x - ap.x, bp.y - ap.y);
+        // Require the label projection onto the chord to fall WITHIN the chord
+        // (not at either endpoint). When the projection clamps to an endpoint,
+        // the label is "beside" one of the posts and likely belongs to a
+        // different segment that shares that post.
+        const abx = bp.x - ap.x;
+        const aby = bp.y - ap.y;
+        const ab2 = abx * abx + aby * aby;
+        if (ab2 < 1e-6) continue;
+        const apx = lx - ap.x;
+        const apy = ly - ap.y;
+        const tProj = (apx * abx + apy * aby) / ab2;
+        if (tProj < 0.1 || tProj > 0.9) continue;
+
+        const pdfPt = Math.hypot(abx, aby);
         let ratioPenalty = 0;
         if (sf != null && meters > 0 && pdfPt > 0) {
           const pdfM = pdfPt * sf;
           const ratio = pdfM / meters;
-          // Keep wide but bounded; extreme ratios are almost always wrong pairings.
-          if (ratio < 0.2 || ratio > 5.0) continue;
+          // Tighter ratio than legacy: inferred edges that don't roughly match
+          // the chord length are almost certainly phantom pairings.
+          if (ratio < 0.5 || ratio > 2.0) continue;
           ratioPenalty = 35 * Math.abs(Math.log(ratio));
         }
 
@@ -1087,30 +1127,40 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
     const ib = sorted.findIndex((p) => p.number === to);
     // Sequential N→N+1 spans are assigned by associateSequentialMonotonic.
     if (ia !== -1 && ib !== -1 && Math.abs(ia - ib) === 1) continue;
+    // Reject inferred edges that span too many sequential posts: most are
+    // hallucinations from labels whose chord happens to cross the page.
+    if (ia !== -1 && ib !== -1 && Math.abs(ia - ib) > MAX_NUMBER_SPAN) continue;
 
-    edges.push({ from, to, meters });
+    // _li is the label index used; callers can dedupe against it.
+    edges.push({ from, to, meters, _li: li });
   }
 
   // Deduplicate: keep only the lowest-meter label per pair if duplicates occur.
+  // Track which labels (by index) "won" the dedup so callers can exclude them.
+  /** @type {Map<string, { edge: { from: number, to: number, meters: number }, labelIdx: number }>} */
   const dedup = new Map();
   for (const e of edges) {
     const a = Math.min(e.from, e.to);
     const b = Math.max(e.from, e.to);
     const k = `${a}->${b}`;
     const prev = dedup.get(k);
-    if (!prev || Math.abs(prev.meters - e.meters) > 0.01) {
+    if (!prev || Math.abs(prev.edge.meters - e.meters) > 0.01) {
       // If multiple different meters exist, keep the smaller one (less likely to be a summed span).
-      if (!prev || e.meters < prev.meters) dedup.set(k, e);
+      if (!prev || e.meters < prev.edge.meters)
+        dedup.set(k, { edge: { from: e.from, to: e.to, meters: e.meters }, labelIdx: e._li });
     }
   }
 
-  const out = [...dedup.values()];
+  const out = [...dedup.values()].map((v) => v.edge);
+  const usedLabelIndices = new Set(
+    [...dedup.values()].map((v) => v.labelIdx).filter((i) => Number.isInteger(i)),
+  );
   if (out.length > 0) {
     warnings.push(
       `[distance-assoc] Rich labels inferred: +${out.length} non-sequential edge(s) from Distância_Poste items.`,
     );
   }
-  return out;
+  return { edges: out, usedLabelIndices };
 }
 
 /**

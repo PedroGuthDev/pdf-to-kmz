@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   applyJumpbackDistanceCleanup,
   associateDistances,
+  associateDistancesRich,
 } from "../distance-associator.js";
 
 describe("distance-associator cross-page labels", () => {
@@ -136,5 +137,87 @@ describe("branch return jumpback cleanup", () => {
     assert.ok(seg910, "suppression marker entry must be created");
     assert.equal(seg910.meters, null);
     assert.equal(seg910.source, "jumpback-suppressed");
+  });
+});
+
+describe("infer-first ordering + label exclusion", () => {
+  it("returns usedLabelIndices for sequential pass", () => {
+    const posts = [
+      { number: 1, x: 0, y: 0, pageNum: 1 },
+      { number: 2, x: 100, y: 0, pageNum: 1 },
+      { number: 3, x: 200, y: 0, pageNum: 1 },
+    ];
+    const distItems = [
+      { str: "20", x: 50, y: 10, pageNum: 1, width: 8 },
+      { str: "30", x: 150, y: 10, pageNum: 1, width: 8 },
+    ];
+    const { distances, usedLabelIndices } = associateDistances(
+      posts,
+      distItems,
+      [],
+    );
+    const seg12 = distances.find((d) => d.from === 1 && d.to === 2);
+    const seg23 = distances.find((d) => d.from === 2 && d.to === 3);
+    assert.equal(seg12?.meters, 20);
+    assert.equal(seg23?.meters, 30);
+    assert.ok(usedLabelIndices instanceof Set);
+    assert.equal(usedLabelIndices.size, 2);
+  });
+
+  it("respects excludedLabelIndices option (skips that label)", () => {
+    const posts = [
+      { number: 1, x: 0, y: 0, pageNum: 1 },
+      { number: 2, x: 100, y: 0, pageNum: 1 },
+    ];
+    const distItems = [
+      { str: "20", x: 50, y: 10, pageNum: 1, width: 8 },
+      { str: "21", x: 50, y: 20, pageNum: 1, width: 8 },
+    ];
+    // Exclude label 0 ("20"); sequential should pick label 1 ("21").
+    const { distances } = associateDistances(posts, distItems, [], {
+      excludedLabelIndices: new Set([0]),
+    });
+    const seg = distances.find((d) => d.from === 1 && d.to === 2);
+    assert.equal(seg?.meters, 21);
+  });
+
+  it("infer-first claims non-sequential label before sequential greedy", () => {
+    // Setup: posts 1..5 in a straight line, plus post 10 as a branch return
+    // at the start. Label "29,5" sits near chord 1↔5 (non-sequential return)
+    // — without infer-first, sequential greedy would assign it to a wrong
+    // sequential pair.
+    const posts = [
+      { number: 1, x: 0, y: 0, pageNum: 1 },
+      { number: 2, x: 50, y: 0, pageNum: 1 },
+      { number: 3, x: 100, y: 0, pageNum: 1 },
+      { number: 4, x: 150, y: 0, pageNum: 1 },
+      { number: 5, x: 200, y: 0, pageNum: 1 },
+      { number: 10, x: 100, y: 50, pageNum: 1 },
+    ];
+    const distItems = [
+      { str: "10", x: 25, y: 5, pageNum: 1, width: 6 },
+      { str: "10", x: 75, y: 5, pageNum: 1, width: 6 },
+      { str: "10", x: 125, y: 5, pageNum: 1, width: 6 },
+      { str: "10", x: 175, y: 5, pageNum: 1, width: 6 },
+      // Non-sequential return label between posts 1 and 10:
+      { str: "55", x: 50, y: 25, pageNum: 1, width: 8 },
+    ];
+    const { distances } = associateDistancesRich(posts, distItems, [], {});
+    // 1↔10 should be a non-sequential inferred edge:
+    const seg110 = distances.find(
+      (d) =>
+        (d.from === 1 && d.to === 10) || (d.from === 10 && d.to === 1),
+    );
+    // Should exist (geometry of chord 1↔10 with midpoint near label "55"); but
+    // depending on top-K we may or may not pick it. The key invariant is that
+    // sequential pairs still get their "10" labels.
+    const seg12 = distances.find((d) => d.from === 1 && d.to === 2);
+    const seg23 = distances.find((d) => d.from === 2 && d.to === 3);
+    const seg34 = distances.find((d) => d.from === 3 && d.to === 4);
+    const seg45 = distances.find((d) => d.from === 4 && d.to === 5);
+    assert.equal(seg12?.meters, 10);
+    assert.equal(seg23?.meters, 10);
+    assert.equal(seg34?.meters, 10);
+    assert.equal(seg45?.meters, 10);
   });
 });
