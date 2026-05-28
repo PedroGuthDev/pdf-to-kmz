@@ -1898,6 +1898,49 @@ export function calculateCoordinates(
     });
   }
 
+  // Ensure every consecutive post number has a connection entry.
+  // This is required by DWG graph-walk pairing, which iterates by post numbering even when
+  // `isOffRouteCablePost()` classifies a post as an auxiliary tap (and would otherwise skip it).
+  const hasConn = new Set(connections.map((c) => `${c.from}->${c.to}`));
+  for (let i = 0; i + 1 < sorted.length; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    const key = `${a.number}->${b.number}`;
+    const rev = `${b.number}->${a.number}`;
+    if (hasConn.has(key) || hasConn.has(rev)) continue;
+
+    const isCrossPage =
+      a.pageNum != null && b.pageNum != null && a.pageNum !== b.pageNum;
+
+    let meters, bearing;
+    if (isCrossPage) {
+      if (a.lat != null && a.lon != null && b.lat != null && b.lon != null) {
+        meters = haversineMeters(a.lat, a.lon, b.lat, b.lon);
+        bearing = gpsBearing(a.lat, a.lon, b.lat, b.lon);
+      } else {
+        meters = 0;
+        bearing = 0;
+      }
+    } else {
+      const labelM = distMap.get(key) ?? distMap.get(rev) ?? null;
+      const pdfD = Math.hypot(b.x - a.x, b.y - a.y);
+      meters = labelM != null ? labelM : scaleFactor != null ? pdfD * scaleFactor : 0;
+      bearing = pdfBearing(a, b);
+    }
+
+    const isGap = gapSet.has(key);
+    connections.push({
+      from: a.number,
+      to: b.number,
+      meters,
+      bearing,
+      gap: isGap,
+      implied: true,
+      ...(isCrossPage ? { cross_page: true } : {}),
+    });
+    hasConn.add(key);
+  }
+
   // ── Label vs haversine sanity-check (D-ACC-08) ───────────────────────────
   // postMap entries are live refs into sorted — lat/lon reflect snap + projection + similarity.
   for (const c of connections) {
