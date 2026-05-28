@@ -15,10 +15,16 @@ import { readFileSync } from "node:fs";
 import { parsePdf } from "./parser/pdf-parser.js";
 import { calculateCoordinatesWithDwg } from "./parser/dwg/coordinate-calculator-dwg.js";
 import { createRegionLibrary } from "./parser/dwg/region-library.js";
-import { associateDistances } from "./parser/distance-associator.js";
-import { computeScaleFactor, haversineMeters } from "./parser/geo/utm-calibrator.js";
+import { associateDistancesRich } from "./parser/distance-associator.js";
+import {
+  computeScaleFactor,
+  haversineMeters,
+} from "./parser/geo/utm-calibrator.js";
 import { pairPostsByGraphWalk } from "./parser/dwg/graph-walker.js";
-import { buildAdjacencyGraph, buildPostIndex } from "./parser/dwg/region-pairing.js";
+import {
+  buildAdjacencyGraph,
+  buildPostIndex,
+} from "./parser/dwg/region-pairing.js";
 
 const PDF = "./INFOVIAS_PJC INTERNET_Garopaba_Praia do Siriu_v01.pdf";
 const DXF = "./siriu.dxf";
@@ -65,7 +71,9 @@ if (parsed.error) {
 const posts = parsed.posts ?? [];
 console.log(`[dwg+pdf] Parsed posts: ${posts.length}`);
 if (posts.length < 20) {
-  console.warn("[dwg+pdf] WARNING: unusually low post count; OCR may have failed.");
+  console.warn(
+    "[dwg+pdf] WARNING: unusually low post count; OCR may have failed.",
+  );
 }
 
 // Debug override labels for Siriu branch region (manual ground truth).
@@ -79,9 +87,11 @@ const OVERRIDES = new Map([
   ["5->10", 29.5],
 ]);
 
-// Prefer distance labels associated from PDF text items when available.
+// Prefer parsePdf's distances (it already runs associateDistancesRich).
+// Only re-associate inside this harness when explicitly requested.
 let distances = parsed.distances ?? [];
-if (posts.length && parsed.distanceLabelItems?.length) {
+const FORCE_REASSOC = process.env.FORCE_REASSOC_DISTANCES === "1";
+if (FORCE_REASSOC && posts.length && parsed.distanceLabelItems?.length) {
   // Use any available UTM grid to derive a reasonable per-page scale for association.
   let anyScale = null;
   for (let pn = 1; pn <= 12; pn++) {
@@ -99,13 +109,20 @@ if (posts.length && parsed.distanceLabelItems?.length) {
     }
     return anyScale;
   };
-  const { distances: assoc } = associateDistances(posts, parsed.distanceLabelItems, [], {
-    perPageScale,
-  });
+  const { distances: assoc } = associateDistancesRich(
+    posts,
+    parsed.distanceLabelItems,
+    [],
+    {
+      perPageScale,
+    },
+  );
   const labeled = assoc.filter((d) => d.meters != null && d.meters > 0).length;
   if (labeled >= 10) {
     distances = assoc;
-    console.log(`[dwg+pdf] Using associated Distância_Poste labels: ${labeled} edges`);
+    console.log(
+      `[dwg+pdf] Using associated Distância_Poste labels: ${labeled} edges`,
+    );
   }
 }
 
@@ -168,7 +185,10 @@ for (const [a, b] of [
 
 const regionLibrary = createRegionLibrary(globalThis.indexedDB);
 const dxfText = readFileSync(DXF, "utf8");
-await regionLibrary.addRegion("siriu", new Blob([dxfText], { type: "text/plain" }));
+await regionLibrary.addRegion(
+  "siriu",
+  new Blob([dxfText], { type: "text/plain" }),
+);
 
 const region = await regionLibrary.getRegionWithIndex("siriu");
 const regionPosts = region.posts ?? [];
@@ -194,20 +214,18 @@ const result = await calculateCoordinatesWithDwg(
 console.log(`\n[dwg+pdf] dwgStatus: ${result.dwgStatus ?? "?"}`);
 console.log(`[dwg+pdf] dwgRegionId: ${result.dwgRegionId ?? "?"}`);
 console.log(`[dwg+pdf] connections: ${(result.connections ?? []).length}`);
-const has1011 =
-  (result.connections ?? []).some(
-    (c) =>
-      (c.from === 10 && c.to === 11) ||
-      (c.from === 11 && c.to === 10),
-  );
+const has1011 = (result.connections ?? []).some(
+  (c) => (c.from === 10 && c.to === 11) || (c.from === 11 && c.to === 10),
+);
 console.log(`[dwg+pdf] has connection 10↔11: ${has1011}`);
 
 // If full DWG failed, still compare partial DWG walk (e.g. posts 1..26).
 if ((result.dwgStatus ?? "") === "pdf-fallback") {
   const prevGwPartial = process.env.GW_RETURN_PARTIAL;
   process.env.GW_RETURN_PARTIAL = "1";
+  const routePosts = (result.posts ?? []).length ? result.posts : posts;
   const gw = pairPostsByGraphWalk({
-    posts,
+    posts: routePosts,
     distances,
     connections: result.connections ?? [],
     startLat: start.lat,
@@ -228,7 +246,9 @@ if ((result.dwgStatus ?? "") === "pdf-fallback") {
       const ref = refByNum.get(c.postNumber);
       if (!ref) continue;
       const err = haversineMeters(c.lat, c.lon, ref.lat, ref.lon);
-      console.log(`${String(c.postNumber).padStart(3)}  ${err.toFixed(2).padStart(7)}`);
+      console.log(
+        `${String(c.postNumber).padStart(3)}  ${err.toFixed(2).padStart(7)}`,
+      );
     }
   } else {
     console.log(
@@ -271,9 +291,9 @@ if ((result.warnings ?? []).length) {
   console.log(`\n[dwg+pdf] Warnings (${(result.warnings ?? []).length})`);
   if (dwgWarnings.length) {
     console.log(`[dwg+pdf] DWG warnings (${dwgWarnings.length}):`);
-    for (const w of dwgWarnings.slice(0, 25)) console.log(`  ${JSON.stringify(w)}`);
+    for (const w of dwgWarnings.slice(0, 25))
+      console.log(`  ${JSON.stringify(w)}`);
   } else {
     console.log("[dwg+pdf] No DWG warnings found in result.warnings.");
   }
 }
-

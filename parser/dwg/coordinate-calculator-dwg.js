@@ -5,6 +5,7 @@ import {
   buildPostIndex,
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
+import { pairPostsByGraphWalk } from "./graph-walker.js";
 
 /** @param {unknown} w */
 export function formatDwgWarning(w) {
@@ -33,9 +34,81 @@ export function formatDwgWarning(w) {
       return `DWG: colisão de INSERT no poste ${o.at_post}. Usando só PDF.`;
     case "dwg-missing-distance":
       return `DWG: distância ausente ${o.from}→${o.to}.`;
+    case "dwg-graph-walk-fail": {
+      const reasonMap = {
+        'no-anchor':          'sem âncora próxima ao GPS',
+        'no-candidate':       'nenhum vizinho de cabo disponível',
+        'ambiguous':          'múltiplos candidatos sem desempate',
+        'tolerance-exceeded': 'span fora da tolerância',
+        'unpaired':           'poste sem pareamento ao final',
+        'no-connection':      'conexão ausente',
+        'collision':          'colisão (defensivo)',
+      };
+      const reason = reasonMap[o.reason] ?? (o.reason ?? 'falha');
+      return `DWG (graph-walk): poste ${o.at_post} — ${reason}. Tentando pdf-walk.`;
+    }
+    case "dwg-graph-walk-tiebreak":
+      return `DWG (graph-walk): poste ${o.at_post} — desempate sem look-ahead (${o.candidates ?? '?'} candidatos).`;
     default:
       return `DWG: ${o.kind ?? "aviso"}`;
   }
+}
+
+/**
+ * Three-level DWG pairing cascade (D-DWGG-PIV-02):
+ *   1. pairPostsByGraphWalk        → dwgPath: "dwg-graph-walk"
+ *   2. pairPostsAgainstRegion      → dwgPath: "dwg-pdf-walk"
+ *   3. (caller falls through to PDF-only) → dwgStatus: "pdf-fallback"
+ */
+function runDwgPairingCascade({
+  posts,
+  distances,
+  connections,
+  startLat,
+  startLon,
+  regionData,
+  regionPosts,
+  regionEdges,
+  postIndex,
+  adjacencyGraph,
+  warnings,
+  gpsByPostNumber,
+}) {
+  // Level 1: DWG-graph-first
+  const level1 = pairPostsByGraphWalk({
+    posts,
+    distances,
+    connections,
+    startLat,
+    startLon,
+    region: { ...regionData, posts: regionPosts, cableEdges: regionEdges },
+    postIndex,
+    adjacencyGraph,
+    warnings,
+  });
+  if (level1.ok) {
+    return { ok: true, coords: level1.coords, dwgPath: "dwg-graph-walk" };
+  }
+
+  // Level 2: existing PDF-driven walk (UNCHANGED — D-DWGG-PIV-03)
+  const level2 = pairPostsAgainstRegion({
+    posts,
+    distances,
+    connections,
+    startLat,
+    startLon,
+    region: { ...regionData, posts: regionPosts, cableEdges: regionEdges },
+    postIndex,
+    adjacencyGraph,
+    warnings,
+    gpsByPostNumber,
+  });
+  if (level2.ok) {
+    return { ok: true, coords: level2.coords, dwgPath: "dwg-pdf-walk" };
+  }
+
+  // Both DWG levels failed; caller will use pdf-only result.
+  return { ok: false };
 }
 
 export async function calculateCoordinatesWithDwg(
@@ -139,6 +212,15 @@ export async function calculateCoordinatesWithDwg(
       ? opts.connections
       : (pdfResult.connections ?? []);
 
+  // PDF parse order is not route order; calculateCoordinates returns posts sorted
+  // by number and builds connections for consecutive numeric pairs (12→13, not 12→24).
+  // Graph-walk must use that same sequence or it hits no-connection on the first
+  // out-of-order hop (e.g. Siriu: parse order …12,24,23… after post 12).
+  const routePosts =
+    Array.isArray(pdfResult.posts) && pdfResult.posts.length > 0
+      ? pdfResult.posts
+      : posts;
+
   const gpsByPostNumber = new Map();
   for (const p of pdfResult.posts ?? []) {
     if (p?.number != null && p.lat != null && p.lon != null) {
@@ -146,28 +228,31 @@ export async function calculateCoordinatesWithDwg(
     }
   }
 
-  const pairing = pairPostsAgainstRegion({
-    posts,
+  const cascade = runDwgPairingCascade({
+    posts: routePosts,
     distances,
     connections,
     startLat: lat1,
     startLon: lon1,
-    region: { ...regionData, posts: regionPosts, cableEdges: regionEdges },
+    regionData,
+    regionPosts,
+    regionEdges,
     postIndex,
     adjacencyGraph,
     warnings,
     gpsByPostNumber,
   });
 
-  if (!pairing.ok) {
+  if (!cascade.ok) {
     return {
       ...pdfResult,
       warnings: [...(pdfResult.warnings ?? []), ...warnings],
       dwgStatus: "pdf-fallback",
+      dwgRegionId: region.id ?? region.name,
     };
   }
 
-  const coordByPost = new Map(pairing.coords.map((c) => [c.postNumber, c]));
+  const coordByPost = new Map(cascade.coords.map((c) => [c.postNumber, c]));
   const dwgPosts = (pdfResult.posts ?? posts).map((p) => {
     const c = coordByPost.get(p.number);
     if (!c) return p;
@@ -184,7 +269,7 @@ export async function calculateCoordinatesWithDwg(
     ...pdfResult,
     posts: dwgPosts,
     warnings: [...(pdfResult.warnings ?? []), ...warnings],
-    dwgStatus: "dwg-active",
+    dwgStatus: cascade.dwgPath,
     dwgRegionId: region.id ?? region.name,
   };
 }
