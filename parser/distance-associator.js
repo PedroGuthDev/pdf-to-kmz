@@ -378,6 +378,12 @@ export function applyJumpbackDistanceCleanup(
     warnings,
     posts,
   );
+  for (const d of distances) {
+    if (d.source !== "bifurcation-cleared") continue;
+    const lo = Math.min(d.from, d.to);
+    const hi = Math.max(d.from, d.to);
+    suppressed.add(`${lo}->${hi}`);
+  }
   rehomeNextSpanAfterJumpback(
     posts,
     distItems,
@@ -1161,6 +1167,223 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
     );
   }
   return { edges: out, usedLabelIndices };
+}
+
+/**
+ * At a route bifurcation (junction → tap → main), re-home a main-line Distância_Poste
+ * label from the tap leg (N+1→N+2) onto the junction leg (N→N+2) when the label sits
+ * nearer the junction than the tap and fits the junction→main chord better than tap→main.
+ * Uses label geometry only — not cable proximity (tap poles can sit near the cable).
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, anchorX?: number, anchorY?: number }>} posts
+ * @param {Array<{ str: string, x: number, y: number, pageNum?: number, width?: number }>} distItems
+ * @param {Array<{ from: number, to: number, meters: number|null, source?: string }>} distances
+ * @param {string[]} warnings
+ */
+export function applyBifurcationJunctionLabelRehome(
+  posts,
+  distItems,
+  distances,
+  warnings,
+) {
+  if (!posts?.length || !distItems?.length || !distances?.length) return;
+
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const pos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
+  const JUNCTION_CLOSER_RATIO = 0.9;
+  const MAX_MAIN_CHORD_GAP_PT = 90;
+
+  const findEdge = (from, to) =>
+    distances.find(
+      (d) =>
+        (d.from === from && d.to === to) || (d.from === to && d.to === from),
+    );
+
+  const upsertEdge = (from, to, meters, source) => {
+    let e = findEdge(from, to);
+    if (!e) {
+      e = { from, to, meters, source };
+      distances.push(e);
+      return;
+    }
+    e.from = from;
+    e.to = to;
+    e.meters = meters;
+    e.source = source;
+  };
+
+  const clearEdge = (from, to, source) => {
+    const e = findEdge(from, to);
+    if (!e) return;
+    e.meters = null;
+    e.source = source;
+  };
+
+  for (let i = 0; i < sorted.length - 2; i++) {
+    const junction = sorted[i];
+    const tap = sorted[i + 1];
+    const mainNext = sorted[i + 2];
+    if (tap.number !== junction.number + 1 || mainNext.number !== tap.number + 1) {
+      continue;
+    }
+    const pageNum = junction.pageNum ?? 1;
+    if ((tap.pageNum ?? 1) !== pageNum || (mainNext.pageNum ?? 1) !== pageNum) {
+      continue;
+    }
+
+    const jp = pos(junction);
+    const tp = pos(tap);
+
+    const tapMain = findEdge(tap.number, mainNext.number);
+
+    if (tapMain?.meters != null && tapMain.meters > 0) {
+      for (const it of distItems) {
+        if ((it.pageNum ?? 1) !== pageNum) continue;
+        const meters = parseDistanceMeters(it.str);
+        if (meters == null || Math.abs(meters - tapMain.meters) > 0.25) continue;
+        const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+        const lx = w > 0 ? it.x + w * 0.5 : it.x;
+        const ly = it.y;
+        const dJunc = Math.hypot(lx - jp.x, ly - jp.y);
+        const dTap = Math.hypot(lx - tp.x, ly - tp.y);
+        if (!(dJunc < dTap * JUNCTION_CLOSER_RATIO)) continue;
+        const gJuncMain = labelGapToSegment(
+          lx,
+          ly,
+          junction,
+          mainNext,
+          false,
+          sorted,
+        );
+        const gJuncTap = labelGapToSegment(lx, ly, junction, tap, false, sorted);
+        if (gJuncMain > MAX_MAIN_CHORD_GAP_PT || gJuncMain >= gJuncTap - 1) continue;
+
+        upsertEdge(junction.number, mainNext.number, meters, "bifurcation-main");
+        clearEdge(tap.number, mainNext.number, "bifurcation-cleared");
+        for (const d of distances) {
+          if (d.meters == null || Math.abs(d.meters - meters) > 0.25) continue;
+          const lo = Math.min(d.from, d.to);
+          const hi = Math.max(d.from, d.to);
+          if (lo === junction.number && hi !== mainNext.number && hi > tap.number) {
+            warnings.push(
+              `[distance-assoc] Cleared ${d.from}→${d.to}: bifurcation label ${meters} m belongs on ${junction.number}→${mainNext.number}`,
+            );
+            d.meters = null;
+            d.source = "bifurcation-cleared";
+          }
+        }
+        warnings.push(
+          `[distance-assoc] Bifurcation at post ${junction.number}: label ${meters} m on ${junction.number}→${mainNext.number} (cleared ${tap.number}→${mainNext.number})`,
+        );
+        break;
+      }
+    }
+
+    /** @type {{ meters: number, gJuncMain: number }|null} */
+    let bestMain = null;
+
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== pageNum) continue;
+      const meters = parseDistanceMeters(it.str);
+      if (meters == null || meters <= 0) continue;
+
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+
+      const dJunc = Math.hypot(lx - jp.x, ly - jp.y);
+      const dTap = Math.hypot(lx - tp.x, ly - tp.y);
+      if (!(dJunc < dTap * JUNCTION_CLOSER_RATIO)) continue;
+
+      const gJuncMain = labelGapToSegment(
+        lx,
+        ly,
+        junction,
+        mainNext,
+        false,
+        sorted,
+      );
+      const gTapMain = labelGapToSegment(lx, ly, tap, mainNext, false, sorted);
+      const gJuncTap = labelGapToSegment(lx, ly, junction, tap, false, sorted);
+      if (gJuncMain > MAX_MAIN_CHORD_GAP_PT) continue;
+      // Branch tap label (e.g. 10.5 on 36→37) sits on junction→tap, not junction→main.
+      if (gJuncMain >= gJuncTap - 1) continue;
+      if (gJuncMain > gTapMain + 2) continue;
+
+      if (!bestMain || gJuncMain < bestMain.gJuncMain) {
+        bestMain = { meters, gJuncMain };
+      }
+    }
+
+    if (findEdge(junction.number, mainNext.number)?.source === "bifurcation-main") {
+      continue;
+    }
+
+    if (!bestMain) continue;
+
+    let hasTapLegLabel = false;
+    let tapLegMeters = Infinity;
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== pageNum) continue;
+      const m = parseDistanceMeters(it.str);
+      if (m == null || m <= 0 || Math.abs(m - bestMain.meters) < 0.25) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      const gJT = labelGapToSegment(lx, ly, junction, tap, false, sorted);
+      const gJM = labelGapToSegment(
+        lx,
+        ly,
+        junction,
+        mainNext,
+        false,
+        sorted,
+      );
+      if (gJT < gJM - 2 && gJT < MAX_MAIN_CHORD_GAP_PT) {
+        hasTapLegLabel = true;
+        tapLegMeters = Math.min(tapLegMeters, m);
+      }
+    }
+    if (!hasTapLegLabel || !(tapLegMeters < Infinity)) continue;
+    if (bestMain.meters < tapLegMeters * 1.35) continue;
+
+    if (tapMain?.meters == null || tapMain.meters <= 0) continue;
+    let tapMainOnTap = false;
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== pageNum) continue;
+      const m = parseDistanceMeters(it.str);
+      if (m == null || Math.abs(m - tapMain.meters) > 0.25) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      const dJ = Math.hypot(lx - jp.x, ly - jp.y);
+      const dT = Math.hypot(lx - tp.x, ly - tp.y);
+      if (dT < dJ * JUNCTION_CLOSER_RATIO) tapMainOnTap = true;
+      break;
+    }
+    if (!tapMainOnTap) continue;
+
+    const { meters } = bestMain;
+    upsertEdge(junction.number, mainNext.number, meters, "bifurcation-main");
+    clearEdge(tap.number, mainNext.number, "bifurcation-cleared");
+
+    for (const d of distances) {
+      if (d.meters == null || Math.abs(d.meters - meters) > 0.25) continue;
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (lo === junction.number && hi !== mainNext.number && hi > tap.number) {
+        warnings.push(
+          `[distance-assoc] Cleared ${d.from}→${d.to}: bifurcation label ${meters} m belongs on ${junction.number}→${mainNext.number}`,
+        );
+        d.meters = null;
+        d.source = "bifurcation-cleared";
+      }
+    }
+
+    warnings.push(
+      `[distance-assoc] Bifurcation at post ${junction.number}: label ${meters} m on ${junction.number}→${mainNext.number} (cleared ${tap.number}→${mainNext.number})`,
+    );
+  }
 }
 
 /**

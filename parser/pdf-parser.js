@@ -60,6 +60,7 @@ import {
 } from "./post-positioning.js";
 import { ocrCircleNumbers, createOcrWorker } from "./ocr-extractor.js";
 import {
+  applyBifurcationJunctionLabelRehome,
   applyJumpbackDistanceCleanup,
   associateDistancesRich,
 } from "./distance-associator.js";
@@ -726,6 +727,12 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
           `[pdf-parser] Prefilled ${prefilled} gap distance(s) before pole placement (incl. tap connectors).`,
         );
       }
+      applyBifurcationJunctionLabelRehome(
+        posts,
+        allDistItems,
+        distances,
+        warnings,
+      );
     }
     if (allPosteRaw.length > 0) {
       if (multiSheetRoute) {
@@ -769,6 +776,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
           {
             scaleFactor: overviewScale ?? undefined,
             perPageScale,
+            skipBifurcationRehome: true,
           },
         );
         // Splice pass-2 labels back into the shared `distances` array so downstream
@@ -784,6 +792,8 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
           );
           if (!d2) continue;
           if (d.meters == null) {
+            // Keep bifurcation tap-leg clears (e.g. 37→38); pass-2 sequential may reassign.
+            if (d.source === "bifurcation-cleared") continue;
             d.meters = d2.meters;
             d.source = d2.source;
             continue;
@@ -824,6 +834,12 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
             }
           }
           // Pass-1 looks consistent — keep it.
+          if (
+            d.source === "bifurcation-main" ||
+            d.source === "bifurcation-cleared"
+          ) {
+            continue;
+          }
         }
         for (const d2 of distancesPass2) {
           if (

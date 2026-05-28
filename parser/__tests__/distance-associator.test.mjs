@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyBifurcationJunctionLabelRehome,
   applyJumpbackDistanceCleanup,
   associateDistances,
   associateDistancesRich,
@@ -49,6 +50,62 @@ describe("distance-associator cross-page labels", () => {
     const { distances } = associateDistances(posts, distItems, []);
     const seg = distances.find((d) => d.from === 25 && d.to === 26);
     assert.equal(seg?.meters, 33.7);
+  });
+});
+
+describe("bifurcation junction label rehome", () => {
+  it("rehomes main-line label from tap→next onto junction→next (Siriu 36–37–38 pattern)", () => {
+    const posts = [
+      { number: 36, x: 292, y: 405, pageNum: 6 },
+      { number: 37, x: 310, y: 448, pageNum: 6 },
+      { number: 38, x: 260, y: 368, pageNum: 6 },
+    ];
+    const distItems = [
+      { str: "10,5", x: 310, y: 430, pageNum: 6, width: 12 },
+      { str: "35,5", x: 285, y: 375, pageNum: 6, width: 12 },
+    ];
+    const distances = [
+      { from: 36, to: 37, meters: 10.5, source: "legacy-midpoint" },
+      { from: 37, to: 38, meters: 35.5, source: "legacy-midpoint" },
+      { from: 36, to: 39, meters: 35.5, source: "inferred-label" },
+    ];
+    const warnings = [];
+    applyBifurcationJunctionLabelRehome(posts, distItems, distances, warnings);
+
+    const jm = distances.find((d) => d.from === 36 && d.to === 38);
+    const tm = distances.find((d) => d.from === 37 && d.to === 38);
+    const wrong = distances.find((d) => d.from === 36 && d.to === 39);
+    assert.equal(jm?.meters, 35.5);
+    assert.equal(jm?.source, "bifurcation-main");
+    assert.equal(tm?.meters, null);
+    assert.equal(tm?.source, "bifurcation-cleared");
+    assert.equal(wrong?.meters, null);
+  });
+
+  it("associateDistancesRich applies bifurcation rehome on Siriu-like geometry", () => {
+    const posts = [
+      { number: 35, x: 166, y: 425, pageNum: 6 },
+      { number: 36, x: 292, y: 405, pageNum: 6 },
+      { number: 37, x: 386, y: 464, pageNum: 6 },
+      { number: 38, x: 303, y: 346, pageNum: 6 },
+      { number: 39, x: 353, y: 260, pageNum: 6 },
+    ];
+    const distItems = [
+      { str: "47,9", x: 270, y: 390, pageNum: 6, width: 12 },
+      { str: "10,5", x: 310, y: 430, pageNum: 6, width: 12 },
+      { str: "35,5", x: 285, y: 375, pageNum: 6, width: 12 },
+      { str: "39,4", x: 330, y: 300, pageNum: 6, width: 12 },
+    ];
+    const { distances } = associateDistancesRich(posts, distItems, [], {});
+    applyBifurcationJunctionLabelRehome(posts, distItems, distances, []);
+    const seg3638 = distances.find((d) => d.from === 36 && d.to === 38);
+    const seg3738 = distances.find((d) => d.from === 37 && d.to === 38);
+    assert.equal(seg3638?.meters, 35.5);
+    assert.ok(
+      seg3638?.source === "bifurcation-main" ||
+        seg3638?.source === "inferred-label",
+    );
+    assert.ok(seg3738?.meters == null || seg3738.meters !== 35.5);
   });
 });
 

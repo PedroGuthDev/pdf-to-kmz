@@ -1313,7 +1313,7 @@ export function prefillGapDistancesForPolePlacement(
   // graph and pull mid-route posts onto the wrong cable arm.
   const suppressed = new Set();
   for (const d of distances) {
-    if (d.source === "jumpback-suppressed") {
+    if (d.source === "jumpback-suppressed" || d.source === "bifurcation-cleared") {
       const lo = Math.min(d.from, d.to);
       const hi = Math.max(d.from, d.to);
       suppressed.add(`${lo}->${hi}`);
