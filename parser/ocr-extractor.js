@@ -151,6 +151,40 @@ export async function createOcrWorker() {
 }
 
 /**
+ * Some crops (notably thin "1" in 71) regress under Otsu+nearest with PSM 7, returning a
+ * single digit ("7"). In those cases, retry with PSM 6 (single uniform block) and prefer
+ * the parse with a longer digit run (or higher confidence when tied).
+ *
+ * @param {import('tesseract.js').Worker} worker
+ * @param {Uint8Array} pngBytes
+ * @returns {Promise<{data: any, text: string, num: number|null}>}
+ */
+async function recognizeDigitsWithFallback(worker, pngBytes) {
+  const runWithPsm = async (psm) => {
+    await worker.setParameters({ tessedit_pageseg_mode: String(psm) });
+    const { data } = await worker.recognize(pngBytes);
+    const text = (data.text ?? '').trim();
+    return { data, text, num: parseOcrDigitText(text) };
+  };
+
+  const p7 = await runWithPsm(7);
+  const digits7 = p7.text.match(/\d{1,3}/g) ?? [];
+  if (digits7.some((r) => r.length >= 2)) return p7;
+
+  const p6 = await runWithPsm(6);
+  const digits6 = p6.text.match(/\d{1,3}/g) ?? [];
+
+  const bestLen7 = digits7.reduce((m, r) => Math.max(m, r.length), 0);
+  const bestLen6 = digits6.reduce((m, r) => Math.max(m, r.length), 0);
+  if (bestLen6 > bestLen7) return p6;
+  if (bestLen7 > bestLen6) return p7;
+
+  const conf7 = (p7.data?.words?.[0]?.confidence ?? 0);
+  const conf6 = (p6.data?.words?.[0]?.confidence ?? 0);
+  return conf6 > conf7 ? p6 : p7;
+}
+
+/**
  * OCR post numbers from rendered circle crops on a single PDF page.
  *
  * @param {import('pdfjs-dist').PDFPageProxy} page
@@ -373,10 +407,8 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       await writeDebugPng(debugDir, `${debugStem}_upscale.png`, ocrSource);
     }
 
-    const { data } = await worker.recognize(pngBytes);
-    const text = data.text.trim();
+    const { data, text, num } = await recognizeDigitsWithFallback(worker, pngBytes);
     const runs = text.match(/\d{1,3}/g);
-    const num = parseOcrDigitText(text);
 
     const ocrDebug = debugStem
       ? {

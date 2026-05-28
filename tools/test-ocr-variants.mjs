@@ -221,7 +221,7 @@ for (const v of variants) {
   for (const idx of [50, 53, 58]) {
     const f = colorFiles.find((c) => c.idx === idx);
     if (!f) continue;
-    const img = await loadImage(join(CROP_DIR, f));
+    const img = await loadImage(join(CROP_DIR, f.file));
     const { canvas } = await binarizeImage(img, v.bin);
     const ocrCanvas = await upscaleCanvas(canvas, v.upscale);
     const worker = await getWorker(v.psm);
