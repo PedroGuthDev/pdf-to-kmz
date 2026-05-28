@@ -395,6 +395,45 @@ export function pairPostsAgainstRegion({
       }
     }
 
+    // Last chance: allow a slightly larger window when we are just outside tolerance.
+    // This keeps DWG active on large/bifurcated routes where PDF bearings/drifts can
+    // exceed 15m on some hops, but we still have a plausible nearest candidate.
+    if (!best || (!relaxedPick && bestRawDist > tol)) {
+      const tolRelax = Math.min(30, tol + 10);
+      if (tolRelax > tol) {
+        let relaxedCandidates = searchPostsInBox(tree, predE, predN, tolRelax);
+        if (toUtmE != null && toUtmN != null) {
+          relaxedCandidates = mergeCandidateLists(
+            relaxedCandidates,
+            searchPostsInBox(tree, toUtmE, toUtmN, tolRelax),
+          );
+        }
+
+        if (relaxedCandidates.length) {
+          const pick = closestCandidate(
+            relaxedCandidates,
+            toUtmE ?? predE,
+            toUtmN ?? predN,
+            fromIdx,
+            adjacencyGraph,
+            postToIndex,
+          );
+          if (pick.best && pick.bestRawDist <= tolRelax) {
+            best = pick.best;
+            bestRawDist = pick.bestRawDist;
+            relaxedPick = true;
+            warn({
+              kind: "dwg-tolerance-relaxed",
+              at_post: toNum,
+              base_tol_m: tol,
+              tol_m: tolRelax,
+              picked_distance_m: pick.bestRawDist,
+            });
+          }
+        }
+      }
+    }
+
     if (!best || (!relaxedPick && bestRawDist > tol)) {
       warn({
         kind: "dwg-pair-fail",

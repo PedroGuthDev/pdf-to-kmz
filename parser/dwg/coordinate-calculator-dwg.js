@@ -24,6 +24,11 @@ export function formatDwgWarning(w) {
           : "sem candidato";
       return `DWG: pareamento falhou no poste ${o.at_post} (mais próximo ${dist}, tol ${o.tolerance_m} m). Usando só PDF.`;
     }
+    case "dwg-tolerance-relaxed": {
+      const d =
+        o.picked_distance_m != null ? Number(o.picked_distance_m).toFixed(1) : "?";
+      return `DWG: tolerância relaxada no poste ${o.at_post} (tol ${o.base_tol_m}→${o.tol_m} m, escolhido ${d} m).`;
+    }
     case "dwg-pair-collision":
       return `DWG: colisão de INSERT no poste ${o.at_post}. Usando só PDF.`;
     case "dwg-missing-distance":
