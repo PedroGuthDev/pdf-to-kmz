@@ -140,6 +140,32 @@ if (LABEL_OVERRIDE) {
   console.log(`[dwg+pdf] Applied DWG_LABEL_OVERRIDE: ${applied.join(", ")}`);
 }
 
+function findDistanceEdge(distances, from, to) {
+  for (const d of distances ?? []) {
+    if (!d || d.from == null || d.to == null) continue;
+    if (d.from === from && d.to === to) return d;
+  }
+  return null;
+}
+
+// Print key labels around the branch re-entry.
+for (const [a, b] of [
+  [9, 10],
+  [10, 11],
+  [11, 12],
+  [5, 10],
+]) {
+  const d1 = findDistanceEdge(distances, a, b);
+  const d2 = findDistanceEdge(distances, b, a);
+  const chosen = d1 ?? d2;
+  console.log(
+    `[dwg+pdf] label ${a}↔${b}: ${chosen?.meters ?? "null"} (${chosen?.source ?? "?"})`,
+  );
+  if (process.env.DWG_LABEL_DUMP === "1" && chosen) {
+    console.log(`[dwg+pdf] label ${a}↔${b} full: ${JSON.stringify(chosen)}`);
+  }
+}
+
 const regionLibrary = createRegionLibrary(globalThis.indexedDB);
 const dxfText = readFileSync(DXF, "utf8");
 await regionLibrary.addRegion("siriu", new Blob([dxfText], { type: "text/plain" }));
