@@ -78,4 +78,63 @@ describe("branch return jumpback cleanup", () => {
     assert.equal(seg1011?.meters, 37.3);
     assert.equal(seg1011?.source, "jumpback-shift");
   });
+
+  it("tags suppressed 9→10 with source 'jumpback-suppressed' so prefill respects it", () => {
+    const posts = [];
+    for (let n = 1; n <= 12; n++) {
+      posts.push({
+        number: n,
+        x: n * 40,
+        y: n === 10 ? 200 : 100,
+        pageNum: 1,
+      });
+    }
+    const distances = [];
+    for (let n = 1; n < 12; n++) {
+      distances.push({ from: n, to: n + 1, meters: 20 + n });
+    }
+    distances.find((d) => d.from === 9 && d.to === 10).meters = 37.3;
+    distances.push({ from: 5, to: 10, meters: 29.5, source: "inferred-label" });
+
+    applyJumpbackDistanceCleanup(posts, [], distances, [], {});
+
+    const seg910 = distances.find((d) => d.from === 9 && d.to === 10);
+    assert.equal(seg910?.meters, null);
+    assert.equal(
+      seg910?.source,
+      "jumpback-suppressed",
+      "suppressed entry must carry source marker so downstream prefill respects it",
+    );
+  });
+
+  it("creates suppressed entry when none existed pre-cleanup", () => {
+    const posts = [];
+    for (let n = 1; n <= 12; n++) {
+      posts.push({
+        number: n,
+        x: n * 40,
+        y: n === 10 ? 200 : 100,
+        pageNum: 1,
+      });
+    }
+    // No 9→10 entry at all; jumpback cleanup must still create a suppressed marker.
+    const distances = [
+      { from: 4, to: 5, meters: 30 },
+      { from: 5, to: 6, meters: 28.5 },
+      { from: 6, to: 7, meters: 23 },
+      { from: 7, to: 8, meters: 24 },
+      { from: 8, to: 9, meters: 49 },
+      { from: 10, to: 11, meters: 37 },
+      { from: 5, to: 10, meters: 29.5, source: "inferred-label" },
+    ];
+    applyJumpbackDistanceCleanup(posts, [], distances, [], {});
+
+    const seg910 = distances.find(
+      (d) =>
+        (d.from === 9 && d.to === 10) || (d.from === 10 && d.to === 9),
+    );
+    assert.ok(seg910, "suppression marker entry must be created");
+    assert.equal(seg910.meters, null);
+    assert.equal(seg910.source, "jumpback-suppressed");
+  });
 });

@@ -154,7 +154,12 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
  *
  * @returns {{ distances: Array<{ from: number, to: number, meters: number|null, source?: string }>, warnings: string[] }}
  */
-function associateSequentialMonotonic(posts, distItems, warnings = [], opts = {}) {
+function associateSequentialMonotonic(
+  posts,
+  distItems,
+  warnings = [],
+  opts = {},
+) {
   const sortedPosts = [...posts].sort((a, b) => a.number - b.number);
   const overviewSf = opts.scaleFactor ?? null;
   const perPageScale = opts.perPageScale ?? null;
@@ -195,7 +200,7 @@ function associateSequentialMonotonic(posts, distItems, warnings = [], opts = {}
   };
 
   const segTMid = (segIdx) =>
-    ((cumLen[segIdx] + cumLen[segIdx + 1]) / 2) / routeLen;
+    (cumLen[segIdx] + cumLen[segIdx + 1]) / 2 / routeLen;
 
   const scoreLabelOnSeg = (segIdx, dt) => {
     const from = sortedPosts[segIdx];
@@ -388,7 +393,7 @@ export function applyJumpbackDistanceCleanup(
       const hi = Math.max(d.from, d.to);
       if (lo === a && hi === b) {
         d.meters = null;
-        delete d.source;
+        d.source = "jumpback-suppressed";
       }
     }
   }
@@ -424,17 +429,30 @@ function suppressJumpbackSequentialSpans(distances, warnings, posts = []) {
     if (penultimate <= lo) continue;
     const key = `${penultimate}->${hi}`;
     suppressed.add(key);
+    let foundEntry = false;
     for (const d of distances) {
       const a = Math.min(d.from, d.to);
       const b = Math.max(d.from, d.to);
-      if (a === penultimate && b === hi && d.meters != null) {
-        warnings.push(
-          `[distance-assoc] Cleared ${penultimate}→${hi}: branch ends at ${penultimate}; rejoin is ${lo}→${hi}`,
-        );
-        clearedMeters.set(key, d.meters);
+      if (a === penultimate && b === hi) {
+        if (d.meters != null) {
+          warnings.push(
+            `[distance-assoc] Cleared ${penultimate}→${hi}: branch ends at ${penultimate}; rejoin is ${lo}→${hi}`,
+          );
+          clearedMeters.set(key, d.meters);
+        }
         d.meters = null;
-        delete d.source;
+        d.source = "jumpback-suppressed";
+        foundEntry = true;
       }
+    }
+    // Ensure entry exists so prefill/lsq see the suppression marker.
+    if (!foundEntry) {
+      distances.push({
+        from: penultimate,
+        to: hi,
+        meters: null,
+        source: "jumpback-suppressed",
+      });
     }
     const nextNum = hi + 1;
     if (byNum.has(nextNum)) {
@@ -586,8 +604,7 @@ function rehomeNextSpanAfterJumpback(
     const toNum = hi + 1;
     const seg = distances.find(
       (d) =>
-        (d.from === hi && d.to === toNum) ||
-        (d.from === toNum && d.to === hi),
+        (d.from === hi && d.to === toNum) || (d.from === toNum && d.to === hi),
     );
     if (!seg) continue;
 
@@ -614,12 +631,7 @@ function rehomeNextSpanAfterJumpback(
     let best = null;
     for (let li = 0; li < distItems.length; li++) {
       const dt = distItems[li];
-      const sc = scoreLabelOnSequentialSeg(
-        sorted,
-        segIdx,
-        dt,
-        opts,
-      );
+      const sc = scoreLabelOnSequentialSeg(sorted, segIdx, dt, opts);
       if (!sc) continue;
       const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
       const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
@@ -642,10 +654,7 @@ function dropConflictingNonSequentialEdges(distances, from, to, meters) {
   for (let i = distances.length - 1; i >= 0; i--) {
     const d = distances[i];
     if (d.meters == null || Math.abs(d.meters - meters) > 0.05) continue;
-    if (
-      (d.from === from && d.to === to) ||
-      (d.from === to && d.to === from)
-    )
+    if ((d.from === from && d.to === to) || (d.from === to && d.to === from))
       continue;
     const lo = Math.min(d.from, d.to);
     const hi = Math.max(d.from, d.to);

@@ -751,6 +751,7 @@ export function fillAdjacentMissingDistances(
   sorted,
   distMap,
   cablesByPage = null,
+  suppressedPairs = null,
 ) {
   const map = new Map(distMap);
   let filled = 0;
@@ -773,6 +774,7 @@ export function fillAdjacentMissingDistances(
 
     const key = `${prev.number}->${curr.number}`;
     if (map.get(key) > 0) continue;
+    if (suppressedPairs && suppressedPairs.has(key)) continue;
 
     const inferred = inferMissingSegmentMeters(
       list,
@@ -1306,7 +1308,16 @@ export function prefillGapDistancesForPolePlacement(
   if (!distances?.length) return 0;
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
   const distMap = new Map();
+  // Pairs that were explicitly suppressed (e.g. branch-return jumpback) must NOT
+  // be refilled — otherwise the bogus sequential meters re-enter the pole-placement
+  // graph and pull mid-route posts onto the wrong cable arm.
+  const suppressed = new Set();
   for (const d of distances) {
+    if (d.source === "jumpback-suppressed") {
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      suppressed.add(`${lo}->${hi}`);
+    }
     if (d.meters != null && d.meters > 0) {
       distMap.set(`${d.from}->${d.to}`, d.meters);
       distMap.set(`${d.to}->${d.from}`, d.meters);
@@ -1316,6 +1327,7 @@ export function prefillGapDistancesForPolePlacement(
     sorted,
     distMap,
     cablesByPage,
+    suppressed,
   );
   const postByNum = new Map(sorted.map((p) => [p.number, p]));
 
@@ -1349,6 +1361,7 @@ export function prefillGapDistancesForPolePlacement(
 
   let updated = 0;
   for (const d of distances) {
+    if (d.source === "jumpback-suppressed") continue;
     const v = map.get(`${d.from}->${d.to}`);
     if (v != null && v > 0 && d.meters !== v) {
       d.meters = v;
