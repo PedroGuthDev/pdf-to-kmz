@@ -478,62 +478,67 @@ export function pairPostsByGraphWalk({
       const neighbors = unclaimedCableNeighbors(fromIdx, graph, claimed);
       if (neighbors.length === 0) caseAStuckNoNeighbors = true;
 
-      if (neighbors.length === 1 && labelM == null) {
-        chosenIdx = neighbors[0];
-      } else if (labelM != null) {
-        const tol = spanToleranceFor(labelM);
-        // In Siriu, 9→10 is a “return to main route” branch jump with label ≈137m.
-        // Treat large gap-labeled edges as jumpbacks: Case A can pick a far direct
-        // neighbor that matches the chord span but stays on the wrong branch.
-        const LARGE_GAP_LABEL_M = 100;
-        const forceJumpback = Boolean(conn.gap) && labelM >= LARGE_GAP_LABEL_M;
+      // Branch-return jumpback helper (runs BEFORE direct-neighbor logic and BEFORE
+      // the labelM==null single-neighbor shortcut). If we have a non-consecutive
+      // Distância_Poste label from any previously visited post to the target
+      // (e.g. 5→10 when stepping 9→10), prefer hint-based placement.
+      //
+      // This is essential at branch returns where the sequential label was suppressed
+      // (labelM is null because the consecutive edge doesn't physically exist), and the
+      // current node sits at a dead-end stub whose only unclaimed neighbor would otherwise
+      // be taken via the single-neighbor shortcut and route the walker into the void.
+      //
+      // We intentionally do NOT require conn.gap: the upstream gap flag can be wrong
+      // (snap-3 artifacts), but a non-consecutive label is an explicit topological hint.
+      // For `forceJumpback` (very large gap label) we still defer to Case B below.
+      const LARGE_GAP_LABEL_M = 100;
+      const forceJumpback =
+        labelM != null && Boolean(conn.gap) && labelM >= LARGE_GAP_LABEL_M;
 
-        // Branch return helper: if we have a non-consecutive label from a previously
-        // visited post to the target (e.g. 5→10), try to place the target by that label
-        // before trusting the consecutive edge label (e.g. 9→10).
-        //
-        // Note: this intentionally does NOT require conn.gap because the upstream gap flag
-        // can be wrong (snap-3 artifacts), but the non-consecutive label is an explicit hint.
-        if (!forceJumpback) {
-          let hintOriginNumForHop = null;
-          for (let k = visitedPostNums.length - 1; k >= 0; k--) {
-            const vNum = visitedPostNums[k];
-            if (vNum === fromNum || vNum === toNum) continue;
-            if (idxByNum.get(vNum) == null) continue;
-            if (getDistLabel(distMap, vNum, toNum) != null) {
-              hintOriginNumForHop = vNum;
-              break;
-            }
+      if (!forceJumpback) {
+        let hintOriginNumForHop = null;
+        for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+          const vNum = visitedPostNums[k];
+          if (vNum === fromNum || vNum === toNum) continue;
+          if (idxByNum.get(vNum) == null) continue;
+          if (getDistLabel(distMap, vNum, toNum) != null) {
+            hintOriginNumForHop = vNum;
+            break;
           }
-          if (hintOriginNumForHop != null) {
-            const hintOriginIdxForHop = idxByNum.get(hintOriginNumForHop);
-            const hintLabelForHop = getDistLabel(distMap, hintOriginNumForHop, toNum);
-            if (
-              hintOriginIdxForHop != null &&
-              hintLabelForHop != null &&
-              hintLabelForHop > 0
-            ) {
-              const hintTolForHop = spanToleranceFor(hintLabelForHop);
-              const hop = findMultiHopByLabel({
-                fromIdx: hintOriginIdxForHop,
-                labelM: hintLabelForHop,
-                tol: Math.max(hintTolForHop, 10, 0.35 * hintLabelForHop),
-                richGraph: graph,
-                claimed,
-                regionPosts,
-                maxHops: 6,
-              });
-              if (hop) {
-                chosenIdx = hop.endpoint;
-                chainIntermediates = hop.intermediates;
-              }
+        }
+        if (hintOriginNumForHop != null) {
+          const hintOriginIdxForHop = idxByNum.get(hintOriginNumForHop);
+          const hintLabelForHop = getDistLabel(distMap, hintOriginNumForHop, toNum);
+          if (
+            hintOriginIdxForHop != null &&
+            hintLabelForHop != null &&
+            hintLabelForHop > 0
+          ) {
+            const hintTolForHop = spanToleranceFor(hintLabelForHop);
+            const hop = findMultiHopByLabel({
+              fromIdx: hintOriginIdxForHop,
+              labelM: hintLabelForHop,
+              tol: Math.max(hintTolForHop, 10, 0.35 * hintLabelForHop),
+              richGraph: graph,
+              claimed,
+              regionPosts,
+              maxHops: 6,
+            });
+            if (hop) {
+              chosenIdx = hop.endpoint;
+              chainIntermediates = hop.intermediates;
             }
           }
         }
+      }
 
-        if (chosenIdx !== undefined) {
-          // Hint-based placement succeeded; skip remaining Case A selection.
-        } else {
+      if (chosenIdx !== undefined) {
+        // Hint-based placement succeeded; skip remaining Case A selection.
+      } else if (neighbors.length === 1 && labelM == null) {
+        chosenIdx = neighbors[0];
+      } else if (labelM != null) {
+        const tol = spanToleranceFor(labelM);
+        {
         // Direct-neighbor span match, with a 1-hop lookahead to avoid dead ends.
         // A too-aggressive adjacency union can introduce “leaf” candidates whose span
         // matches labelM but cannot continue to the next post (degree 0/1 after claiming).
@@ -625,7 +630,12 @@ export function pairPostsByGraphWalk({
               const aOk = hintTol != null ? a.hintDelta <= hintTol : false;
               const bOk = hintTol != null ? b.hintDelta <= hintTol : false;
               if (aOk !== bOk) return aOk ? -1 : 1;
-              return a.hintDelta - b.hintDelta;
+              // Only use hintDelta as a discriminator when at least one candidate
+              // satisfies the hint tolerance. Otherwise the hint is uninformative
+              // (e.g. phantom inferred labels at branch bifurcations) and would
+              // wrongly dominate the much-more-accurate sequential 'delta'. Fall
+              // through to degree/nextDelta/delta tiebreakers below.
+              if (aOk || bOk) return a.hintDelta - b.hintDelta;
             }
             if (a.hintDelta != null && b.hintDelta == null) return -1;
             if (a.hintDelta == null && b.hintDelta != null) return 1;
