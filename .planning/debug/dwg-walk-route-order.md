@@ -22,7 +22,15 @@ Partial DWG walk: **31 posts** (was 12), errors mostly &lt; 11 m for posts 1–2
 
 Still fails at **post 32** (`tolerance-exceeded`): walker at wrong INSERT chain from ~27→28 (`148→104` vs GT `149→150`).
 
+## Post 28 fix (2026-05-28)
+
+**Cause:** At 26→27 the label 26.9 m is the chord 147→#149, but a 1-hop to #148 (24.1 m, Δ≈2.8 m) was taken instead of continuing to #149 (cable via #148, better 27→28 lookahead).
+
+**Fix in `graph-walker.js`:** `findMultiHopByLabel` accepts `nextLabelM` and scores candidates by next-segment fit; when multi-hop extends through the direct neighbor (`intermediates` includes `directBestIdx`) and next-span delta is >1 m better, use the longer chain.
+
+**Result:** Post 28 err **2.79 m** (was ~86 m). Partial walk **49 posts** (was 31).
+
 ## Next
 
-- Page-5 / posts 27–32: wrong 1-hop at 27→28 (label 45.2 m); BFS shows no path within tol to GT #150 from current node.
-- Consider non-consecutive hints or page-break gap handling on sheet 5.
+- Posts 38+ on page 6+ (new failure region).
+- Posts 16–17 still ~8–10 m / 41–87 m (separate).

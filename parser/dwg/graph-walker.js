@@ -63,6 +63,26 @@ function unclaimedCableNeighbors(idx, adjacencyGraph, claimed) {
   return result;
 }
 
+function bestNextSpanDeltaFor(
+  endpointIdx,
+  fromIdx,
+  regionPosts,
+  richGraph,
+  claimed,
+  blockExtra,
+  nextLabelM,
+) {
+  if (nextLabelM == null || !Number.isFinite(nextLabelM)) return Infinity;
+  const block = new Set([...claimed, endpointIdx, ...blockExtra]);
+  let best = Infinity;
+  for (const nn of unclaimedCableNeighbors(endpointIdx, richGraph, block)) {
+    if (nn === fromIdx) continue;
+    const d2 = Math.abs(spanBetween(regionPosts, endpointIdx, nn) - nextLabelM);
+    if (d2 < best) best = d2;
+  }
+  return best;
+}
+
 function junctionSetFromVisited(visitedIdxArr, adjacencyGraph) {
   const result = [];
   for (const i of visitedIdxArr) {
@@ -245,12 +265,21 @@ function findMultiHopByLabel({
     const bDeg = richGraph.get(b.endpoint)?.size ?? 0;
     const aBackbone = aDeg >= 2 ? 1 : 0;
     const bBackbone = bDeg >= 2 ? 1 : 0;
-    if (aBackbone !== bBackbone) return aBackbone > bBackbone;
-    // Prefer shorter intermediate chain.
+    if (aBackbone !== bBackbone) {
+      // Near-exact multi-hop endpoint beats a loose 1-hop (Siriu 26→27: #149 Δ≈0.04 m
+      // vs #148 Δ≈2.8 m) without letting a ~1 m wrong 1-hop beat a ~6 m correct one.
+      if (
+        (a.delta < 0.5 && b.delta > 2) ||
+        (b.delta < 0.5 && a.delta > 2)
+      ) {
+        return a.delta < b.delta;
+      }
+      return aBackbone > bBackbone;
+    }
+    // Prefer shorter intermediate chain, then tighter label fit (f4663bc order).
     if (a.intermediates.length !== b.intermediates.length) {
       return a.intermediates.length < b.intermediates.length;
     }
-    // Finally, prefer lower delta.
     return a.delta < b.delta;
   };
 
@@ -676,19 +705,10 @@ export function pairPostsByGraphWalk({
               (directBestNextDelta == null ||
                 !Number.isFinite(directBestNextDelta))));
 
-        if (
-          !forceJumpback &&
-          directBestIdx >= 0 &&
-          directBestDelta <= tol &&
-          !directIsDeadEnd
-        ) {
-          chosenIdx = directBestIdx;
-        } else if (multiHopAllowed) {
-          // DFS up to K=2 intermediate hops in the rich graph. The
-          // endpoint INSERT plus all intermediate nodes along the chosen
-          // chain are claimed.
-          const multiTol = Math.max(tol, 10, 0.35 * labelM);
-          const hop = findMultiHopByLabel({
+        const multiTol = Math.max(tol, 10, 0.35 * labelM);
+        let hop = null;
+        if (multiHopAllowed) {
+          hop = findMultiHopByLabel({
             fromIdx,
             labelM,
             tol: multiTol,
@@ -697,20 +717,91 @@ export function pairPostsByGraphWalk({
             regionPosts,
             maxHops: neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
           });
-          if (hop) {
-            chosenIdx = hop.endpoint;
-            chainIntermediates = hop.intermediates;
+        }
+
+        const directUsable =
+          !forceJumpback &&
+          directBestIdx >= 0 &&
+          directBestDelta <= tol &&
+          !directIsDeadEnd;
+
+        // Siriu 26→27: label is chord 147→#149 but the walker stops at cable #148.
+        // Extend one short hop past directBest when the next post's label fits much
+        // better from the further INSERT (and only in a dead-end 1-neighbor case).
+        let extendPastDirect = null;
+        if (
+          directUsable &&
+          directBestDelta > 2 &&
+          neighbors.length === 1 &&
+          nextLabel != null &&
+          Number.isFinite(nextLabel)
+        ) {
+          const directNext =
+            directBestNextDelta != null && Number.isFinite(directBestNextDelta)
+              ? directBestNextDelta
+              : bestNextSpanDeltaFor(
+                  directBestIdx,
+                  fromIdx,
+                  regionPosts,
+                  graph,
+                  claimed,
+                  [],
+                  nextLabel,
+                );
+          let bestNn = -1;
+          let bestNnNext = Infinity;
+          for (const nn of unclaimedCableNeighbors(
+            directBestIdx,
+            graph,
+            claimed,
+          )) {
+            const hopSeg = spanBetween(regionPosts, directBestIdx, nn);
+            if (hopSeg > 12) continue;
+            const nd = bestNextSpanDeltaFor(
+              nn,
+              directBestIdx,
+              regionPosts,
+              graph,
+              claimed,
+              [directBestIdx],
+              nextLabel,
+            );
+            if (!Number.isFinite(nd) || nd >= bestNnNext) continue;
+            const total =
+              spanBetween(regionPosts, fromIdx, directBestIdx) + hopSeg;
+            const totalDelta = Math.abs(total - labelM);
+            const nextMuchBetter =
+              Number.isFinite(directNext) && nd + 1 < directNext;
+            if (totalDelta > multiTol && !nextMuchBetter) continue;
+            bestNn = nn;
+            bestNnNext = nd;
           }
-          // If no multi-hop found but we *did* have a direct span match, accept it as last resort
-          // (even if it looks like a dead end) — otherwise we’d fail earlier than necessary.
           if (
-            !forceJumpback &&
-            chosenIdx === undefined &&
-            directBestIdx >= 0 &&
-            directBestDelta <= tol
+            bestNn >= 0 &&
+            Number.isFinite(directNext) &&
+            bestNnNext + 1 < directNext
           ) {
-            chosenIdx = directBestIdx;
+            extendPastDirect = {
+              endpoint: bestNn,
+              intermediates: [directBestIdx],
+            };
           }
+        }
+
+        if (extendPastDirect) {
+          chosenIdx = extendPastDirect.endpoint;
+          chainIntermediates = extendPastDirect.intermediates;
+        } else if (directUsable) {
+          chosenIdx = directBestIdx;
+        } else if (hop) {
+          chosenIdx = hop.endpoint;
+          chainIntermediates = hop.intermediates;
+        } else if (
+          !forceJumpback &&
+          directBestIdx >= 0 &&
+          directBestDelta <= tol
+        ) {
+          chosenIdx = directBestIdx;
         }
         // else: chosenIdx stays undefined — for gap edges fall through to
         // Case B; for non-gap fall to tolerance-exceeded warning.
