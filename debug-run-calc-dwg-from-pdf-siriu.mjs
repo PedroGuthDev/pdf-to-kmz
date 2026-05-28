@@ -178,6 +178,8 @@ console.log(`[dwg+pdf] has connection 10↔11: ${has1011}`);
 
 // If full DWG failed, still compare partial DWG walk (e.g. posts 1..26).
 if ((result.dwgStatus ?? "") === "pdf-fallback") {
+  const prevGwPartial = process.env.GW_RETURN_PARTIAL;
+  process.env.GW_RETURN_PARTIAL = "1";
   const gw = pairPostsByGraphWalk({
     posts,
     distances,
@@ -189,6 +191,9 @@ if ((result.dwgStatus ?? "") === "pdf-fallback") {
     adjacencyGraph,
     warnings: [],
   });
+  if (prevGwPartial == null) delete process.env.GW_RETURN_PARTIAL;
+  else process.env.GW_RETURN_PARTIAL = prevGwPartial;
+
   const partial = gw.partialCoords ?? [];
   if (partial.length) {
     console.log(`\n[dwg+pdf] Partial DWG coords: ${partial.length} post(s)\n`);
@@ -199,6 +204,10 @@ if ((result.dwgStatus ?? "") === "pdf-fallback") {
       const err = haversineMeters(c.lat, c.lon, ref.lat, ref.lon);
       console.log(`${String(c.postNumber).padStart(3)}  ${err.toFixed(2).padStart(7)}`);
     }
+  } else {
+    console.log(
+      `\n[dwg+pdf] Partial DWG coords: none (gw.ok=${gw.ok ?? "?"} failedAt=${gw.failedAt ?? "?"})`,
+    );
   }
 }
 
