@@ -59,7 +59,7 @@ import {
   assignPostsByRouteOrder,
 } from "./post-positioning.js";
 import { ocrCircleNumbers, createOcrWorker } from "./ocr-extractor.js";
-import { associateDistances } from "./distance-associator.js";
+import { associateDistancesRich } from "./distance-associator.js";
 import { prefillGapDistancesForPolePlacement } from "./geo/label-lsq-calibrator.js";
 import { computeScaleFactor } from "./geo/utm-calibrator.js";
 import {
@@ -686,7 +686,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       return overviewScale ?? null;
     };
 
-    const { distances, warnings: dw } = associateDistances(
+    const { distances, warnings: dw } = associateDistancesRich(
       posts,
       allDistItems,
       [],
@@ -736,7 +736,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
           p.anchorX = p.x;
           p.anchorY = p.y;
         }
-        const { distances: distancesPass2 } = associateDistances(
+        const { distances: distancesPass2 } = associateDistancesRich(
           posts,
           allDistItems,
           [],

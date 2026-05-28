@@ -147,6 +147,40 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
 }
 
 /**
+ * Rich association: keep the sequential N→N+1 distances, but also infer additional
+ * edges (including non-consecutive numbers) by matching each Distância_Poste label
+ * to the best post-pair "under" that label.
+ *
+ * This is required for bifurcations/branches where a junction post legitimately has
+ * more than one outgoing segment length (e.g. 5→6 and 5→10).
+ *
+ * @returns {{ distances: Array<{ from: number, to: number, meters: number|null }>, warnings: string[] }}
+ */
+export function associateDistancesRich(posts, distItems, warnings = [], opts = {}) {
+  const { distances: seq, warnings: w1 } = associateDistances(
+    posts,
+    distItems,
+    [],
+    opts,
+  );
+  warnings.push(...w1);
+
+  const extra = inferDistanceEdgesFromLabels(posts, distItems, warnings, opts);
+
+  // Merge extras while keeping the sequential array shape stable.
+  const seenPair = new Set(seq.map((d) => `${d.from}->${d.to}`));
+  const merged = [...seq];
+  for (const e of extra) {
+    const k = `${e.from}->${e.to}`;
+    const rk = `${e.to}->${e.from}`;
+    if (seenPair.has(k) || seenPair.has(rk)) continue;
+    merged.push(e);
+    seenPair.add(k);
+  }
+  return { distances: merged, warnings };
+}
+
+/**
  * Parse a distance label string (Brazilian comma decimals).
  * @returns {number|null}
  */
@@ -155,6 +189,122 @@ function parseDistanceMeters(str) {
   if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
   const meters = parseFloat(normalized);
   return Number.isFinite(meters) && meters > 0 ? meters : null;
+}
+
+/**
+ * Infer distance edges by pairing each label to the best matching post pair near it.
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, anchorX?: number, anchorY?: number }>} posts
+ * @param {Array<{ str: string, x: number, y: number, pageNum?: number, width?: number }>} distItems
+ * @param {string[]} warnings
+ * @param {{ scaleFactor?: number, perPageScale?: (pageNum: number) => number|null }} [opts]
+ * @returns {Array<{ from: number, to: number, meters: number }>}
+ */
+function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
+  /** @type {Array<{ from: number, to: number, meters: number }>} */
+  const edges = [];
+  if (!posts?.length || !distItems?.length) return edges;
+
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const byPage = new Map();
+  for (const p of sorted) {
+    const pn = p.pageNum ?? null;
+    if (!byPage.has(pn)) byPage.set(pn, []);
+    byPage.get(pn).push(p);
+  }
+
+  const pos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
+
+  const TOP_K_POSTS = 10;
+  const MAX_LABEL_GAP_PT = 75; // label should sit close-ish to its chord
+  const MAX_SCORE = 140;
+
+  for (const it of distItems) {
+    const meters = parseDistanceMeters(it.str);
+    if (meters == null) continue;
+
+    const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+    const lx = w > 0 ? it.x + w * 0.5 : it.x;
+    const ly = it.y;
+    const labelPage = it.pageNum ?? null;
+
+    const postsOnPage = byPage.get(labelPage) ?? sorted;
+    if (!postsOnPage.length) continue;
+
+    const nearest = postsOnPage
+      .map((p) => {
+        const pp = pos(p);
+        return { p, d: Math.hypot(pp.x - lx, pp.y - ly) };
+      })
+      .sort((a, b) => a.d - b.d)
+      .slice(0, TOP_K_POSTS)
+      .map((x) => x.p);
+
+    if (nearest.length < 2) continue;
+
+    const pageSf =
+      labelPage != null && opts.perPageScale ? opts.perPageScale(labelPage) : null;
+    const sf = pageSf ?? opts.scaleFactor ?? null;
+
+    let best = null;
+
+    for (let i = 0; i < nearest.length; i++) {
+      for (let j = i + 1; j < nearest.length; j++) {
+        const a = nearest[i];
+        const b = nearest[j];
+        if (a.number === b.number) continue;
+
+        const ap = pos(a);
+        const bp = pos(b);
+        const gap = distPointToSegment(lx, ly, ap.x, ap.y, bp.x, bp.y);
+        if (gap > MAX_LABEL_GAP_PT) continue;
+
+        const pdfPt = Math.hypot(bp.x - ap.x, bp.y - ap.y);
+        let ratioPenalty = 0;
+        if (sf != null && meters > 0 && pdfPt > 0) {
+          const pdfM = pdfPt * sf;
+          const ratio = pdfM / meters;
+          // Keep wide but bounded; extreme ratios are almost always wrong pairings.
+          if (ratio < 0.2 || ratio > 5.0) continue;
+          ratioPenalty = 35 * Math.abs(Math.log(ratio));
+        }
+
+        const score = gap + ratioPenalty;
+        if (score > MAX_SCORE) continue;
+
+        if (!best || score < best.score) {
+          best = { a, b, score };
+        }
+      }
+    }
+
+    if (!best) continue;
+
+    const from = best.a.number;
+    const to = best.b.number;
+    edges.push({ from, to, meters });
+  }
+
+  // Deduplicate: keep only the lowest-meter label per pair if duplicates occur.
+  const dedup = new Map();
+  for (const e of edges) {
+    const a = Math.min(e.from, e.to);
+    const b = Math.max(e.from, e.to);
+    const k = `${a}->${b}`;
+    const prev = dedup.get(k);
+    if (!prev || Math.abs(prev.meters - e.meters) > 0.01) {
+      // If multiple different meters exist, keep the smaller one (less likely to be a summed span).
+      if (!prev || e.meters < prev.meters) dedup.set(k, e);
+    }
+  }
+
+  const out = [...dedup.values()];
+  if (out.length > 0) {
+    warnings.push(
+      `[distance-assoc] Rich labels inferred: +${out.length} non-sequential edge(s) from Distância_Poste items.`,
+    );
+  }
+  return out;
 }
 
 /**
