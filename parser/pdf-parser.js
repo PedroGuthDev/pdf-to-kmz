@@ -59,7 +59,10 @@ import {
   assignPostsByRouteOrder,
 } from "./post-positioning.js";
 import { ocrCircleNumbers, createOcrWorker } from "./ocr-extractor.js";
-import { associateDistancesRich } from "./distance-associator.js";
+import {
+  applyJumpbackDistanceCleanup,
+  associateDistancesRich,
+} from "./distance-associator.js";
 import { prefillGapDistancesForPolePlacement } from "./geo/label-lsq-calibrator.js";
 import { computeScaleFactor } from "./geo/utm-calibrator.js";
 import {
@@ -686,6 +689,17 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       return overviewScale ?? null;
     };
 
+    let distanceOverrides = null;
+    if (process.env.PDF_DISTANCE_OVERRIDES) {
+      try {
+        distanceOverrides = JSON.parse(process.env.PDF_DISTANCE_OVERRIDES);
+      } catch {
+        warnings.push(
+          "[pdf-parser] Failed to parse PDF_DISTANCE_OVERRIDES as JSON; ignoring overrides.",
+        );
+      }
+    }
+
     const { distances, warnings: dw } = associateDistancesRich(
       posts,
       allDistItems,
@@ -693,6 +707,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       {
         scaleFactor: overviewScale ?? undefined,
         perPageScale,
+        ...(distanceOverrides ? { overrides: distanceOverrides } : {}),
       },
     );
     warnings.push(...dw);
@@ -751,10 +766,31 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
           const d2 = distancesPass2.find(
             (x) => x.from === d.from && x.to === d.to,
           );
-          if (d2) d.meters = d2.meters;
+          if (d2) {
+            d.meters = d2.meters;
+            d.source = d2.source;
+          }
+        }
+        for (const d2 of distancesPass2) {
+          if (
+            !distances.some((x) => x.from === d2.from && x.to === d2.to) &&
+            d2.meters != null
+          ) {
+            distances.push({ ...d2 });
+          }
         }
         const cablesForPass2 = buildCablesByPage(allCablePaths);
         prefillGapDistancesForPolePlacement(posts, distances, cablesForPass2);
+        applyJumpbackDistanceCleanup(
+          posts,
+          allDistItems,
+          distances,
+          warnings,
+          {
+            scaleFactor: overviewScale ?? undefined,
+            perPageScale,
+          },
+        );
         assignPolesGloballyByLabels(
           posts,
           allPosteRaw,

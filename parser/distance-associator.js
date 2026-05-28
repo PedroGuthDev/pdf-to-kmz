@@ -147,6 +147,563 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
 }
 
 /**
+ * Assign each Distância_Poste label to at most one consecutive post pair (N→N+1)
+ * using route order: labels are sorted by projection onto the post-number polyline,
+ * then matched monotonically to segments so dense bifurcation zones do not "shift"
+ * labels by one span.
+ *
+ * @returns {{ distances: Array<{ from: number, to: number, meters: number|null, source?: string }>, warnings: string[] }}
+ */
+function associateSequentialMonotonic(posts, distItems, warnings = [], opts = {}) {
+  const sortedPosts = [...posts].sort((a, b) => a.number - b.number);
+  const overviewSf = opts.scaleFactor ?? null;
+  const perPageScale = opts.perPageScale ?? null;
+
+  const pdfPos = (p) => ({
+    x: p.anchorX ?? p.x,
+    y: p.anchorY ?? p.y,
+  });
+
+  const cumLen = [0];
+  for (let i = 1; i < sortedPosts.length; i++) {
+    const a = pdfPos(sortedPosts[i - 1]);
+    const b = pdfPos(sortedPosts[i]);
+    cumLen.push(cumLen[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
+  }
+  const routeLen = cumLen[cumLen.length - 1] || 1;
+
+  const projectAlongRoute = (lx, ly) => {
+    let bestT = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < sortedPosts.length - 1; i++) {
+      const a = pdfPos(sortedPosts[i]);
+      const b = pdfPos(sortedPosts[i + 1]);
+      const gap = distPointToSegment(lx, ly, a.x, a.y, b.x, b.y);
+      const abx = b.x - a.x;
+      const aby = b.y - a.y;
+      const ab2 = abx * abx + aby * aby;
+      const apx = lx - a.x;
+      const apy = ly - a.y;
+      let t = ab2 > 1e-12 ? (apx * abx + apy * aby) / ab2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      if (gap < bestD) {
+        bestD = gap;
+        bestT = (cumLen[i] + t * (cumLen[i + 1] - cumLen[i])) / routeLen;
+      }
+    }
+    return bestT;
+  };
+
+  const segTMid = (segIdx) =>
+    ((cumLen[segIdx] + cumLen[segIdx + 1]) / 2) / routeLen;
+
+  const scoreLabelOnSeg = (segIdx, dt) => {
+    const from = sortedPosts[segIdx];
+    const to = sortedPosts[segIdx + 1];
+    const meters = parseDistanceMeters(dt.str);
+    if (meters == null) return null;
+
+    const samePage =
+      from.pageNum != null && to.pageNum != null && from.pageNum === to.pageNum;
+    const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
+    const labelPage = dt.pageNum ?? null;
+    if (samePage && labelPage != null && labelPage !== from.pageNum)
+      return null;
+    if (crossPage && labelPage != null && labelPage !== to.pageNum) return null;
+
+    const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+    const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+    const ly = dt.y;
+
+    const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
+    if (gap > 90) return null;
+
+    const a = pdfPos(from);
+    const b = pdfPos(to);
+    const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
+    let ratioPenalty = 0;
+    const pageSf =
+      !crossPage && from.pageNum != null && perPageScale
+        ? perPageScale(from.pageNum)
+        : null;
+    const detailSf =
+      pageSf ??
+      opts.detailScaleFactor ??
+      (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+    if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
+      const pdfM = pdfPt * detailSf;
+      const ratio = pdfM / meters;
+      const labelOnChord = gap < 55;
+      if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) return null;
+      ratioPenalty = 35 * Math.abs(Math.log(ratio));
+    }
+
+    const score = gap + ratioPenalty;
+    if (score > 120) return null;
+    return { meters, score };
+  };
+
+  /** @type {Array<{ from: number, to: number, meters: number|null, source?: string }>} */
+  const pairs = sortedPosts.slice(0, -1).map((from, i) => ({
+    from: from.number,
+    to: sortedPosts[i + 1].number,
+    meters: null,
+  }));
+
+  /** @type {Array<{ li: number, meters: number, t: number, labelKey: string }>} */
+  const labels = [];
+  for (let li = 0; li < distItems.length; li++) {
+    const dt = distItems[li];
+    const meters = parseDistanceMeters(dt.str);
+    if (meters == null) continue;
+    const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+    const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+    const ly = dt.y;
+    const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
+    labels.push({
+      li,
+      meters,
+      t: projectAlongRoute(lx, ly),
+      labelKey: `${li}:${normalized}:${lx.toFixed(1)},${ly.toFixed(1)}`,
+    });
+  }
+  labels.sort((a, b) => a.t - b.t || a.li - b.li);
+
+  const assignedSeg = new Set();
+  const assignedLabel = new Set();
+  let nextSeg = 0;
+  const LOOKAHEAD = 5;
+  const ORDER_WEIGHT = 10;
+
+  for (const lab of labels) {
+    if (assignedLabel.has(lab.labelKey)) continue;
+    let best = null;
+    for (
+      let segIdx = nextSeg;
+      segIdx < Math.min(nextSeg + LOOKAHEAD, pairs.length);
+      segIdx++
+    ) {
+      if (assignedSeg.has(segIdx)) continue;
+      const sc = scoreLabelOnSeg(segIdx, distItems[lab.li]);
+      if (!sc) continue;
+      const orderPenalty = ORDER_WEIGHT * Math.abs(segTMid(segIdx) - lab.t);
+      const combined = sc.score + orderPenalty;
+      if (!best || combined < best.combined)
+        best = { segIdx, meters: sc.meters, combined };
+    }
+    if (!best) continue;
+    pairs[best.segIdx].meters = best.meters;
+    pairs[best.segIdx].source = "monotonic-route";
+    assignedSeg.add(best.segIdx);
+    assignedLabel.add(lab.labelKey);
+    nextSeg = best.segIdx + 1;
+  }
+
+  // Global greedy for any still-unassigned segments (same scoring as associateDistances).
+  /** @type {Array<{ segIdx: number, labelKey: string, score: number, meters: number }>} */
+  const leftovers = [];
+  for (let segIdx = 0; segIdx < pairs.length; segIdx++) {
+    if (assignedSeg.has(segIdx)) continue;
+    const from = sortedPosts[segIdx];
+    const to = sortedPosts[segIdx + 1];
+    for (let li = 0; li < distItems.length; li++) {
+      const dt = distItems[li];
+      const meters = parseDistanceMeters(dt.str);
+      if (meters == null) continue;
+      const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+      const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+      const ly = dt.y;
+      const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
+      const labelKey = `${li}:${normalized}:${lx.toFixed(1)},${ly.toFixed(1)}`;
+      if (assignedLabel.has(labelKey)) continue;
+      const sc = scoreLabelOnSeg(segIdx, dt);
+      if (!sc) continue;
+      leftovers.push({
+        segIdx,
+        labelKey,
+        score: sc.score,
+        meters: sc.meters,
+      });
+    }
+  }
+  leftovers.sort((a, b) => a.score - b.score);
+  for (const c of leftovers) {
+    if (assignedSeg.has(c.segIdx) || assignedLabel.has(c.labelKey)) continue;
+    if (c.score > 120) continue;
+    pairs[c.segIdx].meters = c.meters;
+    pairs[c.segIdx].source = "monotonic-greedy";
+    assignedSeg.add(c.segIdx);
+    assignedLabel.add(c.labelKey);
+  }
+
+  for (const pair of pairs) {
+    if (pair.meters == null) {
+      warnings.push(
+        `No distance label found between posts ${pair.from} and ${pair.to}`,
+      );
+    }
+  }
+
+  return { distances: pairs, warnings };
+}
+
+/**
+ * After pole placement (pass 2) or rich association: drop false (hi-1)→hi labels when
+ * a branch return lo→hi is known, then reassign freed labels to the next spans.
+ */
+export function applyJumpbackDistanceCleanup(
+  posts,
+  distItems,
+  distances,
+  warnings,
+  opts = {},
+) {
+  const { suppressed, clearedMeters } = suppressJumpbackSequentialSpans(
+    distances,
+    warnings,
+    posts,
+  );
+  rehomeNextSpanAfterJumpback(
+    posts,
+    distItems,
+    distances,
+    suppressed,
+    clearedMeters,
+    warnings,
+    opts,
+  );
+  refillSequentialGaps(posts, distItems, distances, suppressed, warnings, opts);
+  refineSequentialWindows(posts, distItems, distances, warnings, {
+    ...opts,
+    jumpbackRefine: true,
+    suppressedKeys: suppressed,
+  });
+  for (const key of suppressed) {
+    const mm = key.match(/^(\d+)->(\d+)$/);
+    if (!mm) continue;
+    const a = parseInt(mm[1], 10);
+    const b = parseInt(mm[2], 10);
+    for (const d of distances) {
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (lo === a && hi === b) {
+        d.meters = null;
+        delete d.source;
+      }
+    }
+  }
+}
+
+/**
+ * When a labeled jump lo→hi spans a branch (e.g. 5→10 after posts 6–9), clear the
+ * bogus sequential edge (hi-1)→hi — the cable does not continue from the branch tip.
+ *
+ * @returns {Set<string>} normalized pair keys that must remain without a label
+ */
+function suppressJumpbackSequentialSpans(distances, warnings, posts = []) {
+  const suppressed = new Set();
+  /** @type {Map<string, number>} meters cleared from (hi-1)→hi, for re-home to hi→(hi+1) */
+  const clearedMeters = new Map();
+  /** @type {Array<{ lo: number, hi: number }>} */
+  const jumps = [];
+  const MAX_JUMP_SPAN = 15;
+  const byNum = new Map((posts ?? []).map((p) => [p.number, p]));
+
+  for (const d of distances) {
+    if (d.meters == null || d.meters <= 0) continue;
+    const lo = Math.min(d.from, d.to);
+    const hi = Math.max(d.from, d.to);
+    const span = hi - lo;
+    if (span < 4 || span > MAX_JUMP_SPAN) continue;
+    if (lo < hi - 6) continue;
+    if (!isPlausibleBranchReturnJump(byNum, lo, hi, distances)) continue;
+    jumps.push({ lo, hi });
+  }
+  for (const { lo, hi } of jumps) {
+    const penultimate = hi - 1;
+    if (penultimate <= lo) continue;
+    const key = `${penultimate}->${hi}`;
+    suppressed.add(key);
+    for (const d of distances) {
+      const a = Math.min(d.from, d.to);
+      const b = Math.max(d.from, d.to);
+      if (a === penultimate && b === hi && d.meters != null) {
+        warnings.push(
+          `[distance-assoc] Cleared ${penultimate}→${hi}: branch ends at ${penultimate}; rejoin is ${lo}→${hi}`,
+        );
+        clearedMeters.set(key, d.meters);
+        d.meters = null;
+        delete d.source;
+      }
+    }
+    const nextNum = hi + 1;
+    if (byNum.has(nextNum)) {
+      for (const d of distances) {
+        const a = Math.min(d.from, d.to);
+        const b = Math.max(d.from, d.to);
+        if (a === hi && b === nextNum && d.meters != null) {
+          d.meters = null;
+          delete d.source;
+        }
+      }
+    }
+  }
+  return { suppressed, clearedMeters };
+}
+
+/**
+ * Branch return: cable leaves junction `lo` (e.g. 5→6), ends at tip `hi-1` (9),
+ * rejoins at `hi` (10). The rejoin post is nearer to `lo` than the tip is.
+ */
+function isPlausibleBranchReturnJump(byNum, lo, hi, distances) {
+  if (!byNum.get(lo) || !byNum.get(hi) || !byNum.get(hi - 1)) return false;
+  return (distances ?? []).some((d) => {
+    if (d.meters == null || d.meters <= 0) return false;
+    const a = Math.min(d.from, d.to);
+    const b = Math.max(d.from, d.to);
+    return a === lo && b === lo + 1;
+  });
+}
+
+/**
+ * Greedy refill for sequential segments left empty after jumpback suppression.
+ *
+ * @param {Set<string>} suppressed normalized pair keys (e.g. "9->10")
+ */
+function refillSequentialGaps(
+  posts,
+  distItems,
+  seq,
+  suppressed,
+  warnings,
+  opts,
+) {
+  const sortedPosts = [...posts].sort((a, b) => a.number - b.number);
+  const overviewSf = opts.scaleFactor ?? null;
+  const perPageScale = opts.perPageScale ?? null;
+  const pdfPos = (p) => ({
+    x: p.anchorX ?? p.x,
+    y: p.anchorY ?? p.y,
+  });
+
+  const assignedSeg = new Set();
+  const assignedLabel = new Set();
+  for (let i = 0; i < seq.length; i++) {
+    const d = seq[i];
+    if (d.meters == null) continue;
+    const k = `${Math.min(d.from, d.to)}->${Math.max(d.from, d.to)}`;
+    if (suppressed.has(k)) continue;
+    assignedSeg.add(i);
+  }
+
+  /** @type {Array<{ segIdx: number, labelKey: string, score: number, meters: number }>} */
+  const candidates = [];
+
+  for (let i = 0; i < seq.length; i++) {
+    const pair = seq[i];
+    const pairKey = `${Math.min(pair.from, pair.to)}->${Math.max(pair.from, pair.to)}`;
+    if (pair.meters != null || suppressed.has(pairKey)) continue;
+
+    const from = sortedPosts.find((p) => p.number === pair.from);
+    const to = sortedPosts.find((p) => p.number === pair.to);
+    if (!from || !to) continue;
+
+    const a = pdfPos(from);
+    const b = pdfPos(to);
+    const samePage =
+      from.pageNum != null && to.pageNum != null && from.pageNum === to.pageNum;
+    const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
+
+    for (let li = 0; li < distItems.length; li++) {
+      const dt = distItems[li];
+      const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
+      if (!/^\d+(\.\d+)?$/.test(normalized)) continue;
+
+      const labelPage = dt.pageNum ?? null;
+      if (samePage && labelPage != null && labelPage !== from.pageNum) continue;
+      if (crossPage && labelPage != null && labelPage !== to.pageNum) continue;
+
+      const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+      const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+      const ly = dt.y;
+      const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
+
+      const meters = parseFloat(normalized);
+      let ratioPenalty = 0;
+      const pageSf =
+        !crossPage && from.pageNum != null && perPageScale
+          ? perPageScale(from.pageNum)
+          : null;
+      const detailSf =
+        pageSf ??
+        opts.detailScaleFactor ??
+        (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+      const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
+      if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
+        const pdfM = pdfPt * detailSf;
+        const ratio = pdfM / meters;
+        const labelOnChord = gap < 55;
+        if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) continue;
+        ratioPenalty = 35 * Math.abs(Math.log(ratio));
+      }
+
+      const labelKey = `${li}:${normalized}:${lx.toFixed(1)},${ly.toFixed(1)}`;
+      if (assignedLabel.has(labelKey)) continue;
+      const score = gap + ratioPenalty;
+      candidates.push({ segIdx: i, labelKey, score, meters });
+    }
+  }
+
+  candidates.sort((a, b) => a.score - b.score);
+  for (const c of candidates) {
+    if (assignedSeg.has(c.segIdx) || assignedLabel.has(c.labelKey)) continue;
+    if (c.score > 120) continue;
+    seq[c.segIdx].meters = c.meters;
+    seq[c.segIdx].source = "jumpback-refill";
+    assignedSeg.add(c.segIdx);
+    assignedLabel.add(c.labelKey);
+  }
+}
+
+/**
+ * After clearing (hi-1)→hi, assign the best remaining label to the true next span hi→(hi+1).
+ */
+function rehomeNextSpanAfterJumpback(
+  posts,
+  distItems,
+  distances,
+  suppressed,
+  clearedMeters,
+  warnings,
+  opts,
+) {
+  const sorted = [...posts].sort((a, b) => a.number - b.number);
+
+  for (const key of suppressed) {
+    const mm = key.match(/^(\d+)->(\d+)$/);
+    if (!mm) continue;
+    const hi = parseInt(mm[2], 10);
+    const toNum = hi + 1;
+    const seg = distances.find(
+      (d) =>
+        (d.from === hi && d.to === toNum) ||
+        (d.from === toNum && d.to === hi),
+    );
+    if (!seg) continue;
+
+    const shifted = clearedMeters?.get(key);
+    if (shifted != null && shifted > 0) {
+      seg.meters = shifted;
+      seg.source = "jumpback-shift";
+      dropConflictingNonSequentialEdges(distances, hi, toNum, shifted);
+      warnings.push(
+        `[distance-assoc] Shifted cleared label ${shifted} from ${key} to ${hi}→${toNum}`,
+      );
+      continue;
+    }
+
+    if (seg.meters != null) continue;
+
+    const fromPost = sorted.find((p) => p.number === hi);
+    const toPost = sorted.find((p) => p.number === toNum);
+    if (!fromPost || !toPost) continue;
+
+    const segIdx = sorted.findIndex((p) => p.number === hi);
+    if (segIdx < 0) continue;
+
+    let best = null;
+    for (let li = 0; li < distItems.length; li++) {
+      const dt = distItems[li];
+      const sc = scoreLabelOnSequentialSeg(
+        sorted,
+        segIdx,
+        dt,
+        opts,
+      );
+      if (!sc) continue;
+      const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+      const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+      const normalized = dt.str.trim().replace(/\s+/g, "").replace(",", ".");
+      if (!best || sc.score < best.score)
+        best = { meters: sc.meters, score: sc.score };
+    }
+    if (!best || best.score > 120) continue;
+    seg.meters = best.meters;
+    seg.source = "jumpback-rehome";
+    dropConflictingNonSequentialEdges(distances, hi, toNum, best.meters);
+    warnings.push(
+      `[distance-assoc] Rehomed label ${best.meters} to ${hi}→${toNum} after branch return`,
+    );
+  }
+}
+
+/** Remove spurious inferred chords that stole the same meter value. */
+function dropConflictingNonSequentialEdges(distances, from, to, meters) {
+  for (let i = distances.length - 1; i >= 0; i--) {
+    const d = distances[i];
+    if (d.meters == null || Math.abs(d.meters - meters) > 0.05) continue;
+    if (
+      (d.from === from && d.to === to) ||
+      (d.from === to && d.to === from)
+    )
+      continue;
+    const lo = Math.min(d.from, d.to);
+    const hi = Math.max(d.from, d.to);
+    if (hi - lo === 1) continue;
+    distances.splice(i, 1);
+  }
+}
+
+/** @returns {{ meters: number, score: number } | null} */
+function scoreLabelOnSequentialSeg(sortedPosts, segIdx, dt, opts) {
+  const from = sortedPosts[segIdx];
+  const to = sortedPosts[segIdx + 1];
+  if (!from || !to) return null;
+
+  const meters = parseDistanceMeters(dt.str);
+  if (meters == null) return null;
+
+  const overviewSf = opts.scaleFactor ?? null;
+  const perPageScale = opts.perPageScale ?? null;
+  const samePage =
+    from.pageNum != null && to.pageNum != null && from.pageNum === to.pageNum;
+  const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
+  const labelPage = dt.pageNum ?? null;
+  if (samePage && labelPage != null && labelPage !== from.pageNum) return null;
+  if (crossPage && labelPage != null && labelPage !== to.pageNum) return null;
+
+  const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+  const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+  const ly = dt.y;
+  const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
+  if (gap > 90) return null;
+
+  const pdfPos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
+  const a = pdfPos(from);
+  const b = pdfPos(to);
+  const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
+  let ratioPenalty = 0;
+  const pageSf =
+    !crossPage && from.pageNum != null && perPageScale
+      ? perPageScale(from.pageNum)
+      : null;
+  const detailSf =
+    pageSf ??
+    opts.detailScaleFactor ??
+    (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+  if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
+    const pdfM = pdfPt * detailSf;
+    const ratio = pdfM / meters;
+    const labelOnChord = gap < 55;
+    if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) return null;
+    ratioPenalty = 35 * Math.abs(Math.log(ratio));
+  }
+  const score = gap + ratioPenalty;
+  if (score > 120) return null;
+  return { meters, score };
+}
+
+/**
  * Rich association: keep the sequential N→N+1 distances, but also infer additional
  * edges (including non-consecutive numbers) by matching each Distância_Poste label
  * to the best post-pair "under" that label.
@@ -156,28 +713,261 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
  *
  * @returns {{ distances: Array<{ from: number, to: number, meters: number|null }>, warnings: string[] }}
  */
-export function associateDistancesRich(posts, distItems, warnings = [], opts = {}) {
-  const { distances: seq, warnings: w1 } = associateDistances(
+export function associateDistancesRich(
+  posts,
+  distItems,
+  warnings = [],
+  opts = {},
+) {
+  const inferred = inferDistanceEdgesFromLabels(
+    posts,
+    distItems,
+    warnings,
+    opts,
+  );
+
+  const { distances: legacySeq, warnings: w0 } = associateDistances(
     posts,
     distItems,
     [],
     opts,
   );
-  warnings.push(...w1);
+  warnings.push(...w0);
+  /** @type {Array<{ from: number, to: number, meters: number|null, source?: string }>} */
+  const seq = legacySeq.map((d) => ({
+    ...d,
+    ...(d.meters != null ? { source: "legacy-midpoint" } : {}),
+  }));
 
-  const extra = inferDistanceEdgesFromLabels(posts, distItems, warnings, opts);
+  if (opts.windowRefine === true) {
+    refineSequentialWindows(posts, distItems, seq, warnings, opts);
+  }
 
-  // Merge extras while keeping the sequential array shape stable.
-  const seenPair = new Set(seq.map((d) => `${d.from}->${d.to}`));
+  // Merge in non-sequential inferred edges (keep sequential array shape stable).
+  const seenPair = new Set(
+    seq.map((d) => `${Math.min(d.from, d.to)}->${Math.max(d.from, d.to)}`),
+  );
   const merged = [...seq];
-  for (const e of extra) {
-    const k = `${e.from}->${e.to}`;
-    const rk = `${e.to}->${e.from}`;
-    if (seenPair.has(k) || seenPair.has(rk)) continue;
-    merged.push(e);
+  for (const e of inferred) {
+    const a = Math.min(e.from, e.to);
+    const b = Math.max(e.from, e.to);
+    const k = `${a}->${b}`;
+    if (seenPair.has(k)) continue;
+    merged.push({ ...e, source: "inferred-label" });
     seenPair.add(k);
   }
+
+  applyJumpbackDistanceCleanup(posts, distItems, merged, warnings, opts);
+
+  // Apply manual overrides last (debug / project-specific fixes).
+  // Format: { "10->11": 37.3, "11->12": 24.2 }
+  if (opts.overrides && typeof opts.overrides === "object") {
+    let applied = 0;
+    for (const [k, v] of Object.entries(opts.overrides)) {
+      const m = typeof v === "number" ? v : parseFloat(String(v));
+      if (!Number.isFinite(m) || m <= 0) continue;
+      const mm = k.match(/^\s*(\d+)\s*->\s*(\d+)\s*$/);
+      if (!mm) continue;
+      const from = parseInt(mm[1], 10);
+      const to = parseInt(mm[2], 10);
+      for (const d of merged) {
+        if (
+          (d.from === from && d.to === to) ||
+          (d.from === to && d.to === from)
+        ) {
+          d.meters = m;
+          d.source = "override";
+        }
+      }
+      applied++;
+    }
+    if (applied)
+      warnings.push(`[distance-assoc] Applied ${applied} manual override(s).`);
+  }
+
   return { distances: merged, warnings };
+}
+
+/**
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, anchorX?: number, anchorY?: number }>} posts
+ * @param {Array<{ str: string, x: number, y: number, pageNum?: number, width?: number }>} distItems
+ * @param {Array<{ from: number, to: number, meters: number|null, source?: string }>} seq
+ * @param {string[]} warnings
+ * @param {{ scaleFactor?: number, detailScaleFactor?: number, perPageScale?: (pageNum: number) => number|null }} opts
+ */
+function refineSequentialWindows(posts, distItems, seq, warnings, opts) {
+  const sortedPosts = [...posts].sort((a, b) => a.number - b.number);
+  const postByNum = new Map(sortedPosts.map((p) => [p.number, p]));
+  const overviewSf = opts.scaleFactor ?? null;
+  const perPageScale = opts.perPageScale ?? null;
+
+  const getDetailSf = (pageNum) => {
+    const pageSf =
+      perPageScale && pageNum != null ? perPageScale(pageNum) : null;
+    return (
+      pageSf ??
+      opts.detailScaleFactor ??
+      (overviewSf != null ? overviewSf * (303.6 / 1191) : null)
+    );
+  };
+
+  const scoreLabelToSeg = (dt, from, to) => {
+    const meters = parseDistanceMeters(dt.str);
+    if (meters == null) return null;
+
+    const samePage =
+      from.pageNum != null && to.pageNum != null && from.pageNum === to.pageNum;
+    const crossPage = !samePage && from.pageNum != null && to.pageNum != null;
+    const labelPage = dt.pageNum ?? null;
+    if (samePage && labelPage != null && labelPage !== from.pageNum)
+      return null;
+    if (crossPage && labelPage != null && labelPage !== to.pageNum) return null;
+
+    const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+    const lx = w > 0 ? dt.x + w * 0.5 : dt.x;
+    const ly = dt.y;
+
+    const gap = labelGapToSegment(lx, ly, from, to, crossPage, sortedPosts);
+    if (gap > 90) return null;
+
+    const a = { x: from.anchorX ?? from.x, y: from.anchorY ?? from.y };
+    const b = { x: to.anchorX ?? to.x, y: to.anchorY ?? to.y };
+    const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
+    let ratioPenalty = 0;
+    const detailSf = !crossPage ? getDetailSf(from.pageNum ?? null) : null;
+    if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
+      const pdfM = pdfPt * detailSf;
+      const ratio = pdfM / meters;
+      const labelOnChord = gap < 55;
+      if ((ratio < 0.35 || ratio > 2.5) && !labelOnChord) return null;
+      ratioPenalty = 35 * Math.abs(Math.log(ratio));
+    }
+    const score = gap + ratioPenalty;
+    if (score > 120) return null;
+    return { meters, score };
+  };
+
+  const suppressedKeys = opts.suppressedKeys ?? new Set();
+  const labelFitSlack = opts.jumpbackRefine ? 12 : Infinity;
+
+  for (let i = 0; i < seq.length - 2; i++) {
+    const segs = [seq[i], seq[i + 1], seq[i + 2]];
+    const segPosts = segs.map((s) => ({
+      from: postByNum.get(s.from),
+      to: postByNum.get(s.to),
+    }));
+    if (segPosts.some((x) => !x.from || !x.to)) continue;
+
+    if (opts.jumpbackRefine) {
+      const relevant = segs.some((s) => {
+        const k = `${Math.min(s.from, s.to)}->${Math.max(s.from, s.to)}`;
+        return s.meters == null || suppressedKeys.has(k);
+      });
+      if (!relevant) continue;
+    }
+
+    // Collect candidate labels near any of the 3 segments.
+    /** @type {Array<{ idx: number, meters: number, scores: number[] }>} */
+    const labels = [];
+    for (let li = 0; li < distItems.length; li++) {
+      const dt = distItems[li];
+      const meters = parseDistanceMeters(dt.str);
+      if (meters == null) continue;
+      const scores = [];
+      let any = false;
+      for (let si = 0; si < 3; si++) {
+        const sp = segPosts[si];
+        const sc = scoreLabelToSeg(dt, sp.from, sp.to);
+        if (sc) {
+          scores[si] = sc.score;
+          any = true;
+        } else {
+          scores[si] = Infinity;
+        }
+      }
+      if (any) labels.push({ idx: li, meters, scores });
+    }
+    if (labels.length < 2) continue;
+
+    // Current window cost (only for segments that currently have meters).
+    const currentMeters = segs.map((s) => s.meters);
+    let currentCost = 0;
+    let currentCount = 0;
+    for (let si = 0; si < 3; si++) {
+      if (currentMeters[si] == null) continue;
+      // Approximate current cost by best label with same meters (if any), else large.
+      let best = Infinity;
+      for (const l of labels) {
+        if (Math.abs(l.meters - currentMeters[si]) < 0.05)
+          best = Math.min(best, l.scores[si]);
+      }
+      if (Number.isFinite(best)) currentCost += best;
+      else currentCost += 200;
+      currentCount++;
+    }
+
+    // Best injective assignment for up to 3 labels → 3 segs.
+    // Brute-force because window is tiny.
+    let bestAssign = null;
+    let bestCost = Infinity;
+    let bestCount = -1;
+    const L = labels.length;
+    for (let a = 0; a < L; a++) {
+      for (let b = 0; b < L; b++) {
+        if (b === a) continue;
+        for (let c = 0; c < L; c++) {
+          if (c === a || c === b) continue;
+          const pick = [labels[a], labels[b], labels[c]];
+          let cost = 0;
+          let count = 0;
+          for (let si = 0; si < 3; si++) {
+            const segKey = `${Math.min(segs[si].from, segs[si].to)}->${Math.max(segs[si].from, segs[si].to)}`;
+            if (suppressedKeys.has(segKey)) continue;
+            const l = pick[si];
+            const sc = l.scores[si];
+            if (!Number.isFinite(sc)) continue;
+            const minSc = Math.min(l.scores[0], l.scores[1], l.scores[2]);
+            if (sc > minSc + labelFitSlack) continue;
+            cost += sc;
+            count++;
+          }
+          if (count === 0) continue;
+          if (count > bestCount || (count === bestCount && cost < bestCost)) {
+            bestCount = count;
+            bestCost = cost;
+            bestAssign = pick;
+          }
+        }
+      }
+    }
+    if (!bestAssign) continue;
+
+    // Apply only if it improves: more segments covered, or equal coverage but lower cost.
+    const improves =
+      bestCount > currentCount ||
+      (bestCount === currentCount && bestCost + 1e-6 < currentCost);
+    if (!improves) continue;
+
+    for (let si = 0; si < 3; si++) {
+      const seg = segs[si];
+      const segKey = `${Math.min(seg.from, seg.to)}->${Math.max(seg.from, seg.to)}`;
+      if (suppressedKeys.has(segKey)) continue;
+      if (seg.source === "jumpback-shift") continue;
+
+      const l = bestAssign[si];
+      if (!Number.isFinite(l.scores[si])) continue;
+      const minSc = Math.min(l.scores[0], l.scores[1], l.scores[2]);
+      if (l.scores[si] > minSc + labelFitSlack) continue;
+      const prev = seq[i + si].meters;
+      seq[i + si].meters = l.meters;
+      seq[i + si].source = "window-refine";
+      if (prev != null && Math.abs(prev - l.meters) > 0.05) {
+        warnings.push(
+          `[distance-assoc] Window refine changed ${seq[i + si].from}->${seq[i + si].to}: ${prev} → ${l.meters}`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -243,7 +1033,9 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
     if (nearest.length < 2) continue;
 
     const pageSf =
-      labelPage != null && opts.perPageScale ? opts.perPageScale(labelPage) : null;
+      labelPage != null && opts.perPageScale
+        ? opts.perPageScale(labelPage)
+        : null;
     const sf = pageSf ?? opts.scaleFactor ?? null;
 
     let best = null;
@@ -282,6 +1074,11 @@ function inferDistanceEdgesFromLabels(posts, distItems, warnings, opts = {}) {
 
     const from = best.a.number;
     const to = best.b.number;
+    const ia = sorted.findIndex((p) => p.number === from);
+    const ib = sorted.findIndex((p) => p.number === to);
+    // Sequential N→N+1 spans are assigned by associateSequentialMonotonic.
+    if (ia !== -1 && ib !== -1 && Math.abs(ia - ib) === 1) continue;
+
     edges.push({ from, to, meters });
   }
 
