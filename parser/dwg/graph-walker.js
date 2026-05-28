@@ -487,6 +487,53 @@ export function pairPostsByGraphWalk({
         // neighbor that matches the chord span but stays on the wrong branch.
         const LARGE_GAP_LABEL_M = 100;
         const forceJumpback = Boolean(conn.gap) && labelM >= LARGE_GAP_LABEL_M;
+
+        // Branch return helper: if we have a non-consecutive label from a previously
+        // visited post to the target (e.g. 5→10), try to place the target by that label
+        // before trusting the consecutive edge label (e.g. 9→10).
+        //
+        // Note: this intentionally does NOT require conn.gap because the upstream gap flag
+        // can be wrong (snap-3 artifacts), but the non-consecutive label is an explicit hint.
+        if (!forceJumpback) {
+          let hintOriginNumForHop = null;
+          for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+            const vNum = visitedPostNums[k];
+            if (vNum === fromNum || vNum === toNum) continue;
+            if (idxByNum.get(vNum) == null) continue;
+            if (getDistLabel(distMap, vNum, toNum) != null) {
+              hintOriginNumForHop = vNum;
+              break;
+            }
+          }
+          if (hintOriginNumForHop != null) {
+            const hintOriginIdxForHop = idxByNum.get(hintOriginNumForHop);
+            const hintLabelForHop = getDistLabel(distMap, hintOriginNumForHop, toNum);
+            if (
+              hintOriginIdxForHop != null &&
+              hintLabelForHop != null &&
+              hintLabelForHop > 0
+            ) {
+              const hintTolForHop = spanToleranceFor(hintLabelForHop);
+              const hop = findMultiHopByLabel({
+                fromIdx: hintOriginIdxForHop,
+                labelM: hintLabelForHop,
+                tol: Math.max(hintTolForHop, 10, 0.35 * hintLabelForHop),
+                richGraph: graph,
+                claimed,
+                regionPosts,
+                maxHops: 6,
+              });
+              if (hop) {
+                chosenIdx = hop.endpoint;
+                chainIntermediates = hop.intermediates;
+              }
+            }
+          }
+        }
+
+        if (chosenIdx !== undefined) {
+          // Hint-based placement succeeded; skip remaining Case A selection.
+        } else {
         // Direct-neighbor span match, with a 1-hop lookahead to avoid dead ends.
         // A too-aggressive adjacency union can introduce “leaf” candidates whose span
         // matches labelM but cannot continue to the next post (degree 0/1 after claiming).
@@ -499,6 +546,26 @@ export function pairPostsByGraphWalk({
 
         /** @type {Array<{ idx: number, span: number, delta: number, deg: number, nextDelta: number|null }>} */
         const direct = [];
+
+        // If there is a non-consecutive Distância_Poste label from any already-visited post
+        // directly to the target post (e.g. 5→10), use it to bias the endpoint selection.
+        // This helps branch returns: a parallel segment can rejoin the spine and the
+        // consecutive label (9→10) may be noisy/ambiguous, while (5→10) anchors the re-entry.
+        let hintOriginNum = null;
+        for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+          const vNum = visitedPostNums[k];
+          if (vNum === fromNum || vNum === toNum) continue;
+          if (getDistLabel(distMap, vNum, toNum) != null && idxByNum.get(vNum) != null) {
+            hintOriginNum = vNum;
+            break;
+          }
+        }
+        const hintOriginIdx = hintOriginNum != null ? idxByNum.get(hintOriginNum) : null;
+        const hintLabelM =
+          hintOriginNum != null ? getDistLabel(distMap, hintOriginNum, toNum) : null;
+        const hintTol =
+          hintLabelM != null && hintLabelM > 0 ? spanToleranceFor(hintLabelM) : null;
+
         for (const nIdx of neighbors) {
           const span = spanBetween(regionPosts, fromIdx, nIdx);
           const delta = Math.abs(span - labelM);
@@ -519,7 +586,18 @@ export function pairPostsByGraphWalk({
             }
             if (Number.isFinite(best)) nextDelta = best;
           }
-          direct.push({ idx: nIdx, span, delta, deg, nextDelta });
+          let hintDelta = null;
+          if (
+            hintOriginIdx != null &&
+            hintLabelM != null &&
+            hintLabelM > 0 &&
+            hintTol != null &&
+            Number.isFinite(hintTol)
+          ) {
+            const hSpan = spanBetween(regionPosts, hintOriginIdx, nIdx);
+            hintDelta = Math.abs(hSpan - hintLabelM);
+          }
+          direct.push({ idx: nIdx, span, delta, deg, nextDelta, hintDelta });
         }
 
         // Track best raw span for diagnostics.
@@ -540,6 +618,18 @@ export function pairPostsByGraphWalk({
         let directBestDeg = 0;
         if (viable.length) {
           viable.sort((a, b) => {
+            // When available, prefer endpoints consistent with an existing non-consecutive
+            // label from a visited spine post (e.g. 5→10).
+            if (a.hintDelta != null && b.hintDelta != null && a.hintDelta !== b.hintDelta) {
+              // Strongly prefer hint-consistent candidates within tolerance.
+              const aOk = hintTol != null ? a.hintDelta <= hintTol : false;
+              const bOk = hintTol != null ? b.hintDelta <= hintTol : false;
+              if (aOk !== bOk) return aOk ? -1 : 1;
+              return a.hintDelta - b.hintDelta;
+            }
+            if (a.hintDelta != null && b.hintDelta == null) return -1;
+            if (a.hintDelta == null && b.hintDelta != null) return 1;
+
             // Prefer candidates that can continue (degree >= 2) and that match nextLabel.
             const aCan = a.deg >= 2 ? 1 : 0;
             const bCan = b.deg >= 2 ? 1 : 0;
@@ -614,6 +704,7 @@ export function pairPostsByGraphWalk({
         }
         // else: chosenIdx stays undefined — for gap edges fall through to
         // Case B; for non-gap fall to tolerance-exceeded warning.
+        }
       } else if (neighbors.length === 0) {
         // No direct neighbor and no label — Case A can't proceed.
       } else {
@@ -626,7 +717,22 @@ export function pairPostsByGraphWalk({
     // Only run when Case A failed AND the input flagged this as a gap.
     // Additionally, when the rich graph has no unclaimed neighbors from the current node,
     // we must treat it like a gap even if the upstream (snap=3) adjacency said otherwise.
-    if (chosenIdx === undefined && (conn.gap || caseAStuckNoNeighbors)) {
+    // Also run when the PDF provides a direct non-consecutive label from some already-visited
+    // post to the target post (e.g. 5→10): this often indicates a branch return-to-spine.
+    let hasHintJumpback = false;
+    if (chosenIdx === undefined) {
+      for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+        const vNum = visitedPostNums[k];
+        if (vNum === fromNum || vNum === toNum) continue;
+        if (idxByNum.get(vNum) == null) continue;
+        if (getDistLabel(distMap, vNum, toNum) != null) {
+          hasHintJumpback = true;
+          break;
+        }
+      }
+    }
+
+    if (chosenIdx === undefined && (conn.gap || caseAStuckNoNeighbors || hasHintJumpback)) {
       // Prefer a numbering-hint origin: most recent visited post that has an explicit
       // Distância_Poste label directly to the target post (e.g. 5→10).
       let hintOriginNum = null;
