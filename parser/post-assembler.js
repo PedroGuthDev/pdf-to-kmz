@@ -237,72 +237,350 @@ export {
   attachMarkerAnchors,
 } from "./post-positioning.js";
 
-/** Same sort key as assemblePostsFromOcr (page → x → y). */
-function sortPostsByRouteOrder(posts) {
-  return [...posts].sort((a, b) => {
-    const pd = (a.pageNum ?? 1) - (b.pageNum ?? 1);
-    if (pd !== 0) return pd;
-    const dx = a.x - b.x;
-    if (Math.abs(dx) > 10) return dx;
-    return a.y - b.y;
-  });
+function pageOfEntry(entry) {
+  return entry.circle?.pageNum ?? entry.pageNum ?? 1;
 }
 
 /**
- * When two circles share the same post number, renumber the lower-priority copy
- * to the missing integer between its spatial neighbors (e.g. duplicate 49 + 49 → 49 + 50).
- *
- * @param {Array<{ number: number, x: number, y: number, pageNum?: number }>} posts
- * @param {string[]} [warnings]
+ * Nearest index with a trusted number, preferring the same detail sheet.
+ * Multi-sheet routes (Siriu) must not use cross-page neighbors for inference.
  */
-export function resolveDuplicatePostNumbers(posts, warnings = []) {
-  const used = new Set(posts.map((p) => p.number));
-  const byNum = new Map();
-  for (const p of posts) {
-    if (!byNum.has(p.number)) byNum.set(p.number, []);
-    byNum.get(p.number).push(p);
+function nearestTrustedIdx(
+  sorted,
+  trusted,
+  i,
+  direction,
+  samePageOnly = false,
+  maxPost = null,
+) {
+  const page = pageOfEntry(sorted[i]);
+  const step = direction < 0 ? -1 : 1;
+  const start = i + step;
+  const end = direction < 0 ? -1 : sorted.length;
+  const ok = (k) =>
+    maxPost != null ? hasContextNumber(sorted, k, maxPost) : trusted[k];
+
+  if (samePageOnly) {
+    for (let k = start; direction < 0 ? k > end : k < end; k += step) {
+      if (!ok(k)) continue;
+      if (pageOfEntry(sorted[k]) === page) return k;
+    }
+    return -1;
   }
 
-  const sorted = sortPostsByRouteOrder(posts);
-  const indexOf = new Map(sorted.map((p, i) => [p, i]));
+  for (let k = start; direction < 0 ? k > end : k < end; k += step) {
+    if (!ok(k)) continue;
+    if (pageOfEntry(sorted[k]) === page) return k;
+  }
+  for (let k = start; direction < 0 ? k > end : k < end; k += step) {
+    if (ok(k)) return k;
+  }
+  return -1;
+}
 
-  for (const [num, group] of byNum) {
-    if (group.length <= 1) continue;
-    group.sort((a, b) => (b.pageNum ?? 0) - (a.pageNum ?? 0));
-    for (let k = 1; k < group.length; k++) {
-      const p = group[k];
-      const idx = indexOf.get(p) ?? -1;
-      let newNum = null;
+/** When neighbors are N and N+2, the middle post must be N+1. */
+function sandwichValue(lo, hi) {
+  if (hi - lo !== 2) return null;
+  return lo + 1;
+}
 
-      const prev = idx > 0 ? sorted[idx - 1] : null;
-      const next = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null;
-      if (prev && next && next.number > prev.number + 1) {
-        for (let m = prev.number + 1; m < next.number; m++) {
-          if (!used.has(m)) {
-            newNum = m;
-            break;
-          }
-        }
-      }
-      if (newNum == null) {
-        for (let m = 1; m <= posts.length; m++) {
-          if (!used.has(m)) {
-            newNum = m;
-            break;
-          }
-        }
-      }
-      if (newNum == null) continue;
+/** Clear under-read / CAD typo vs bracket expectation (8→58, 7→71, 30→50, 40→70). */
+function isTruncatedMisread(n, expected) {
+  if (n == null || expected == null || n === expected) return false;
+  const sn = String(n);
+  const se = String(expected);
+  if (n <= 9 && expected >= 50 && se.endsWith(sn)) return true;
+  const gap = expected - n;
+  if (gap === 30 && n >= 35 && n <= 45 && expected >= 65) return true;
+  if (gap === 20 && n >= 25 && n <= 35 && expected >= 45) return true;
+  if (gap >= 50 && n <= 9 && expected >= 50) return true;
+  return false;
+}
 
-      warnings.push(
-        `Post at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) page ${p.pageNum ?? "?"}: ` +
-          `duplicate number ${num} renumbered to ${newNum}`,
-      );
-      used.add(newNum);
-      p.number = newNum;
+/**
+ * Single-digit OCR inside a two-digit label (7→71, 8→58). Used only for bracket endpoints.
+ * @param {typeof sorted[0]} entry
+ * @param {number} maxPost
+ */
+function expandedSingleDigitEndpoint(entry, maxPost) {
+  const raw = entry.number;
+  const n = contextNumber(entry, maxPost);
+  if (n == null || raw == null || n > 9) return n;
+  for (let exp = n + 10; exp <= maxPost; exp += 10) {
+    if (isTruncatedMisread(raw, exp)) return exp;
+  }
+  return n;
+}
+
+/**
+ * Route-order labels on one page (global page→x→y sort). Skips the circle at `skipIdx`.
+ */
+function pageLabelSequence(sorted, page, maxPost) {
+  const seq = [];
+  for (let j = 0; j < sorted.length; j++) {
+    if (pageOfEntry(sorted[j]) !== page) continue;
+    const n = expandedSingleDigitEndpoint(sorted[j], maxPost);
+    if (n != null) seq.push({ j, n });
+  }
+  return seq;
+}
+
+function hasRouteLabelOnPage(
+  sorted,
+  page,
+  target,
+  maxPost,
+  beforeIdx,
+  afterIdx,
+) {
+  for (let j = 0; j < sorted.length; j++) {
+    if (pageOfEntry(sorted[j]) !== page) continue;
+    if (beforeIdx != null && j >= beforeIdx) continue;
+    if (afterIdx != null && j <= afterIdx) continue;
+    const n = expandedSingleDigitEndpoint(sorted[j], maxPost);
+    if (n === target) return true;
+  }
+  if (beforeIdx != null) {
+    for (let j = sorted.length - 1; j >= 0; j--) {
+      if (pageOfEntry(sorted[j]) !== page - 1) continue;
+      const n = expandedSingleDigitEndpoint(sorted[j], maxPost);
+      if (n === target) return true;
+      break;
+    }
+  } else if (afterIdx != null) {
+    for (let j = 0; j < sorted.length; j++) {
+      if (pageOfEntry(sorted[j]) !== page + 1) continue;
+      const n = expandedSingleDigitEndpoint(sorted[j], maxPost);
+      if (n === target) return true;
+      break;
     }
   }
-  return posts;
+  return false;
+}
+
+/**
+ * PDF typo or truncation between route neighbors N and N+2 (e.g. CAD "40" between 69 and 71).
+ */
+function sequenceTypoExpected(sorted, i, maxPost) {
+  const raw = sorted[i].number;
+  if (raw == null) return null;
+  const page = pageOfEntry(sorted[i]);
+  let best = null;
+  let bestScore = Infinity;
+  for (let exp = 1; exp <= maxPost; exp++) {
+    if (raw === exp) continue;
+    if (!isTruncatedMisread(raw, exp)) continue;
+    const lo = exp - 1;
+    const hi = exp + 1;
+    if (
+      hasRouteLabelOnPage(sorted, page, lo, maxPost, i, null) &&
+      hasRouteLabelOnPage(sorted, page, hi, maxPost, null, i)
+    ) {
+      const score = Math.abs(exp - raw);
+      if (score < bestScore) {
+        bestScore = score;
+        best = exp;
+      }
+    }
+  }
+  if (raw <= 9) {
+    for (let exp = raw + 10; exp <= maxPost; exp += 10) {
+      if (!isTruncatedMisread(raw, exp)) continue;
+      if (!hasRouteLabelOnPage(sorted, page, exp - 1, maxPost, i, null))
+        continue;
+      const score = Math.abs(exp - raw);
+      if (score < bestScore) {
+        bestScore = score;
+        best = exp;
+      }
+    }
+  }
+  return best;
+}
+
+/** Candidate repairs for 90s-style OCR (99→59, 93→53 or 55). */
+function repairNinetiesCandidates(n, maxPost) {
+  if (n < 86 || n > 99) return [];
+  return [n - 40, n - 38].filter((c) => c >= 1 && c <= maxPost);
+}
+
+/** Default repair for neighbor context (prefer n−40: 99→59). */
+function repairNinetiesMisread(n, maxPost) {
+  const cands = repairNinetiesCandidates(n, maxPost);
+  return cands.length ? cands[0] : null;
+}
+
+/** Best-effort numeric label for sandwich context (in-range OCR or repaired 90s). */
+function contextNumber(entry, maxPost) {
+  const n = entry.number;
+  if (n == null) return null;
+  if (n >= 1 && n <= maxPost) return n;
+  return repairNinetiesMisread(n, maxPost);
+}
+
+function hasContextNumber(sorted, i, maxPost) {
+  return contextNumber(sorted[i], maxPost) != null;
+}
+
+/**
+ * Same-sheet context neighbor; if none, the label at the sheet edge (prev page last / next page first).
+ */
+function nearestContextNeighbor(sorted, i, direction, maxPost) {
+  const page = pageOfEntry(sorted[i]);
+  const pi = nearestTrustedIdx(sorted, [], i, direction, true, maxPost);
+  if (pi >= 0) return pi;
+
+  if (direction < 0) {
+    for (let idx = sorted.length - 1; idx >= 0; idx--) {
+      if (pageOfEntry(sorted[idx]) !== page - 1) continue;
+      if (hasContextNumber(sorted, idx, maxPost)) return idx;
+      break;
+    }
+  } else {
+    for (let idx = 0; idx < sorted.length; idx++) {
+      if (pageOfEntry(sorted[idx]) !== page + 1) continue;
+      if (hasContextNumber(sorted, idx, maxPost)) return idx;
+      break;
+    }
+  }
+  return -1;
+}
+
+/**
+ * On a detail sheet, find N and N+2 labels that bracket this circle in route order
+ * (page → x → y), even when other posts sit between them (e.g. 69, 50, 40, 71 → 70).
+ *
+ * @param {{ onlyIfOutlier?: boolean }} [opts]
+ *   When true (default), only return N+1 if this circle's OCR is far from that value.
+ *   Prevents assigning 40 to every pole spatially between labels 39 and 41 on a long sheet.
+ * @returns {number|null} expected post number (N+1) or null
+ */
+/**
+ * Labels on this detail sheet, plus the last/first label on adjacent sheets
+ * (Siriu route continues 57 on page 6 → 58 on page 7 even when OCR reads 99 for 59).
+ */
+function numberedOnPageWithSheetEdges(sorted, page, pageIndices, i, maxPost) {
+  const numbered = pageIndices
+    .map((idx, p) => ({ idx, p, n: contextNumber(sorted[idx], maxPost) }))
+    .filter((x) => x.n != null && x.idx !== i);
+
+  for (let idx = sorted.length - 1; idx >= 0; idx--) {
+    if (pageOfEntry(sorted[idx]) !== page - 1) continue;
+    const n = contextNumber(sorted[idx], maxPost);
+    if (n != null) {
+      numbered.push({ idx, p: -1, n });
+      break;
+    }
+  }
+  for (let idx = 0; idx < sorted.length; idx++) {
+    if (pageOfEntry(sorted[idx]) !== page + 1) continue;
+    const n = contextNumber(sorted[idx], maxPost);
+    if (n != null) {
+      numbered.push({ idx, p: pageIndices.length, n });
+      break;
+    }
+  }
+  return numbered;
+}
+
+function bracketSandwichExpected(sorted, i, maxPost, opts = {}) {
+  const onlyIfOutlier = opts.onlyIfOutlier !== false;
+  const raw = sorted[i].number;
+  const page = pageOfEntry(sorted[i]);
+
+  const typo = sequenceTypoExpected(sorted, i, maxPost);
+  if (typo != null && (!onlyIfOutlier || isTruncatedMisread(raw, typo))) {
+    return typo;
+  }
+
+  const seq = pageLabelSequence(sorted, page, maxPost);
+  const pos = seq.findIndex((e) => e.j === i);
+  if (pos < 0) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (let a = 0; a < pos; a++) {
+    for (let b = pos + 1; b < seq.length; b++) {
+      const lo = Math.min(seq[a].n, seq[b].n);
+      const hi = Math.max(seq[a].n, seq[b].n);
+      const expected = sandwichValue(lo, hi);
+      if (expected == null) continue;
+      if (onlyIfOutlier && !isTruncatedMisread(raw, expected)) continue;
+      const span = b - a;
+      const score = span * 1000 + Math.abs((raw ?? 0) - expected);
+      if (score < bestScore) {
+        bestScore = score;
+        best = expected;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Infer post number after OCR reject/failure. Same-page sandwich first, then 90s repair,
+ * then same-page interpolation; global neighbors only as last resort.
+ */
+function inferPostNumber(i, sorted, trusted, maxPost, rawNumber) {
+  const typo = sequenceTypoExpected(sorted, i, maxPost);
+  if (typo != null) return typo;
+
+  const bracket = bracketSandwichExpected(sorted, i, maxPost, {
+    onlyIfOutlier: true,
+  });
+  if (bracket != null) return bracket;
+
+  const ctx = (idx) => contextNumber(sorted[idx], maxPost);
+  const pi = nearestContextNeighbor(sorted, i, -1, maxPost);
+  const ni = nearestContextNeighbor(sorted, i, 1, maxPost);
+  if (pi >= 0 && ni >= 0) {
+    const samePageSandwich = sandwichValue(ctx(pi), ctx(ni));
+    if (samePageSandwich != null) return samePageSandwich;
+  }
+
+  if (rawNumber != null) {
+    const repaired = repairNinetiesMisread(rawNumber, maxPost);
+    if (repaired != null) {
+      // 93→53, 99→59 (n−40). Do not midpoint-pick toward 55 on long spans.
+      if (pi >= 0 && ni >= 0) {
+        const imm = sandwichValue(ctx(pi), ctx(ni));
+        if (imm != null) return imm;
+      }
+      return repaired;
+    }
+  }
+
+  if (pi >= 0 && ni >= 0) {
+    const lo = ctx(pi);
+    const hi = ctx(ni);
+    if (hi > lo) {
+      const span = ni - pi;
+      const offset = i - pi;
+      return lo + Math.round(((hi - lo) * offset) / span);
+    }
+  } else if (pi >= 0) {
+    return ctx(pi) + (i - pi);
+  } else if (ni >= 0) {
+    return ctx(ni) - (ni - i);
+  }
+
+  const piG = nearestTrustedIdx(sorted, trusted, i, -1, false, maxPost);
+  const niG = nearestTrustedIdx(sorted, trusted, i, 1, false, maxPost);
+  if (piG >= 0 && niG >= 0) {
+    const globalSandwich = sandwichValue(ctx(piG), ctx(niG));
+    if (globalSandwich != null) return globalSandwich;
+  }
+
+  if (piG >= 0 && niG >= 0) {
+    const lo = ctx(piG);
+    const hi = ctx(niG);
+    if (hi > lo) {
+      const span = niG - piG;
+      const offset = i - piG;
+      return lo + Math.round(((hi - lo) * offset) / span);
+    }
+  }
+  return null;
 }
 
 /**
@@ -346,39 +624,33 @@ export function assemblePostsFromOcr(ocrResults) {
     (r) => r.number !== null && r.number >= 1 && r.number <= MAX_PLAUSIBLE_POST,
   );
 
-  const nearestPrevInRangeIdx = (i) => {
-    for (let k = i - 1; k >= 0; k--) if (inRange[k]) return k;
-    return -1;
-  };
-  const nearestNextInRangeIdx = (i) => {
-    for (let k = i + 1; k < sorted.length; k++) if (inRange[k]) return k;
-    return -1;
-  };
-
-  /** True when OCR is clearly wrong in a tight N, ?, N+2 sandwich (e.g. 69, 40, 71). */
+  /**
+   * True when bracketed by N and N+2 on the same sheet but OCR is a truncated misread.
+   */
   const isSandwichOutlier = (i) => {
-    const pi = nearestPrevInRangeIdx(i);
-    const ni = nearestNextInRangeIdx(i);
-    if (pi < 0 || ni < 0) return false;
-    const lo = sorted[pi].number;
-    const hi = sorted[ni].number;
-    if (hi - lo !== 2) return false;
-    const expected = lo + 1;
-    const n = sorted[i].number;
-    if (n === expected) return false;
-    return Math.abs(n - expected) >= 5;
+    const raw = sorted[i].number;
+    const expected = sequenceTypoExpected(sorted, i, MAX_PLAUSIBLE_POST);
+    if (expected == null || !isTruncatedMisread(raw, expected)) return false;
+    const pi = nearestContextNeighbor(sorted, i, -1, MAX_PLAUSIBLE_POST);
+    const ni = nearestContextNeighbor(sorted, i, 1, MAX_PLAUSIBLE_POST);
+    if (pi >= 0 && ni >= 0) {
+      const lo = contextNumber(sorted[pi], MAX_PLAUSIBLE_POST);
+      const hi = contextNumber(sorted[ni], MAX_PLAUSIBLE_POST);
+      if (lo != null && hi != null && hi - lo === 2 && raw === lo + 1) {
+        return false;
+      }
+    }
+    return true;
   };
 
   const isAnchor = inRange.map((ok, i) => {
     if (!ok) return false;
     if (!isSandwichOutlier(i)) return true;
-    const pi = nearestPrevInRangeIdx(i);
-    const ni = nearestNextInRangeIdx(i);
-    const expected = sorted[pi].number + 1;
+    const expected = sequenceTypoExpected(sorted, i, MAX_PLAUSIBLE_POST) ?? 0;
     warnings.push(
       `OCR at (${sorted[i].circle.x.toFixed(1)}, ${sorted[i].circle.y.toFixed(1)}) ` +
         `page ${sorted[i].circle.pageNum ?? "?"}: rejected sandwich outlier ${sorted[i].number} ` +
-        `(expected ${expected} between ${sorted[pi].number} and ${sorted[ni].number})`,
+        `(expected ${expected} from same-page bracket)`,
     );
     return false;
   });
@@ -395,57 +667,55 @@ export function assemblePostsFromOcr(ocrResults) {
         );
         // fall through to sequence-inference block
       } else if (isAnchor[i]) {
-        posts.push({
-          number,
-          x: circle.x,
-          y: circle.y,
-          anchorX: circle.x,
-          anchorY: circle.y,
-          ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
-        });
-        continue;
+        let forceInfer = false;
+        if (number <= 9) {
+          const pi = nearestContextNeighbor(sorted, i, -1, MAX_PLAUSIBLE_POST);
+          const ni = nearestContextNeighbor(sorted, i, 1, MAX_PLAUSIBLE_POST);
+          if (pi >= 0 && ni >= 0) {
+            const fix = sandwichValue(
+              contextNumber(sorted[pi], MAX_PLAUSIBLE_POST),
+              contextNumber(sorted[ni], MAX_PLAUSIBLE_POST),
+            );
+            if (fix != null && fix > 9 && isTruncatedMisread(number, fix)) {
+              warnings.push(
+                `OCR at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
+                  `page ${circle.pageNum ?? "?"}: rejected single-digit misread ${number} ` +
+                  `(expected ${fix}; neighbors ${contextNumber(sorted[pi], MAX_PLAUSIBLE_POST)}–${contextNumber(sorted[ni], MAX_PLAUSIBLE_POST)})`,
+              );
+              forceInfer = true;
+            }
+          }
+        }
+        if (!forceInfer) {
+          posts.push({
+            number,
+            x: circle.x,
+            y: circle.y,
+            anchorX: circle.x,
+            anchorY: circle.y,
+            ...(circle.pageNum !== undefined
+              ? { pageNum: circle.pageNum }
+              : {}),
+          });
+          continue;
+        }
       } else {
         // in-range but locally inconsistent; fall through to sequence inference
       }
     }
 
-    // OCR failed — infer from nearest plausible OCR anchors in sorted order (D-07).
     warnings.push(
       `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
         `page ${circle.pageNum ?? "?"}: OCR failed — attempting sequence inference`,
     );
 
-    let lower = null,
-      lowerIdx = -1;
-    for (let k = i - 1; k >= 0; k--) {
-      if (isAnchor[k]) {
-        lower = sorted[k];
-        lowerIdx = k;
-        break;
-      }
-    }
-    let upper = null,
-      upperIdx = -1;
-    for (let k = i + 1; k < sorted.length; k++) {
-      if (isAnchor[k]) {
-        upper = sorted[k];
-        upperIdx = k;
-        break;
-      }
-    }
-
-    let inferred = null;
-    if (lower && upper) {
-      const span = upperIdx - lowerIdx;
-      const offset = i - lowerIdx;
-      inferred =
-        lower.number +
-        Math.round((upper.number - lower.number) * (offset / span));
-    } else if (lower) {
-      inferred = lower.number + 1;
-    } else if (upper) {
-      inferred = upper.number - 1;
-    }
+    const inferred = inferPostNumber(
+      i,
+      sorted,
+      isAnchor,
+      MAX_PLAUSIBLE_POST,
+      number,
+    );
 
     if (inferred !== null && inferred >= 1 && inferred <= MAX_PLAUSIBLE_POST) {
       posts.push({
@@ -458,7 +728,7 @@ export function assemblePostsFromOcr(ocrResults) {
       });
       warnings.push(
         `Post ${inferred}: number inferred from sequence ` +
-          `(OCR failed at page ${circle.pageNum ?? "?"})`,
+          `(OCR read ${number ?? "null"} at page ${circle.pageNum ?? "?"})`,
       );
     } else {
       warnings.push(
@@ -468,7 +738,6 @@ export function assemblePostsFromOcr(ocrResults) {
     }
   }
 
-  resolveDuplicatePostNumbers(posts, warnings);
   attachMarkerAnchors(posts);
   return { posts, warnings };
 }
