@@ -161,6 +161,41 @@ function spanBetween(regionPosts, fromIdx, toIdx) {
  * Picks the shortest unclaimed INSERT whose span from `fromIdx` lies between a
  * reasonable tap leg and the bifurcation-main label.
  */
+/**
+ * Bifurcation tap on a real cable arm (Siriu 32→33: junction 118 → tap 117).
+ * Prefer this over chord search, which can latch onto orphan duplicate INSERTs
+ * at the same coordinates as a claimed post (idx 398 vs claimed 119).
+ */
+function findBifurcationTapCableArm(
+  fromIdx,
+  tapLabelM,
+  claimed,
+  regionPosts,
+  graph,
+) {
+  const arms = unclaimedCableNeighbors(fromIdx, graph, claimed);
+  if (!arms.length) return -1;
+  if (arms.length === 1) return arms[0];
+
+  const tapTol =
+    tapLabelM != null && tapLabelM > 0
+      ? Math.max(spanToleranceFor(tapLabelM), 8)
+      : 12;
+  let bestIdx = -1;
+  let bestDelta = Infinity;
+  for (const arm of arms) {
+    const stubSpan = spanBetween(regionPosts, fromIdx, arm);
+    if (tapLabelM == null || tapLabelM <= 0) continue;
+    const delta = Math.abs(stubSpan - tapLabelM);
+    if (delta > tapTol) continue;
+    if (delta < bestDelta || (delta === bestDelta && arm < bestIdx)) {
+      bestDelta = delta;
+      bestIdx = arm;
+    }
+  }
+  return bestIdx;
+}
+
 function findBifurcationTapChordTarget(
   fromIdx,
   tapLabelM,
@@ -170,6 +205,7 @@ function findBifurcationTapChordTarget(
   gpsByPostNumber,
   toNum,
   preferLongestSpineLeg = false,
+  graph = null,
 ) {
   if (mainLabelM == null || !Number.isFinite(mainLabelM) || mainLabelM <= 0) {
     return -1;
@@ -178,7 +214,9 @@ function findBifurcationTapChordTarget(
   const minLeg =
     tapLabelM != null && tapLabelM > 15
       ? Math.max(15, tapLabelM - spanToleranceFor(tapLabelM))
-      : 20;
+      : tapLabelM != null && tapLabelM > 0
+        ? Math.max(8, tapLabelM - spanToleranceFor(tapLabelM))
+        : 20;
   const maxLeg = mainLabelM + mainTol;
   const tapTol =
     tapLabelM != null && tapLabelM > 0 ? spanToleranceFor(tapLabelM) : 0;
@@ -186,6 +224,7 @@ function findBifurcationTapChordTarget(
   const candidates = [];
   for (let i = 0; i < regionPosts.length; i++) {
     if (claimed.has(i) || i === fromIdx) continue;
+    if (graph != null && (graph.get(i)?.size ?? 0) === 0) continue;
     const s = spanBetween(regionPosts, fromIdx, i);
     if (s < minLeg || s > maxLeg) continue;
     // Short PDF tap labels on spine chords (e.g. 19.3m vs real ~43m) must not
@@ -313,9 +352,7 @@ function findSpineChordByNextLabel(
   }
   if (!viable.length) return -1;
 
-  viable.sort(
-    (a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan,
-  );
+  viable.sort((a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan);
   const bestByNext = viable[0];
 
   if (chordLabelM != null && chordLabelM > 0) {
@@ -325,8 +362,7 @@ function findSpineChordByNextLabel(
     );
     if (withChord.length) {
       withChord.sort(
-        (a, b) =>
-          a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan,
+        (a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan,
       );
       const bestByChord = withChord[0];
       const nextMiss = Math.abs(bestByNext.chordSpan - chordLabelM);
@@ -334,10 +370,7 @@ function findSpineChordByNextLabel(
         // Siriu 59→60: label understates chord (~51 m) but next-hop is decisive
         // (44→169 Δ≈0.02 m vs chord-fit 41 Δ≈2 m). Siriu 10→11: a stub INSERT
         // can win next-hop while missing chord by ~100 m — prefer chord-fit 210.
-        if (
-          bestByNext.nextDelta + 1 < bestByChord.nextDelta &&
-          nextMiss < 25
-        ) {
+        if (bestByNext.nextDelta + 1 < bestByChord.nextDelta && nextMiss < 25) {
           return bestByNext.idx;
         }
         return bestByChord.idx;
@@ -1004,16 +1037,26 @@ export function pairPostsByGraphWalk({
         labelM > 0 &&
         !hasDirectConsecutiveMatch
       ) {
-        const chordIdx = findBifurcationTapChordTarget(
+        let chordIdx = findBifurcationTapCableArm(
           fromIdx,
           labelM,
-          juncMainLabelM,
           claimed,
           regionPosts,
-          gpsByPostNumber,
-          toNum,
-          caseAStuckNoNeighbors,
+          graph,
         );
+        if (chordIdx < 0) {
+          chordIdx = findBifurcationTapChordTarget(
+            fromIdx,
+            labelM,
+            juncMainLabelM,
+            claimed,
+            regionPosts,
+            gpsByPostNumber,
+            toNum,
+            caseAStuckNoNeighbors,
+            graph,
+          );
+        }
         if (chordIdx >= 0) {
           chosenIdx = chordIdx;
           tapPlacedMainLabel.set(toNum, {
