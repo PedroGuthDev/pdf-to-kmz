@@ -268,10 +268,7 @@ function findMultiHopByLabel({
     if (aBackbone !== bBackbone) {
       // Near-exact multi-hop endpoint beats a loose 1-hop (Siriu 26→27: #149 Δ≈0.04 m
       // vs #148 Δ≈2.8 m) without letting a ~1 m wrong 1-hop beat a ~6 m correct one.
-      if (
-        (a.delta < 0.5 && b.delta > 2) ||
-        (b.delta < 0.5 && a.delta > 2)
-      ) {
+      if ((a.delta < 0.5 && b.delta > 2) || (b.delta < 0.5 && a.delta > 2)) {
         return a.delta < b.delta;
       }
       return aBackbone > bBackbone;
@@ -451,6 +448,24 @@ export function pairPostsByGraphWalk({
   // Step 2 — Pre-compute lookups
   const distMap = buildDistanceMap(distances);
   const connMap = buildConnectionMap(connections);
+  /** @type {Set<string>} */
+  const bifurcationTapEdges = new Set();
+  for (const d of distances ?? []) {
+    if (d?.source === "bifurcation-tap" && d.meters != null && d.meters > 0) {
+      bifurcationTapEdges.add(`${d.from}->${d.to}`);
+    }
+  }
+  // When the bifurcation-tap-stub handler places a tap post N, it advances the
+  // walker onto the spine but the consecutive label N->(N+1) was cleared
+  // (bifurcation-cleared). The continuation distance for the NEXT step lives in
+  // the bifurcation-main label (junction->(N+1)). At an auxiliary tap the tap
+  // post sits essentially AT the junction, so that main label measures the span
+  // FROM the tap post N to (N+1) — and (N+1)'s INSERT is a direct unclaimed
+  // neighbor of the tap-placed index. We record it here so the next step can
+  // search the main label from the tap post (fromIdx) instead of from the
+  // junction (whose path through the now-claimed tap index is blocked).
+  /** @type {Map<number, number>} tap-post number -> bifurcation-main label (m) */
+  const tapPlacedMainLabel = new Map();
   buildPostByNumber(posts); // validate; result unused in graph-walk
 
   // Step 3 — Walk N → N+1
@@ -525,286 +540,402 @@ export function pairPostsByGraphWalk({
         labelM != null && Boolean(conn.gap) && labelM >= LARGE_GAP_LABEL_M;
 
       if (!forceJumpback) {
-        let hintOriginNumForHop = null;
-        for (let k = visitedPostNums.length - 1; k >= 0; k--) {
-          const vNum = visitedPostNums[k];
-          if (vNum === fromNum || vNum === toNum) continue;
-          if (idxByNum.get(vNum) == null) continue;
-          if (getDistLabel(distMap, vNum, toNum) != null) {
-            hintOriginNumForHop = vNum;
-            break;
-          }
-        }
-        if (hintOriginNumForHop != null) {
-          const hintOriginIdxForHop = idxByNum.get(hintOriginNumForHop);
-          const hintLabelForHop = getDistLabel(distMap, hintOriginNumForHop, toNum);
-          if (
-            hintOriginIdxForHop != null &&
-            hintLabelForHop != null &&
-            hintLabelForHop > 0
-          ) {
-            const hintTolForHop = spanToleranceFor(hintLabelForHop);
-            const hop = findMultiHopByLabel({
-              fromIdx: hintOriginIdxForHop,
-              labelM: hintLabelForHop,
-              tol: Math.max(hintTolForHop, 10, 0.35 * hintLabelForHop),
+        // Tap-continuation: if we are standing on a post that was placed by the
+        // bifurcation-tap-stub handler on the previous step, and this step's
+        // consecutive label was cleared (labelM == null), the bifurcation-main
+        // label measures the span FROM this tap post to the target. Search it
+        // from fromIdx FIRST — the target INSERT is a direct unclaimed neighbor
+        // here, whereas a junction-origin search would be blocked by the
+        // now-claimed tap index. Only accept a tight match (the main label is a
+        // real geometric span at an aux tap).
+        if (chosenIdx === undefined && labelM == null) {
+          const tapMainLabelM = tapPlacedMainLabel.get(fromNum);
+          if (tapMainLabelM != null && tapMainLabelM > 0) {
+            const tapMainTol = spanToleranceFor(tapMainLabelM);
+            const tapMainHop = findMultiHopByLabel({
+              fromIdx,
+              labelM: tapMainLabelM,
+              tol: tapMainTol,
               richGraph: graph,
               claimed,
               regionPosts,
-              maxHops: 6,
+              maxHops: 4,
             });
-            if (hop) {
-              chosenIdx = hop.endpoint;
-              chainIntermediates = hop.intermediates;
+            if (tapMainHop) {
+              chosenIdx = tapMainHop.endpoint;
+              chainIntermediates = tapMainHop.intermediates;
             }
+          }
+        }
+
+        /** @type {number[]} */
+        const hintOriginNums = [];
+        if (chosenIdx === undefined && labelM == null) {
+          const juncNum = fromNum - 1;
+          if (
+            juncNum >= 1 &&
+            juncNum !== toNum &&
+            idxByNum.get(juncNum) != null &&
+            getDistLabel(distMap, juncNum, toNum) != null
+          ) {
+            hintOriginNums.push(juncNum);
+          }
+        }
+        if (chosenIdx === undefined && labelM == null && i > 0) {
+          const prevNum = posts[i - 1].number;
+          if (
+            prevNum !== fromNum &&
+            prevNum !== toNum &&
+            !hintOriginNums.includes(prevNum) &&
+            idxByNum.get(prevNum) != null &&
+            getDistLabel(distMap, prevNum, toNum) != null
+          ) {
+            hintOriginNums.push(prevNum);
+          }
+        }
+        if (chosenIdx === undefined) {
+          for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+            const vNum = visitedPostNums[k];
+            if (vNum === fromNum || vNum === toNum) continue;
+            if (hintOriginNums.includes(vNum)) continue;
+            if (idxByNum.get(vNum) == null) continue;
+            if (getDistLabel(distMap, vNum, toNum) != null) {
+              hintOriginNums.push(vNum);
+            }
+          }
+        }
+        for (const hintOriginNumForHop of hintOriginNums) {
+          const hintOriginIdxForHop = idxByNum.get(hintOriginNumForHop);
+          const hintLabelForHop = getDistLabel(
+            distMap,
+            hintOriginNumForHop,
+            toNum,
+          );
+          if (
+            hintOriginIdxForHop == null ||
+            hintLabelForHop == null ||
+            hintLabelForHop <= 0
+          ) {
+            continue;
+          }
+          const hintTolForHop = spanToleranceFor(hintLabelForHop);
+          const hop = findMultiHopByLabel({
+            fromIdx: hintOriginIdxForHop,
+            labelM: hintLabelForHop,
+            tol: Math.max(hintTolForHop, 10, 0.35 * hintLabelForHop),
+            richGraph: graph,
+            claimed,
+            regionPosts,
+            maxHops: 6,
+          });
+          if (hop) {
+            chosenIdx = hop.endpoint;
+            chainIntermediates = hop.intermediates;
+            break;
           }
         }
       }
 
+      const tapEdgeKey = `${fromNum}->${toNum}`;
+      const nextOnRoute = posts[i + 2];
+      const juncMainLabelM =
+        nextOnRoute != null
+          ? getDistLabel(distMap, fromNum, nextOnRoute.number)
+          : null;
+
       if (chosenIdx !== undefined) {
         // Hint-based placement succeeded; skip remaining Case A selection.
+      } else if (
+        bifurcationTapEdges.has(tapEdgeKey) &&
+        juncMainLabelM != null &&
+        neighbors.length === 1 &&
+        labelM != null
+      ) {
+        // Auxiliary tap (e.g. 37): no short cable stub in DWG; advance along the
+        // spine so the next hop can use junction→main label (36→38).
+        chosenIdx = neighbors[0];
+        // Record the main label so the NEXT step (toNum -> toNum+1, whose
+        // consecutive label was bifurcation-cleared) can match it directly from
+        // the tap-placed index instead of from the junction.
+        tapPlacedMainLabel.set(toNum, juncMainLabelM);
+        warn({
+          kind: "dwg-bifurcation-tap-stub",
+          at_post: toNum,
+          label_m: labelM,
+          main_label_m: juncMainLabelM,
+          note: "single-neighbor-stub",
+        });
       } else if (neighbors.length === 1 && labelM == null) {
         chosenIdx = neighbors[0];
       } else if (labelM != null) {
         const tol = spanToleranceFor(labelM);
-        {
-        // Direct-neighbor span match, with a 1-hop lookahead to avoid dead ends.
-        // A too-aggressive adjacency union can introduce “leaf” candidates whose span
-        // matches labelM but cannot continue to the next post (degree 0/1 after claiming).
-        const nextNextPost = posts[i + 2];
-        const nextLabel =
-          nextNextPost != null
-            ? (distMap.get(`${toNum}->${nextNextPost.number}`) ??
-              distMap.get(`${nextNextPost.number}->${toNum}`))
-            : null;
-
-        /** @type {Array<{ idx: number, span: number, delta: number, deg: number, nextDelta: number|null }>} */
-        const direct = [];
-
-        // If there is a non-consecutive Distância_Poste label from any already-visited post
-        // directly to the target post (e.g. 5→10), use it to bias the endpoint selection.
-        // This helps branch returns: a parallel segment can rejoin the spine and the
-        // consecutive label (9→10) may be noisy/ambiguous, while (5→10) anchors the re-entry.
-        let hintOriginNum = null;
-        for (let k = visitedPostNums.length - 1; k >= 0; k--) {
-          const vNum = visitedPostNums[k];
-          if (vNum === fromNum || vNum === toNum) continue;
-          if (getDistLabel(distMap, vNum, toNum) != null && idxByNum.get(vNum) != null) {
-            hintOriginNum = vNum;
-            break;
-          }
-        }
-        const hintOriginIdx = hintOriginNum != null ? idxByNum.get(hintOriginNum) : null;
-        const hintLabelM =
-          hintOriginNum != null ? getDistLabel(distMap, hintOriginNum, toNum) : null;
-        const hintTol =
-          hintLabelM != null && hintLabelM > 0 ? spanToleranceFor(hintLabelM) : null;
-
-        for (const nIdx of neighbors) {
-          const span = spanBetween(regionPosts, fromIdx, nIdx);
-          const delta = Math.abs(span - labelM);
-          const deg = graph.get(nIdx)?.size ?? 0;
-          let nextDelta = null;
-          if (nextLabel != null) {
-            // Compute best next-step span delta from this candidate (excluding stepping back).
-            let best = Infinity;
-            for (const nn of unclaimedCableNeighbors(
-              nIdx,
-              graph,
-              new Set([...claimed, nIdx]),
-            )) {
-              if (nn === fromIdx) continue;
-              const s2 = spanBetween(regionPosts, nIdx, nn);
-              const d2 = Math.abs(s2 - nextLabel);
-              if (d2 < best) best = d2;
-            }
-            if (Number.isFinite(best)) nextDelta = best;
-          }
-          let hintDelta = null;
-          if (
-            hintOriginIdx != null &&
-            hintLabelM != null &&
-            hintLabelM > 0 &&
-            hintTol != null &&
-            Number.isFinite(hintTol)
-          ) {
-            const hSpan = spanBetween(regionPosts, hintOriginIdx, nIdx);
-            hintDelta = Math.abs(hSpan - hintLabelM);
-          }
-          direct.push({ idx: nIdx, span, delta, deg, nextDelta, hintDelta });
-        }
-
-        // Track best raw span for diagnostics.
-        if (direct.length) {
-          direct.sort((a, b) => a.delta - b.delta);
-          caseADirectBestSpan = direct[0].span;
-          caseADirectBestIdx = direct[0].idx;
-          caseADirectBestDelta = direct[0].delta;
-        }
-
-        const viable = direct.filter((c) => c.delta <= tol);
-        let directBestIdx = -1;
-        let directBestDelta = Infinity;
-        let directBestSpan = null;
-        /** @type {number|null} */
-        let directBestNextDelta = null;
-        /** @type {number} */
-        let directBestDeg = 0;
-        if (viable.length) {
-          viable.sort((a, b) => {
-            // When available, prefer endpoints consistent with an existing non-consecutive
-            // label from a visited spine post (e.g. 5→10).
-            if (a.hintDelta != null && b.hintDelta != null && a.hintDelta !== b.hintDelta) {
-              // Strongly prefer hint-consistent candidates within tolerance.
-              const aOk = hintTol != null ? a.hintDelta <= hintTol : false;
-              const bOk = hintTol != null ? b.hintDelta <= hintTol : false;
-              if (aOk !== bOk) return aOk ? -1 : 1;
-              // Only use hintDelta as a discriminator when at least one candidate
-              // satisfies the hint tolerance. Otherwise the hint is uninformative
-              // (e.g. phantom inferred labels at branch bifurcations) and would
-              // wrongly dominate the much-more-accurate sequential 'delta'. Fall
-              // through to degree/nextDelta/delta tiebreakers below.
-              if (aOk || bOk) return a.hintDelta - b.hintDelta;
-            }
-            if (a.hintDelta != null && b.hintDelta == null) return -1;
-            if (a.hintDelta == null && b.hintDelta != null) return 1;
-
-            // Prefer candidates that can continue (degree >= 2) and that match nextLabel.
-            const aCan = a.deg >= 2 ? 1 : 0;
-            const bCan = b.deg >= 2 ? 1 : 0;
-            if (aCan !== bCan) return bCan - aCan;
-            if (
-              a.nextDelta != null &&
-              b.nextDelta != null &&
-              a.nextDelta !== b.nextDelta
-            ) {
-              return a.nextDelta - b.nextDelta;
-            }
-            if (a.delta !== b.delta) return a.delta - b.delta;
-            return a.idx - b.idx;
-          });
-          directBestIdx = viable[0].idx;
-          directBestDelta = viable[0].delta;
-          directBestSpan = viable[0].span;
-          directBestNextDelta = viable[0].nextDelta ?? null;
-          directBestDeg = viable[0].deg ?? 0;
-        }
-
-        // Multi-hop fallback eligibility:
-        //  - Always for non-gap edges.
-        //  - For gap edges only when labelM is "small" (< 100m): such
-        //    "gaps" are usually snap-3 artifacts from the frozen
-        //    adjacency, not true cross-page jumps. True gaps have labels
-        //    >= 100m and should defer to Case B's junction jumpback.
-        const multiHopAllowed = !conn.gap || labelM < LARGE_GAP_LABEL_M;
-
-        const directIsDeadEnd =
-          directBestIdx >= 0 &&
-          (directBestDeg === 0 ||
-            (nextLabel != null &&
-              (directBestNextDelta == null ||
-                !Number.isFinite(directBestNextDelta))));
-
-        const multiTol = Math.max(tol, 10, 0.35 * labelM);
-        let hop = null;
-        if (multiHopAllowed) {
-          hop = findMultiHopByLabel({
+        if (chosenIdx === undefined) {
+          const tapHop = findMultiHopByLabel({
             fromIdx,
             labelM,
-            tol: multiTol,
+            tol: Math.max(tol, 8, 0.4 * labelM),
             richGraph: graph,
             claimed,
             regionPosts,
-            maxHops: neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
+            maxHops: 5,
           });
+          if (tapHop) {
+            chosenIdx = tapHop.endpoint;
+            chainIntermediates = tapHop.intermediates;
+          }
         }
+        {
+          // Direct-neighbor span match, with a 1-hop lookahead to avoid dead ends.
+          // A too-aggressive adjacency union can introduce “leaf” candidates whose span
+          // matches labelM but cannot continue to the next post (degree 0/1 after claiming).
+          const nextNextPost = posts[i + 2];
+          const nextLabel =
+            nextNextPost != null
+              ? (distMap.get(`${toNum}->${nextNextPost.number}`) ??
+                distMap.get(`${nextNextPost.number}->${toNum}`))
+              : null;
 
-        const directUsable =
-          !forceJumpback &&
-          directBestIdx >= 0 &&
-          directBestDelta <= tol &&
-          !directIsDeadEnd;
+          /** @type {Array<{ idx: number, span: number, delta: number, deg: number, nextDelta: number|null }>} */
+          const direct = [];
 
-        // Siriu 26→27: label is chord 147→#149 but the walker stops at cable #148.
-        // Extend one short hop past directBest when the next post's label fits much
-        // better from the further INSERT (and only in a dead-end 1-neighbor case).
-        let extendPastDirect = null;
-        if (
-          directUsable &&
-          directBestDelta > 2 &&
-          neighbors.length === 1 &&
-          nextLabel != null &&
-          Number.isFinite(nextLabel)
-        ) {
-          const directNext =
-            directBestNextDelta != null && Number.isFinite(directBestNextDelta)
-              ? directBestNextDelta
-              : bestNextSpanDeltaFor(
-                  directBestIdx,
-                  fromIdx,
-                  regionPosts,
-                  graph,
-                  claimed,
-                  [],
-                  nextLabel,
-                );
-          let bestNn = -1;
-          let bestNnNext = Infinity;
-          for (const nn of unclaimedCableNeighbors(
-            directBestIdx,
-            graph,
-            claimed,
-          )) {
-            const hopSeg = spanBetween(regionPosts, directBestIdx, nn);
-            if (hopSeg > 12) continue;
-            const nd = bestNextSpanDeltaFor(
-              nn,
-              directBestIdx,
+          // If there is a non-consecutive Distância_Poste label from any already-visited post
+          // directly to the target post (e.g. 5→10), use it to bias the endpoint selection.
+          // This helps branch returns: a parallel segment can rejoin the spine and the
+          // consecutive label (9→10) may be noisy/ambiguous, while (5→10) anchors the re-entry.
+          let hintOriginNum = null;
+          for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+            const vNum = visitedPostNums[k];
+            if (vNum === fromNum || vNum === toNum) continue;
+            if (
+              getDistLabel(distMap, vNum, toNum) != null &&
+              idxByNum.get(vNum) != null
+            ) {
+              hintOriginNum = vNum;
+              break;
+            }
+          }
+          const hintOriginIdx =
+            hintOriginNum != null ? idxByNum.get(hintOriginNum) : null;
+          const hintLabelM =
+            hintOriginNum != null
+              ? getDistLabel(distMap, hintOriginNum, toNum)
+              : null;
+          const hintTol =
+            hintLabelM != null && hintLabelM > 0
+              ? spanToleranceFor(hintLabelM)
+              : null;
+
+          for (const nIdx of neighbors) {
+            const span = spanBetween(regionPosts, fromIdx, nIdx);
+            const delta = Math.abs(span - labelM);
+            const deg = graph.get(nIdx)?.size ?? 0;
+            let nextDelta = null;
+            if (nextLabel != null) {
+              // Compute best next-step span delta from this candidate (excluding stepping back).
+              let best = Infinity;
+              for (const nn of unclaimedCableNeighbors(
+                nIdx,
+                graph,
+                new Set([...claimed, nIdx]),
+              )) {
+                if (nn === fromIdx) continue;
+                const s2 = spanBetween(regionPosts, nIdx, nn);
+                const d2 = Math.abs(s2 - nextLabel);
+                if (d2 < best) best = d2;
+              }
+              if (Number.isFinite(best)) nextDelta = best;
+            }
+            let hintDelta = null;
+            if (
+              hintOriginIdx != null &&
+              hintLabelM != null &&
+              hintLabelM > 0 &&
+              hintTol != null &&
+              Number.isFinite(hintTol)
+            ) {
+              const hSpan = spanBetween(regionPosts, hintOriginIdx, nIdx);
+              hintDelta = Math.abs(hSpan - hintLabelM);
+            }
+            direct.push({ idx: nIdx, span, delta, deg, nextDelta, hintDelta });
+          }
+
+          // Track best raw span for diagnostics.
+          if (direct.length) {
+            direct.sort((a, b) => a.delta - b.delta);
+            caseADirectBestSpan = direct[0].span;
+            caseADirectBestIdx = direct[0].idx;
+            caseADirectBestDelta = direct[0].delta;
+          }
+
+          const viable = direct.filter((c) => c.delta <= tol);
+          let directBestIdx = -1;
+          let directBestDelta = Infinity;
+          let directBestSpan = null;
+          /** @type {number|null} */
+          let directBestNextDelta = null;
+          /** @type {number} */
+          let directBestDeg = 0;
+          if (viable.length) {
+            viable.sort((a, b) => {
+              // When available, prefer endpoints consistent with an existing non-consecutive
+              // label from a visited spine post (e.g. 5→10).
+              if (
+                a.hintDelta != null &&
+                b.hintDelta != null &&
+                a.hintDelta !== b.hintDelta
+              ) {
+                // Strongly prefer hint-consistent candidates within tolerance.
+                const aOk = hintTol != null ? a.hintDelta <= hintTol : false;
+                const bOk = hintTol != null ? b.hintDelta <= hintTol : false;
+                if (aOk !== bOk) return aOk ? -1 : 1;
+                // Only use hintDelta as a discriminator when at least one candidate
+                // satisfies the hint tolerance. Otherwise the hint is uninformative
+                // (e.g. phantom inferred labels at branch bifurcations) and would
+                // wrongly dominate the much-more-accurate sequential 'delta'. Fall
+                // through to degree/nextDelta/delta tiebreakers below.
+                if (aOk || bOk) return a.hintDelta - b.hintDelta;
+              }
+              if (a.hintDelta != null && b.hintDelta == null) return -1;
+              if (a.hintDelta == null && b.hintDelta != null) return 1;
+
+              // Prefer candidates that can continue (degree >= 2) and that match nextLabel.
+              const aCan = a.deg >= 2 ? 1 : 0;
+              const bCan = b.deg >= 2 ? 1 : 0;
+              if (aCan !== bCan) return bCan - aCan;
+              if (
+                a.nextDelta != null &&
+                b.nextDelta != null &&
+                a.nextDelta !== b.nextDelta
+              ) {
+                return a.nextDelta - b.nextDelta;
+              }
+              if (a.delta !== b.delta) return a.delta - b.delta;
+              return a.idx - b.idx;
+            });
+            directBestIdx = viable[0].idx;
+            directBestDelta = viable[0].delta;
+            directBestSpan = viable[0].span;
+            directBestNextDelta = viable[0].nextDelta ?? null;
+            directBestDeg = viable[0].deg ?? 0;
+          }
+
+          // Multi-hop fallback eligibility:
+          //  - Always for non-gap edges.
+          //  - For gap edges only when labelM is "small" (< 100m): such
+          //    "gaps" are usually snap-3 artifacts from the frozen
+          //    adjacency, not true cross-page jumps. True gaps have labels
+          //    >= 100m and should defer to Case B's junction jumpback.
+          const multiHopAllowed = !conn.gap || labelM < LARGE_GAP_LABEL_M;
+
+          const directIsDeadEnd =
+            directBestIdx >= 0 &&
+            (directBestDeg === 0 ||
+              (nextLabel != null &&
+                (directBestNextDelta == null ||
+                  !Number.isFinite(directBestNextDelta))));
+
+          const multiTol = Math.max(tol, 10, 0.35 * labelM);
+          let hop = null;
+          if (multiHopAllowed) {
+            hop = findMultiHopByLabel({
+              fromIdx,
+              labelM,
+              tol: multiTol,
+              richGraph: graph,
+              claimed,
               regionPosts,
+              maxHops:
+                neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
+            });
+          }
+
+          const directUsable =
+            !forceJumpback &&
+            directBestIdx >= 0 &&
+            directBestDelta <= tol &&
+            !directIsDeadEnd;
+
+          // Siriu 26→27: label is chord 147→#149 but the walker stops at cable #148.
+          // Extend one short hop past directBest when the next post's label fits much
+          // better from the further INSERT (and only in a dead-end 1-neighbor case).
+          let extendPastDirect = null;
+          if (
+            directUsable &&
+            directBestDelta > 2 &&
+            neighbors.length === 1 &&
+            nextLabel != null &&
+            Number.isFinite(nextLabel)
+          ) {
+            const directNext =
+              directBestNextDelta != null &&
+              Number.isFinite(directBestNextDelta)
+                ? directBestNextDelta
+                : bestNextSpanDeltaFor(
+                    directBestIdx,
+                    fromIdx,
+                    regionPosts,
+                    graph,
+                    claimed,
+                    [],
+                    nextLabel,
+                  );
+            let bestNn = -1;
+            let bestNnNext = Infinity;
+            for (const nn of unclaimedCableNeighbors(
+              directBestIdx,
               graph,
               claimed,
-              [directBestIdx],
-              nextLabel,
-            );
-            if (!Number.isFinite(nd) || nd >= bestNnNext) continue;
-            const total =
-              spanBetween(regionPosts, fromIdx, directBestIdx) + hopSeg;
-            const totalDelta = Math.abs(total - labelM);
-            const nextMuchBetter =
-              Number.isFinite(directNext) && nd + 1 < directNext;
-            if (totalDelta > multiTol && !nextMuchBetter) continue;
-            bestNn = nn;
-            bestNnNext = nd;
+            )) {
+              const hopSeg = spanBetween(regionPosts, directBestIdx, nn);
+              if (hopSeg > 12) continue;
+              const nd = bestNextSpanDeltaFor(
+                nn,
+                directBestIdx,
+                regionPosts,
+                graph,
+                claimed,
+                [directBestIdx],
+                nextLabel,
+              );
+              if (!Number.isFinite(nd) || nd >= bestNnNext) continue;
+              const total =
+                spanBetween(regionPosts, fromIdx, directBestIdx) + hopSeg;
+              const totalDelta = Math.abs(total - labelM);
+              const nextMuchBetter =
+                Number.isFinite(directNext) && nd + 1 < directNext;
+              if (totalDelta > multiTol && !nextMuchBetter) continue;
+              bestNn = nn;
+              bestNnNext = nd;
+            }
+            if (
+              bestNn >= 0 &&
+              Number.isFinite(directNext) &&
+              bestNnNext + 1 < directNext
+            ) {
+              extendPastDirect = {
+                endpoint: bestNn,
+                intermediates: [directBestIdx],
+              };
+            }
           }
-          if (
-            bestNn >= 0 &&
-            Number.isFinite(directNext) &&
-            bestNnNext + 1 < directNext
-          ) {
-            extendPastDirect = {
-              endpoint: bestNn,
-              intermediates: [directBestIdx],
-            };
-          }
-        }
 
-        if (extendPastDirect) {
-          chosenIdx = extendPastDirect.endpoint;
-          chainIntermediates = extendPastDirect.intermediates;
-        } else if (directUsable) {
-          chosenIdx = directBestIdx;
-        } else if (hop) {
-          chosenIdx = hop.endpoint;
-          chainIntermediates = hop.intermediates;
-        } else if (
-          !forceJumpback &&
-          directBestIdx >= 0 &&
-          directBestDelta <= tol
-        ) {
-          chosenIdx = directBestIdx;
-        }
-        // else: chosenIdx stays undefined — for gap edges fall through to
-        // Case B; for non-gap fall to tolerance-exceeded warning.
+          if (extendPastDirect) {
+            chosenIdx = extendPastDirect.endpoint;
+            chainIntermediates = extendPastDirect.intermediates;
+          } else if (directUsable) {
+            chosenIdx = directBestIdx;
+          } else if (hop) {
+            chosenIdx = hop.endpoint;
+            chainIntermediates = hop.intermediates;
+          } else if (
+            !forceJumpback &&
+            directBestIdx >= 0 &&
+            directBestDelta <= tol
+          ) {
+            chosenIdx = directBestIdx;
+          }
+          // else: chosenIdx stays undefined — for gap edges fall through to
+          // Case B; for non-gap fall to tolerance-exceeded warning.
         }
       } else if (neighbors.length === 0) {
         // No direct neighbor and no label — Case A can't proceed.
@@ -833,7 +964,10 @@ export function pairPostsByGraphWalk({
       }
     }
 
-    if (chosenIdx === undefined && (conn.gap || caseAStuckNoNeighbors || hasHintJumpback)) {
+    if (
+      chosenIdx === undefined &&
+      (conn.gap || caseAStuckNoNeighbors || hasHintJumpback)
+    ) {
       // Prefer a numbering-hint origin: most recent visited post that has an explicit
       // Distância_Poste label directly to the target post (e.g. 5→10).
       let hintOriginNum = null;
@@ -928,7 +1062,11 @@ export function pairPostsByGraphWalk({
 
     // Recovery: if there is exactly one unclaimed neighbor but its span mismatches the
     // sequential label (common at bifurcations), force progress instead of failing.
-    if (chosenIdx === undefined && caseADirectBestIdx != null && labelM != null) {
+    if (
+      chosenIdx === undefined &&
+      caseADirectBestIdx != null &&
+      labelM != null
+    ) {
       const neighbors = unclaimedCableNeighbors(fromIdx, graph, claimed);
       if (neighbors.length === 1 && neighbors[0] === caseADirectBestIdx) {
         const span = caseADirectBestSpan;
