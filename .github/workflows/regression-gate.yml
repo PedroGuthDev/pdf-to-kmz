@@ -1,0 +1,24 @@
+name: regression-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  siriu-walk-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit + Siriu regression gate
+        env:
+          CI: "true"
+        run: npm run test:gate
