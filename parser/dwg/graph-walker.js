@@ -314,6 +314,211 @@ function findBifurcationTapChordTarget(
 }
 
 /**
+ * Bifurcation tap at a spine stub (e.g. Siriu 64→65): the PDF tap label
+ * measures from an upstream junction arm, not from the dead-end spine tip.
+ * When a visited hub carries a non-consecutive label to the tap target
+ * (e.g. 60→65=31.7 from hub idx 44), place via that hop instead of the
+ * stub's misleading single cable arm.
+ */
+function findHubBranchTapByHint({
+  toNum,
+  fromIdx,
+  fromNum,
+  visitedPostNums,
+  idxByNum,
+  distMap,
+  graph,
+  claimed,
+  regionPosts,
+  isPhantomBifurcationHint,
+  tapLabelM,
+  juncMainLabelM,
+}) {
+  /** @type {Array<{ hubNum: number, hubIdx: number, hop: { endpoint: number, intermediates: number[] }, hintLabelM: number, hintDelta: number, endpointDeg: number, mainDelta: number }>} */
+  const candidates = [];
+  for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+    const hubNum = visitedPostNums[k];
+    if (hubNum === fromNum || hubNum === toNum) continue;
+    const hubIdx = idxByNum.get(hubNum);
+    if (hubIdx == null || hubIdx === fromIdx) continue;
+    const hintLabelM = getDistLabel(distMap, hubNum, toNum);
+    if (hintLabelM == null || hintLabelM <= 0) continue;
+    if (isPhantomBifurcationHint(hubNum, toNum, hintLabelM)) continue;
+    // Hub hint must exceed the local tap stub — the stub is a PDF artifact.
+    if (
+      tapLabelM != null &&
+      tapLabelM > 0 &&
+      hintLabelM <= tapLabelM + Math.max(spanToleranceFor(tapLabelM), 5)
+    ) {
+      continue;
+    }
+    const hintTol = Math.max(
+      spanToleranceFor(hintLabelM),
+      10,
+      0.35 * hintLabelM,
+    );
+    /** @type {Array<{ endpoint: number, intermediates: number[], hintDelta: number }>} */
+    const endpoints = [];
+    for (const arm of unclaimedCableNeighbors(hubIdx, graph, claimed)) {
+      const span = spanBetween(regionPosts, hubIdx, arm);
+      const hintDelta = Math.abs(span - hintLabelM);
+      if (hintDelta <= hintTol) {
+        endpoints.push({ endpoint: arm, intermediates: [], hintDelta });
+      }
+    }
+    const multiHop = findMultiHopByLabel({
+      fromIdx: hubIdx,
+      labelM: hintLabelM,
+      tol: hintTol,
+      richGraph: graph,
+      claimed,
+      regionPosts,
+      maxHops: 6,
+    });
+    if (
+      multiHop &&
+      !endpoints.some((e) => e.endpoint === multiHop.endpoint)
+    ) {
+      endpoints.push({
+        endpoint: multiHop.endpoint,
+        intermediates: multiHop.intermediates,
+        hintDelta: Math.abs(
+          spanBetween(regionPosts, hubIdx, multiHop.endpoint) - hintLabelM,
+        ),
+      });
+    }
+    for (const { endpoint, intermediates, hintDelta } of endpoints) {
+      const endpointDeg = graph.get(endpoint)?.size ?? 0;
+      let mainDelta = Infinity;
+      if (juncMainLabelM != null && juncMainLabelM > 0) {
+        const mainTol = Math.max(
+          spanToleranceFor(juncMainLabelM),
+          10,
+          0.35 * juncMainLabelM,
+        );
+        const mainHop = findMultiHopByLabel({
+          fromIdx: endpoint,
+          labelM: juncMainLabelM,
+          tol: mainTol,
+          richGraph: graph,
+          claimed,
+          regionPosts,
+          maxHops: 4,
+        });
+        if (mainHop) {
+          mainDelta = Math.abs(
+            spanBetween(regionPosts, endpoint, mainHop.endpoint) -
+              juncMainLabelM,
+          );
+        }
+      }
+      candidates.push({
+        hubNum,
+        hubIdx,
+        hop: { endpoint, intermediates },
+        hintLabelM,
+        hintDelta,
+        endpointDeg,
+        mainDelta,
+      });
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    // Branch tap sits on a continuing arm (Siriu 65: idx 0 deg 3 vs idx 3 deg 2).
+    if (a.endpointDeg !== b.endpointDeg) return b.endpointDeg - a.endpointDeg;
+    if (a.mainDelta !== b.mainDelta) return a.mainDelta - b.mainDelta;
+    if (a.hintDelta !== b.hintDelta) return a.hintDelta - b.hintDelta;
+    return 0;
+  });
+  const best = candidates[0];
+  return {
+    endpoint: best.hop.endpoint,
+    intermediates: best.hop.intermediates,
+    hubNum: best.hubNum,
+    hubIdx: best.hubIdx,
+    hintLabelM: best.hintLabelM,
+  };
+}
+
+/**
+ * Branch return via a visited junction arm (Siriu 68→69: label 31 matches
+ * hub-44→idx-3 chord; direct cable 35→34 fits the label but cannot reach 70).
+ */
+function findHubArmReturnByLabel({
+  labelM,
+  nextLabelM,
+  visitedPostNums,
+  idxByNum,
+  fromIdx,
+  graph,
+  claimed,
+  regionPosts,
+}) {
+  if (labelM == null || labelM <= 0) return null;
+  const labelTol = spanToleranceFor(labelM);
+  const nextTol =
+    nextLabelM != null && nextLabelM > 0
+      ? spanToleranceFor(nextLabelM)
+      : Infinity;
+  /** @type {Array<{ endpoint: number, hubNum: number, hubIdx: number, nextDelta: number, labelDelta: number, endpointDeg: number }>} */
+  const candidates = [];
+  for (let k = visitedPostNums.length - 1; k >= 0; k--) {
+    const hubNum = visitedPostNums[k];
+    const hubIdx = idxByNum.get(hubNum);
+    if (hubIdx == null || hubIdx === fromIdx) continue;
+    if ((graph.get(hubIdx)?.size ?? 0) < 3) continue;
+    for (const arm of unclaimedCableNeighbors(hubIdx, graph, claimed)) {
+      const span = spanBetween(regionPosts, hubIdx, arm);
+      const labelDelta = Math.abs(span - labelM);
+      if (labelDelta > labelTol) continue;
+      let nextDelta = Infinity;
+      if (nextLabelM != null && nextLabelM > 0) {
+        nextDelta = bestNextSpanDeltaFor(
+          arm,
+          hubIdx,
+          regionPosts,
+          graph,
+          claimed,
+          [],
+          nextLabelM,
+        );
+        if (!Number.isFinite(nextDelta) || nextDelta > nextTol) continue;
+      }
+      candidates.push({
+        endpoint: arm,
+        hubNum,
+        hubIdx,
+        nextDelta,
+        labelDelta,
+        endpointDeg: graph.get(arm)?.size ?? 0,
+      });
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort(
+    (a, b) =>
+      a.nextDelta - b.nextDelta ||
+      b.endpointDeg - a.endpointDeg ||
+      a.labelDelta - b.labelDelta,
+  );
+  const best = candidates[0];
+  return {
+    endpoint: best.endpoint,
+    hubNum: best.hubNum,
+    hubIdx: best.hubIdx,
+  };
+}
+
+/** True when a bifurcation tap entered a side branch from `hubIdx` (still open). */
+function hasOpenHubBranchFrom(tapPlacedMainLabel, hubIdx) {
+  for (const rec of tapPlacedMainLabel.values()) {
+    if (rec?.branchFromHub && rec.juncIdx === hubIdx) return true;
+  }
+  return false;
+}
+
+/**
  * When the consecutive label fits no cable arm but the next-hop label does
  * (Siriu 59→60: chord 46→44, label 31.7m, next 44→169≈27.4m).
  */
@@ -1037,39 +1242,76 @@ export function pairPostsByGraphWalk({
         labelM > 0 &&
         !hasDirectConsecutiveMatch
       ) {
-        let chordIdx = findBifurcationTapCableArm(
+        const hubBranch = findHubBranchTapByHint({
+          toNum,
           fromIdx,
-          labelM,
+          fromNum,
+          visitedPostNums,
+          idxByNum,
+          distMap,
+          graph,
           claimed,
           regionPosts,
-          graph,
-        );
-        if (chordIdx < 0) {
-          chordIdx = findBifurcationTapChordTarget(
-            fromIdx,
-            labelM,
-            juncMainLabelM,
-            claimed,
-            regionPosts,
-            gpsByPostNumber,
-            toNum,
-            caseAStuckNoNeighbors,
-            graph,
-          );
-        }
-        if (chordIdx >= 0) {
-          chosenIdx = chordIdx;
+          isPhantomBifurcationHint,
+          tapLabelM: labelM,
+          juncMainLabelM,
+        });
+        if (hubBranch) {
+          chosenIdx = hubBranch.endpoint;
+          chainIntermediates = hubBranch.intermediates;
           tapPlacedMainLabel.set(toNum, {
             labelM: juncMainLabelM,
-            juncIdx: fromIdx,
+            juncIdx: hubBranch.hubIdx,
+            branchFromHub: true,
           });
           warn({
-            kind: "dwg-bifurcation-tap-chord",
+            kind: "dwg-bifurcation-tap-hub-hint",
             at_post: toNum,
-            label_m: labelM,
+            hub_post: hubBranch.hubNum,
+            hint_label_m: hubBranch.hintLabelM,
+            tap_label_m: labelM,
             main_label_m: juncMainLabelM,
-            chord_span_m: spanBetween(regionPosts, fromIdx, chordIdx),
+            chord_span_m: spanBetween(
+              regionPosts,
+              hubBranch.hubIdx,
+              hubBranch.endpoint,
+            ),
           });
+        } else {
+          let chordIdx = findBifurcationTapCableArm(
+            fromIdx,
+            labelM,
+            claimed,
+            regionPosts,
+            graph,
+          );
+          if (chordIdx < 0) {
+            chordIdx = findBifurcationTapChordTarget(
+              fromIdx,
+              labelM,
+              juncMainLabelM,
+              claimed,
+              regionPosts,
+              gpsByPostNumber,
+              toNum,
+              caseAStuckNoNeighbors,
+              graph,
+            );
+          }
+          if (chordIdx >= 0) {
+            chosenIdx = chordIdx;
+            tapPlacedMainLabel.set(toNum, {
+              labelM: juncMainLabelM,
+              juncIdx: fromIdx,
+            });
+            warn({
+              kind: "dwg-bifurcation-tap-chord",
+              at_post: toNum,
+              label_m: labelM,
+              main_label_m: juncMainLabelM,
+              chord_span_m: spanBetween(regionPosts, fromIdx, chordIdx),
+            });
+          }
         }
       }
 
@@ -1137,6 +1379,32 @@ export function pairPostsByGraphWalk({
               chosenIdx = only;
             }
           }
+          // Hub-branch tap (e.g. Siriu 64→65 via hub 60): the tap post sits ON
+          // the branch arm; the next post is the forward cable neighbor, NOT a
+          // re-search from the hub (which would pick the wrong arm, e.g. 44→3).
+          if (
+            chosenIdx === undefined &&
+            tapRec?.branchFromHub &&
+            labelM == null
+          ) {
+            const forwardArms = tapUnclaimed.filter(
+              (n) => n !== tapRec.juncIdx,
+            );
+            if (forwardArms.length === 1) {
+              chosenIdx = forwardArms[0];
+            } else if (forwardArms.length > 1) {
+              let bestArm = null;
+              for (const arm of forwardArms) {
+                const delta = Math.abs(
+                  spanBetween(regionPosts, fromIdx, arm) - tapMainLabelM,
+                );
+                if (delta <= tapMainTol && (!bestArm || delta < bestArm.delta)) {
+                  bestArm = { arm, delta };
+                }
+              }
+              if (bestArm) chosenIdx = bestArm.arm;
+            }
+          }
           // First search from the tap post itself — but only when the tap post
           // has more than one unclaimed neighbor (genuine ambiguity). With a
           // single neighbor that neighbor IS the next post and the recorded
@@ -1162,7 +1430,8 @@ export function pairPostsByGraphWalk({
             !tapMainHop &&
             tapRec &&
             tapRec.juncIdx != null &&
-            tapRec.juncIdx !== fromIdx
+            tapRec.juncIdx !== fromIdx &&
+            !tapRec.branchFromHub
           ) {
             const juncIdx = tapRec.juncIdx;
             const fallbackTol = Math.max(tapMainTol, 10, 0.35 * tapMainLabelM);
@@ -1751,9 +2020,66 @@ export function pairPostsByGraphWalk({
             }
           }
 
+          let hubArmReturn = null;
+          const nextTolForHubReturn =
+            nextLabel != null && nextLabel > 0
+              ? spanToleranceFor(nextLabel)
+              : Infinity;
+          if (
+            !branchReturnHop &&
+            labelM != null &&
+            labelM > 0 &&
+            nextLabel != null &&
+            directBestIdx >= 0 &&
+            directBestDelta <= tol &&
+            Number.isFinite(directBestNextDelta) &&
+            directBestNextDelta > nextTolForHubReturn
+          ) {
+            hubArmReturn = findHubArmReturnByLabel({
+              labelM,
+              nextLabelM: nextLabel,
+              visitedPostNums,
+              idxByNum,
+              fromIdx,
+              graph,
+              claimed,
+              regionPosts,
+            });
+            if (hubArmReturn && directBestIdx >= 0 && directBestDelta <= tol) {
+              const hubLabelDelta = Math.abs(
+                spanBetween(
+                  regionPosts,
+                  hubArmReturn.hubIdx,
+                  hubArmReturn.endpoint,
+                ) - labelM,
+              );
+              if (directBestDelta + 0.5 < hubLabelDelta) {
+                hubArmReturn = null;
+              }
+            }
+            if (
+              hubArmReturn &&
+              !hasOpenHubBranchFrom(
+                tapPlacedMainLabel,
+                hubArmReturn.hubIdx,
+              )
+            ) {
+              hubArmReturn = null;
+            }
+          }
+
           if (branchReturnHop) {
             chosenIdx = branchReturnHop.endpoint;
             chainIntermediates = branchReturnHop.intermediates;
+          } else if (hubArmReturn) {
+            chosenIdx = hubArmReturn.endpoint;
+            warn({
+              kind: "dwg-hub-arm-return",
+              at_post: toNum,
+              hub_post: hubArmReturn.hubNum,
+              label_m: labelM,
+              next_label_m: nextLabel,
+            });
           } else if (extendPastDirect) {
             chosenIdx = extendPastDirect.endpoint;
             chainIntermediates = extendPastDirect.intermediates;
