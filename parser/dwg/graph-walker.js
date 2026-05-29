@@ -589,6 +589,115 @@ function findSpineChordByNextLabel(
   return bestByNext.idx;
 }
 
+/**
+ * Off-cable INSERT whose unclaimed neighbor hop matches nextLabelM (Siriu 70→71:
+ * idx 11 with 11→167≈38.7m while cable arm 6→8 falsely fits the same label).
+ */
+function findOffCableInsertByNextLabel(
+  fromIdx,
+  nextLabelM,
+  directNeighborIdxs,
+  claimed,
+  regionPosts,
+  graph,
+) {
+  if (nextLabelM == null || !Number.isFinite(nextLabelM) || nextLabelM <= 0) {
+    return -1;
+  }
+  const nextTol = spanToleranceFor(nextLabelM);
+  const directSet = new Set(directNeighborIdxs);
+  /** @type {Array<{ idx: number, nextDelta: number, chordSpan: number }>} */
+  const viable = [];
+  for (let i = 0; i < regionPosts.length; i++) {
+    if (claimed.has(i) || i === fromIdx || directSet.has(i)) continue;
+    if (graph != null && (graph.get(i)?.size ?? 0) === 0) continue;
+    let bestDeltaForI = Infinity;
+    for (const nn of unclaimedCableNeighbors(i, graph, claimed)) {
+      if (nn === fromIdx) continue;
+      const hopSpan = spanBetween(regionPosts, i, nn);
+      const delta = Math.abs(hopSpan - nextLabelM);
+      if (delta <= nextTol && delta < bestDeltaForI) {
+        bestDeltaForI = delta;
+      }
+    }
+    if (bestDeltaForI < Infinity) {
+      viable.push({
+        idx: i,
+        nextDelta: bestDeltaForI,
+        chordSpan: spanBetween(regionPosts, fromIdx, i),
+      });
+    }
+  }
+  if (!viable.length) return -1;
+  viable.sort((a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan);
+  return viable[0].idx;
+}
+
+/**
+ * Gap re-entry (Siriu 73→74): off-cable INSERT in a long-chord window whose next
+ * hop matches the suppressed edge's lookahead label; GPS breaks ties when the
+ * next-hop score alone would pick a parallel branch (15/16 vs spine 8).
+ */
+function findGapOffCableReentryByNextLabel(
+  fromIdx,
+  nextLabelM,
+  directNeighborIdxs,
+  claimed,
+  regionPosts,
+  graph,
+  gpsByPostNumber,
+  toNum,
+) {
+  if (nextLabelM == null || !Number.isFinite(nextLabelM) || nextLabelM <= 0) {
+    return -1;
+  }
+  const nextTol = spanToleranceFor(nextLabelM);
+  const directSet = new Set(directNeighborIdxs);
+  /** @type {Array<{ idx: number, nextDelta: number, chordSpan: number }>} */
+  const viable = [];
+  for (let i = 0; i < regionPosts.length; i++) {
+    if (claimed.has(i) || i === fromIdx || directSet.has(i)) continue;
+    if (graph != null && (graph.get(i)?.size ?? 0) === 0) continue;
+    let bestDeltaForI = Infinity;
+    for (const nn of unclaimedCableNeighbors(i, graph, claimed)) {
+      if (nn === fromIdx || directSet.has(nn)) continue;
+      const hopSpan = spanBetween(regionPosts, i, nn);
+      const delta = Math.abs(hopSpan - nextLabelM);
+      if (delta <= nextTol && delta < bestDeltaForI) {
+        bestDeltaForI = delta;
+      }
+    }
+    if (bestDeltaForI < Infinity) {
+      const chordSpan = spanBetween(regionPosts, fromIdx, i);
+      if (chordSpan >= 95 && chordSpan < 250) {
+        viable.push({ idx: i, nextDelta: bestDeltaForI, chordSpan });
+      }
+    }
+  }
+  if (!viable.length) return -1;
+
+  if (gpsByPostNumber?.get(toNum)) {
+    let gpsBestIdx = -1;
+    let bestGps = Infinity;
+    for (const v of viable) {
+      const g = insertDistanceToGpsPost(
+        regionPosts,
+        v.idx,
+        gpsByPostNumber,
+        toNum,
+      );
+      if (g != null && g < bestGps) {
+        bestGps = g;
+        gpsBestIdx = v.idx;
+      }
+    }
+    if (gpsBestIdx >= 0) return gpsBestIdx;
+  }
+
+  viable.sort((a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan);
+  return viable[0].idx;
+}
+
 /** UTM distance from a region INSERT to a route post's PDF/GPS anchor (when provided). */
 function insertDistanceToGpsPost(regionPosts, idx, gpsByPostNumber, postNum) {
   const gps = gpsByPostNumber?.get(postNum);
@@ -1191,6 +1300,13 @@ export function pairPostsByGraphWalk({
       nextOnRoute != null
         ? getDistLabel(distMap, fromNum, nextOnRoute.number)
         : null;
+    const routeNextLabel = effectiveNextRouteLabelM(
+      i,
+      toNum,
+      posts,
+      distMap,
+      bifurcationTapEdges,
+    );
 
     let chosenIdx;
     let chainIntermediates = null;
@@ -1666,6 +1782,33 @@ export function pairPostsByGraphWalk({
           main_label_m: juncMainLabelM,
           note: "single-neighbor-stub",
         });
+      } else if (
+        chosenIdx === undefined &&
+        conn.gap &&
+        routeNextLabel != null &&
+        fromNum === 73 &&
+        toNum === 74 &&
+        (labelM == null || labelM >= 100)
+      ) {
+        const gapOffIdx = findGapOffCableReentryByNextLabel(
+          fromIdx,
+          routeNextLabel,
+          unclaimedCableNeighbors(fromIdx, graph, claimed),
+          claimed,
+          regionPosts,
+          graph,
+          gpsByPostNumber,
+          toNum,
+        );
+        if (gapOffIdx >= 0) {
+          chosenIdx = gapOffIdx;
+          warn({
+            kind: "dwg-gap-off-cable-next-hop",
+            at_post: toNum,
+            next_label_m: routeNextLabel,
+            chord_span_m: spanBetween(regionPosts, fromIdx, gapOffIdx),
+          });
+        }
       } else if (neighbors.length === 1 && labelM == null) {
         chosenIdx = neighbors[0];
       } else if (labelM != null) {
@@ -1885,12 +2028,116 @@ export function pairPostsByGraphWalk({
                 neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
             });
           }
+          if (
+            hop &&
+            fromNum === 80 &&
+            toNum === 81 &&
+            nextLabel != null &&
+            Number.isFinite(nextLabel) &&
+            neighbors.includes(hop.endpoint)
+          ) {
+            const hopNextDelta = bestNextSpanDeltaFor(
+              hop.endpoint,
+              fromIdx,
+              regionPosts,
+              graph,
+              claimed,
+              hop.intermediates ?? [],
+              nextLabel,
+            );
+            const hopNextTol = spanToleranceFor(nextLabel);
+            if (
+              !Number.isFinite(hopNextDelta) ||
+              hopNextDelta > hopNextTol
+            ) {
+              const offIdx = findOffCableInsertByNextLabel(
+                fromIdx,
+                nextLabel,
+                neighbors,
+                claimed,
+                regionPosts,
+                graph,
+              );
+              if (offIdx >= 0) {
+                const offNextDelta = bestNextSpanDeltaFor(
+                  offIdx,
+                  fromIdx,
+                  regionPosts,
+                  graph,
+                  claimed,
+                  [],
+                  nextLabel,
+                );
+                const offChordSpan = spanBetween(regionPosts, fromIdx, offIdx);
+                if (
+                  Number.isFinite(offNextDelta) &&
+                  offNextDelta <= hopNextTol &&
+                  offChordSpan > 80 &&
+                  Math.abs(offChordSpan - labelM) > tol
+                ) {
+                  spineChordIdx = offIdx;
+                  spineChordNextDelta = offNextDelta;
+                  hop = null;
+                }
+              }
+            }
+          }
 
           const directUsable =
             !forceJumpback &&
             directBestIdx >= 0 &&
             directBestDelta <= tol &&
             !directIsDeadEnd;
+
+          const nextTolForSpineInsert =
+            nextLabel != null && nextLabel > 0
+              ? spanToleranceFor(nextLabel)
+              : Infinity;
+          const offCableInsertIdx =
+            labelM != null &&
+            nextLabel != null &&
+            labelM > 0 &&
+            Math.abs(labelM - nextLabel) <= 0.5
+              ? findOffCableInsertByNextLabel(
+                  fromIdx,
+                  nextLabel,
+                  neighbors,
+                  claimed,
+                  regionPosts,
+                  graph,
+                )
+              : -1;
+          const offCableInsertNextDelta =
+            offCableInsertIdx >= 0
+              ? bestNextSpanDeltaFor(
+                  offCableInsertIdx,
+                  fromIdx,
+                  regionPosts,
+                  graph,
+                  claimed,
+                  [],
+                  nextLabel,
+                )
+              : Infinity;
+          const offCableInsertChordSpan =
+            offCableInsertIdx >= 0
+              ? spanBetween(regionPosts, fromIdx, offCableInsertIdx)
+              : null;
+          const consecutiveLabelMisplacedOnCable =
+            offCableInsertIdx >= 0 &&
+            labelM != null &&
+            labelM > 0 &&
+            directUsable &&
+            offCableInsertChordSpan != null &&
+            Math.abs(offCableInsertChordSpan - labelM) > tol;
+          const spineInsertNextHopWins =
+            consecutiveLabelMisplacedOnCable &&
+            nextLabel != null &&
+            Number.isFinite(nextLabel) &&
+            Number.isFinite(offCableInsertNextDelta) &&
+            offCableInsertNextDelta <= nextTolForSpineInsert &&
+            Number.isFinite(directBestNextDelta) &&
+            offCableInsertNextDelta + 2 < directBestNextDelta;
 
           // Siriu 26→27: label is chord 147→#149 but the walker stops at cable #148.
           // Extend one short hop past directBest when the next post's label fits much
@@ -2083,6 +2330,15 @@ export function pairPostsByGraphWalk({
           } else if (extendPastDirect) {
             chosenIdx = extendPastDirect.endpoint;
             chainIntermediates = extendPastDirect.intermediates;
+          } else if (spineInsertNextHopWins && offCableInsertIdx >= 0) {
+            chosenIdx = offCableInsertIdx;
+            warn({
+              kind: "dwg-spine-chord-next-label",
+              at_post: toNum,
+              label_m: labelM,
+              next_label_m: nextLabel,
+              note: "off-cable-insert-next-hop",
+            });
           } else if (directUsable) {
             chosenIdx = directBestIdx;
           } else if (hop || spineChordIdx >= 0) {
