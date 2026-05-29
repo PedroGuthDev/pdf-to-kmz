@@ -21,6 +21,20 @@ export const SNAP_POST_TO_POSTE_SYMBOL_MAX_PT = 220;
 /** Tight dedupe for square+X subpath centroids (same pole, multiple strokes). */
 export const POSTE_RAW_DEDUPE_PT = 12;
 
+/**
+ * Max mean label-arc residual (meters) for `correctRouteNumberingByDistanceLabels`
+ * to accept a number-mirror. OCR numbering is authoritative; the mirror only fires
+ * when the flipped direction is GENUINELY label-consistent (small residual). On
+ * fragmented-cable pages both directions yield large residuals and the lesser one
+ * is still not a real fit — mirroring there corrupts correct OCR (Siriu pages 4-7).
+ * A real wrong-direction case fits labels within this bound. Override via env.
+ */
+export const MIRROR_MAX_RESIDUAL_M = (() => {
+  const env = typeof process !== 'undefined' ? process.env?.MIRROR_MAX_RESIDUAL_M : null;
+  const v = env != null ? Number(env) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : 30;
+})();
+
 function _envNum(name, def) {
   const env = typeof process !== 'undefined' ? process.env?.[name] : null;
   const v = env != null ? Number(env) : NaN;
@@ -1355,22 +1369,86 @@ export function correctRouteNumberingByDistanceLabels(
       (cablesByPage.get(pageNum) ?? [])[0];
     if (!routeOps) continue;
 
-    const direct = meanLabelArcResidualOnPage(postsOnPage, distMap, routeOps, scale, false);
-    const flipped = meanLabelArcResidualOnPage(postsOnPage, distMap, routeOps, scale, true);
-    if (!Number.isFinite(direct) || !Number.isFinite(flipped)) continue;
-    if (flipped + 6 >= direct) continue;
+    // The mirror formula `minN + maxN - number` is only valid for a SINGLE
+    // contiguous numeric range. Multi-sheet routes can place posts from two
+    // disjoint route segments on the same PDF page (e.g. Siriu page 5 holds
+    // 25–33 AND 43–45). Mirroring the whole page then cross-maps one segment's
+    // numbers into the other's (28→42, 29→41, …), colliding with the real
+    // posts and getting dropped by later dedup. Mirror each maximal contiguous
+    // run independently so segments never bleed into each other. A single
+    // contiguous page (João Born detail sheets) yields exactly one run, so this
+    // is behaviour-preserving for the case the pass was originally tuned for.
+    const runs = splitIntoContiguousRuns(postsOnPage);
+    for (const run of runs) {
+      if (run.length < 3) continue;
 
-    const nums = postsOnPage.map(p => p.number);
-    const minN = Math.min(...nums);
-    const maxN = Math.max(...nums);
-    for (const p of postsOnPage) {
-      p.number = minN + maxN - p.number;
+      const direct = meanLabelArcResidualOnPage(run, distMap, routeOps, scale, false);
+      const flipped = meanLabelArcResidualOnPage(run, distMap, routeOps, scale, true);
+      if (!Number.isFinite(direct) || !Number.isFinite(flipped)) continue;
+      if (flipped + 6 >= direct) continue;
+
+      // Confidence gate: only mirror when the flipped direction is GENUINELY
+      // label-consistent — not merely the lesser-bad of two large residuals.
+      // The OCR-sourced numbering is authoritative; we only override it when the
+      // cable geometry decisively confirms the OCR direction is wrong. When the
+      // cable on a page is fragmented/unreliable (Siriu pages 4-7), both direct
+      // and flipped residuals are large (e.g. 137 m → 95 m) and the flip would
+      // corrupt correct OCR numbers — reversing a contiguous run (13–24) that
+      // then cascades into wrong DWG-walker labels. A real wrong-direction case
+      // (the intended João Born detail-sheet scenario) produces a small flipped
+      // residual. Require the flip to fit labels within MIRROR_MAX_RESIDUAL_M.
+      if (flipped > MIRROR_MAX_RESIDUAL_M) {
+        const lo = Math.min(...run.map(p => p.number));
+        const hi = Math.max(...run.map(p => p.number));
+        warnings.push(
+          `[post-positioning] page ${pageNum}: skipped mirror of run ${lo}–${hi} — ` +
+            `flipped residual ${flipped.toFixed(1)} m exceeds ${MIRROR_MAX_RESIDUAL_M} m ` +
+            `(cable geometry unreliable; trusting OCR numbering).`
+        );
+        continue;
+      }
+
+      const nums = run.map(p => p.number);
+      const minN = Math.min(...nums);
+      const maxN = Math.max(...nums);
+      for (const p of run) {
+        p.number = minN + maxN - p.number;
+      }
+      warnings.push(
+        `[post-positioning] page ${pageNum}: mirrored post numbers ${minN}–${maxN} ` +
+          `(label arc residual ${direct.toFixed(1)} m → ${flipped.toFixed(1)} m mean).`
+      );
     }
-    warnings.push(
-      `[post-positioning] page ${pageNum}: mirrored post numbers ${minN}–${maxN} ` +
-        `(label arc residual ${direct.toFixed(1)} m → ${flipped.toFixed(1)} m mean).`
-    );
   }
+}
+
+/**
+ * Group posts into maximal runs of consecutive integer numbers.
+ * Sorts by `.number`, then breaks a new run whenever the gap to the previous
+ * number exceeds 1. Returns runs in ascending order.
+ *
+ * @param {Array<{ number: number }>} postsOnPage
+ * @returns {Array<Array<{ number: number }>>}
+ */
+function splitIntoContiguousRuns(postsOnPage) {
+  const sorted = [...postsOnPage].sort((a, b) => a.number - b.number);
+  const runs = [];
+  let current = [];
+  for (const p of sorted) {
+    if (current.length === 0) {
+      current.push(p);
+      continue;
+    }
+    const prevNum = current[current.length - 1].number;
+    if (p.number - prevNum <= 1) {
+      current.push(p);
+    } else {
+      runs.push(current);
+      current = [p];
+    }
+  }
+  if (current.length) runs.push(current);
+  return runs;
 }
 
 /**
