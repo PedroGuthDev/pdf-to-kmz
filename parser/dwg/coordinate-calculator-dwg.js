@@ -1,4 +1,5 @@
 import { calculateCoordinates } from "../coordinate-calculator.js";
+import { deduplicatePostsPreferLowerPage } from "../post-assembler.js";
 
 import {
   buildAdjacencyGraph,
@@ -14,7 +15,8 @@ export function formatDwgWarning(w) {
   const o = /** @type {Record<string, unknown>} */ (w);
   switch (o.kind) {
     case "dwg-region-miss":
-      if (o.regionId) return `DWG: região "${o.regionId}" não encontrada na biblioteca.`;
+      if (o.regionId)
+        return `DWG: região "${o.regionId}" não encontrada na biblioteca.`;
       return `DWG: nenhuma região cobre o GPS do poste 1 (${o.lat}, ${o.lon}). Usando só PDF.`;
     case "dwg-zone-mismatch":
       return `DWG: zona UTM ${o.got} ≠ esperada ${o.expected}.`;
@@ -27,7 +29,9 @@ export function formatDwgWarning(w) {
     }
     case "dwg-tolerance-relaxed": {
       const d =
-        o.picked_distance_m != null ? Number(o.picked_distance_m).toFixed(1) : "?";
+        o.picked_distance_m != null
+          ? Number(o.picked_distance_m).toFixed(1)
+          : "?";
       return `DWG: tolerância relaxada no poste ${o.at_post} (tol ${o.base_tol_m}→${o.tol_m} m, escolhido ${d} m).`;
     }
     case "dwg-pair-collision":
@@ -36,19 +40,19 @@ export function formatDwgWarning(w) {
       return `DWG: distância ausente ${o.from}→${o.to}.`;
     case "dwg-graph-walk-fail": {
       const reasonMap = {
-        'no-anchor':          'sem âncora próxima ao GPS',
-        'no-candidate':       'nenhum vizinho de cabo disponível',
-        'ambiguous':          'múltiplos candidatos sem desempate',
-        'tolerance-exceeded': 'span fora da tolerância',
-        'unpaired':           'poste sem pareamento ao final',
-        'no-connection':      'conexão ausente',
-        'collision':          'colisão (defensivo)',
+        "no-anchor": "sem âncora próxima ao GPS",
+        "no-candidate": "nenhum vizinho de cabo disponível",
+        ambiguous: "múltiplos candidatos sem desempate",
+        "tolerance-exceeded": "span fora da tolerância",
+        unpaired: "poste sem pareamento ao final",
+        "no-connection": "conexão ausente",
+        collision: "colisão (defensivo)",
       };
-      const reason = reasonMap[o.reason] ?? (o.reason ?? 'falha');
+      const reason = reasonMap[o.reason] ?? o.reason ?? "falha";
       return `DWG (graph-walk): poste ${o.at_post} — ${reason}. Tentando pdf-walk.`;
     }
     case "dwg-graph-walk-tiebreak":
-      return `DWG (graph-walk): poste ${o.at_post} — desempate sem look-ahead (${o.candidates ?? '?'} candidatos).`;
+      return `DWG (graph-walk): poste ${o.at_post} — desempate sem look-ahead (${o.candidates ?? "?"} candidatos).`;
     default:
       return `DWG: ${o.kind ?? "aviso"}`;
   }
@@ -85,6 +89,7 @@ function runDwgPairingCascade({
     postIndex,
     adjacencyGraph,
     warnings,
+    gpsByPostNumber,
   });
   if (level1.ok) {
     return { ok: true, coords: level1.coords, dwgPath: "dwg-graph-walk" };
@@ -216,10 +221,11 @@ export async function calculateCoordinatesWithDwg(
   // by number and builds connections for consecutive numeric pairs (12→13, not 12→24).
   // Graph-walk must use that same sequence or it hits no-connection on the first
   // out-of-order hop (e.g. Siriu: parse order …12,24,23… after post 12).
-  const routePosts =
+  const routePosts = deduplicatePostsPreferLowerPage(
     Array.isArray(pdfResult.posts) && pdfResult.posts.length > 0
       ? pdfResult.posts
-      : posts;
+      : posts,
+  ).sort((a, b) => a.number - b.number);
 
   const gpsByPostNumber = new Map();
   for (const p of pdfResult.posts ?? []) {

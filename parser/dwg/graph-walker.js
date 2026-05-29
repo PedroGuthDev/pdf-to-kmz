@@ -123,6 +123,107 @@ function spanBetween(regionPosts, fromIdx, toIdx) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+/** UTM distance from a region INSERT to a route post's PDF/GPS anchor (when provided). */
+function insertDistanceToGpsPost(regionPosts, idx, gpsByPostNumber, postNum) {
+  const gps = gpsByPostNumber?.get(postNum);
+  if (
+    !gps ||
+    typeof gps.lat !== "number" ||
+    typeof gps.lon !== "number" ||
+    idx == null ||
+    idx < 0
+  ) {
+    return null;
+  }
+  const p = regionPosts[idx];
+  if (!p) return null;
+  const utm = latLonToUtm(gps.lat, gps.lon);
+  return Math.hypot(p.x - utm.easting, p.y - utm.northing);
+}
+
+/** Minimum cable distance from current node to branch-entry junction (Siriu ~95m mid-branch). */
+const BRANCH_TERMINAL_MIN_ENTRY_SPAN_M = 120;
+
+/**
+ * True when the walk should try branch-return: deep on a parallel branch (far
+ * from the entry junction), with a misleading short forward stub for the
+ * consecutive label, and (when GPS anchors exist) the stub INSERT is not near
+ * the target post.
+ */
+function shouldTryBranchReturn({
+  fromNum,
+  fromIdx,
+  toNum,
+  labelM,
+  neighbors,
+  branchEntryStack,
+  regionPosts,
+  graph,
+  claimed,
+  gpsByPostNumber,
+  nextLabelM,
+}) {
+  if (labelM == null || !Number.isFinite(labelM) || labelM <= 0) return false;
+  if (!neighbors.length || !branchEntryStack.length) return false;
+
+  const deepEntry = branchEntryStack.find(
+    (e) =>
+      spanBetween(regionPosts, fromIdx, e.junctionIdx) >=
+      BRANCH_TERMINAL_MIN_ENTRY_SPAN_M,
+  );
+  if (!deepEntry) return false;
+  // Still on the early branch segment (e.g. 44→45); return only near the tip.
+  if (
+    typeof deepEntry.entryPostNum === "number" &&
+    fromNum <= deepEntry.entryPostNum + 8
+  ) {
+    return false;
+  }
+
+  const directTol = spanToleranceFor(labelM);
+  const relaxedTol = Math.max(directTol, 10, 0.35 * labelM);
+  let bestDirectIdx = -1;
+  let bestDirectDelta = Infinity;
+  for (const nIdx of neighbors) {
+    const delta = Math.abs(spanBetween(regionPosts, fromIdx, nIdx) - labelM);
+    if (delta < bestDirectDelta) {
+      bestDirectDelta = delta;
+      bestDirectIdx = nIdx;
+    }
+  }
+  if (bestDirectIdx < 0 || bestDirectDelta > relaxedTol) return false;
+
+  const stubSpan = spanBetween(regionPosts, fromIdx, bestDirectIdx);
+  if (stubSpan > 50) return false;
+
+  if (nextLabelM != null && Number.isFinite(nextLabelM)) {
+    const nextTol = spanToleranceFor(nextLabelM);
+    const nd = bestNextSpanDeltaFor(
+      bestDirectIdx,
+      fromIdx,
+      regionPosts,
+      graph,
+      claimed,
+      [],
+      nextLabelM,
+    );
+    if (Number.isFinite(nd) && nd <= nextTol) return false;
+  }
+
+  const gpsRadiusM = Math.max(20, 5 * directTol);
+  const gpsDist = insertDistanceToGpsPost(
+    regionPosts,
+    bestDirectIdx,
+    gpsByPostNumber,
+    toNum,
+  );
+  if (gpsDist != null) {
+    return gpsDist > gpsRadiusM;
+  }
+
+  return true;
+}
+
 function debugBfsSpanCandidates({
   fromIdx,
   graph,
@@ -313,6 +414,80 @@ function findMultiHopByLabel({
   return best;
 }
 
+/**
+ * Branch-return resolver (Option A). When a parallel branch dead-ends at a
+ * service stub, the spine resumes from the junction where the branch was first
+ * tapped, along that junction's single remaining unclaimed arm.
+ *
+ * Given the recorded branch-entry junction, find its unclaimed arms. The walk
+ * should resume here only when:
+ *   (1) the junction has exactly ONE unclaimed arm (the spine continuation), and
+ *   (2) that arm fits the consecutive label `labelM` within a relaxed tolerance, and
+ *   (3) the arm's forward continuation fits the NEXT label strictly better than
+ *       the direct (stub) continuation does.
+ * Returns { endpoint, intermediates: [] } or null.
+ */
+function findBranchReturnArm({
+  junctionIdx,
+  fromIdx,
+  labelM,
+  nextLabelM,
+  directNextDelta,
+  richGraph,
+  claimed,
+  regionPosts,
+  visitedIdx,
+  unusedArmIdx,
+}) {
+  if (junctionIdx == null) return null;
+  if (labelM == null || !Number.isFinite(labelM) || labelM <= 0) return null;
+
+  let arms = unclaimedCableNeighbors(junctionIdx, richGraph, claimed).filter(
+    (a) => a !== fromIdx,
+  );
+  // Drop arms that re-enter already-visited spine (e.g. post-35 idx 122 at junction 123).
+  if (Array.isArray(visitedIdx) && visitedIdx.length > 0) {
+    const visited = new Set(visitedIdx);
+    const filtered = arms.filter((a) => !visited.has(a));
+    if (filtered.length > 0) arms = filtered;
+  }
+  if (unusedArmIdx != null && arms.includes(unusedArmIdx)) {
+    arms = [unusedArmIdx];
+  } else if (arms.length !== 1) {
+    return null;
+  }
+  const armIdx = arms[0];
+  if (armIdx === fromIdx) return null;
+
+  // (2) consecutive-label fit (relaxed: branch-return labels are legacy-midpoint
+  // chords that only approximate the junction->next span).
+  const armSpan = spanBetween(regionPosts, junctionIdx, armIdx);
+  const armTol = Math.max(spanToleranceFor(labelM), 10, 0.35 * labelM);
+  if (Math.abs(armSpan - labelM) > armTol) return null;
+
+  // (3) next-label lookahead from the arm must beat the direct stub continuation.
+  if (nextLabelM != null && Number.isFinite(nextLabelM)) {
+    const armNextDelta = bestNextSpanDeltaFor(
+      armIdx,
+      junctionIdx,
+      regionPosts,
+      richGraph,
+      claimed,
+      [],
+      nextLabelM,
+    );
+    if (!Number.isFinite(armNextDelta)) return null;
+    const directNext =
+      directNextDelta != null && Number.isFinite(directNextDelta)
+        ? directNextDelta
+        : Infinity;
+    // Require the arm to fit the next label clearly better than the stub.
+    if (!(armNextDelta + 1 < directNext)) return null;
+  }
+
+  return { endpoint: armIdx, intermediates: [] };
+}
+
 export function pairPostsByGraphWalk({
   posts,
   distances,
@@ -323,7 +498,7 @@ export function pairPostsByGraphWalk({
   postIndex,
   adjacencyGraph,
   warnings,
-  gpsByPostNumber: _gpsByPostNumber,
+  gpsByPostNumber,
 }) {
   const warn = (w) => {
     if (Array.isArray(warnings)) warnings.push(w);
@@ -502,6 +677,14 @@ export function pairPostsByGraphWalk({
    * @type {Map<number, { labelM: number, juncIdx: number|undefined }>}
    */
   const tapPlacedMainLabel = new Map();
+  // Branch-entry stack (Option A — Siriu posts 46+). Each time the walk leaves a
+  // high-degree junction (deg >= 4, e.g. post 36 / idx 123) with spine arms still
+  // unclaimed, we record that junction. The parallel branch eventually dead-ends
+  // at a service stub; when that branch terminal is reached and the forward
+  // continuation fits the next label poorly, we pop the most recent entry junction
+  // and resume along its single remaining unclaimed arm (the spine continuation).
+  /** @type {Array<{ junctionIdx: number, unusedArmIdx?: number, entryPostNum?: number }>} */
+  const branchEntryStack = [];
   buildPostByNumber(posts); // validate; result unused in graph-walk
 
   // Step 3 — Walk N → N+1
@@ -610,18 +793,43 @@ export function pairPostsByGraphWalk({
         // the real next post (lands on next+1). Defer to the single-neighbor
         // shortcut below in that case.
         const tapUnclaimed = unclaimedCableNeighbors(fromIdx, graph, claimed);
-        if (chosenIdx === undefined && labelM == null) {
-          const tapRec = tapPlacedMainLabel.get(fromNum);
-          const tapMainLabelM = tapRec ? tapRec.labelM : null;
-          if (tapMainLabelM != null && tapMainLabelM > 0) {
-            const tapMainTol = spanToleranceFor(tapMainLabelM);
-            // First search from the tap post itself — but only when the tap post
-            // has more than one unclaimed neighbor (genuine ambiguity). With a
-            // single neighbor that neighbor IS the next post and the recorded
-            // main label measures from the JUNCTION, so a multi-hop from fromIdx
-            // would overshoot (see Issue 1, step 33->34).
-            let tapMainHop = null;
-            if (tapUnclaimed.length > 1) {
+        const tapRec = tapPlacedMainLabel.get(fromNum);
+        const tapMainLabelM = tapRec ? tapRec.labelM : null;
+        const swappedTapStep =
+          tapMainLabelM != null &&
+          tapMainLabelM > 0 &&
+          labelM != null &&
+          labelM > 0 &&
+          labelM <= 15 &&
+          Math.abs(labelM - tapMainLabelM) >
+            Math.max(spanToleranceFor(tapMainLabelM), 8);
+        if (
+          chosenIdx === undefined &&
+          (labelM == null || swappedTapStep) &&
+          tapMainLabelM != null &&
+          tapMainLabelM > 0
+        ) {
+          const tapMainTol = spanToleranceFor(tapMainLabelM);
+          // Swapped bifurcation (e.g. 49→50 carries 8.4 while tap main is 22.6):
+          // the sole forward cable often IS the main-span neighbor.
+          if (
+            swappedTapStep &&
+            tapUnclaimed.length === 1 &&
+            tapUnclaimed[0] !== tapRec?.juncIdx
+          ) {
+            const only = tapUnclaimed[0];
+            const onlySpan = spanBetween(regionPosts, fromIdx, only);
+            if (Math.abs(onlySpan - tapMainLabelM) <= tapMainTol) {
+              chosenIdx = only;
+            }
+          }
+          // First search from the tap post itself — but only when the tap post
+          // has more than one unclaimed neighbor (genuine ambiguity). With a
+          // single neighbor that neighbor IS the next post and the recorded
+          // main label measures from the JUNCTION, so a multi-hop from fromIdx
+          // would overshoot (see Issue 1, step 33->34).
+          let tapMainHop = null;
+          if (chosenIdx === undefined && tapUnclaimed.length > 1) {
               tapMainHop = findMultiHopByLabel({
                 fromIdx,
                 labelM: tapMainLabelM,
@@ -683,10 +891,9 @@ export function pairPostsByGraphWalk({
                 });
               }
             }
-            if (tapMainHop) {
-              chosenIdx = tapMainHop.endpoint;
-              chainIntermediates = tapMainHop.intermediates;
-            }
+          if (tapMainHop) {
+            chosenIdx = tapMainHop.endpoint;
+            chainIntermediates = tapMainHop.intermediates;
           }
         }
 
@@ -780,6 +987,70 @@ export function pairPostsByGraphWalk({
 
       if (chosenIdx !== undefined) {
         // Hint-based placement succeeded; skip remaining Case A selection.
+      } else if (
+        chosenIdx === undefined &&
+        labelM != null &&
+        nextOnRoute != null &&
+        (graph.get(fromIdx)?.size ?? 0) >= 3
+      ) {
+        // Dense bifurcation (e.g. Siriu post 48): legacy-midpoint can swap the
+        // consecutive labels — the short stub to `toNum` appears on `toNum→next`
+        // while the chord to `next` appears on `fromNum→toNum`. Match the stub
+        // arm by the next-hop label and defer the consecutive label to the tap.
+        const stubLabelM = getDistLabel(distMap, toNum, nextOnRoute.number);
+        const directTol = spanToleranceFor(labelM);
+        const directMatchesLabel = neighbors.some((nIdx) => {
+          const d = Math.abs(spanBetween(regionPosts, fromIdx, nIdx) - labelM);
+          return d <= directTol;
+        });
+        if (
+          stubLabelM != null &&
+          stubLabelM > 0 &&
+          stubLabelM <= 15 &&
+          !directMatchesLabel &&
+          Math.abs(labelM - stubLabelM) > Math.max(directTol, 8)
+        ) {
+          const stubTol = spanToleranceFor(stubLabelM);
+          let stubArm = -1;
+          let stubArmDelta = Infinity;
+          for (const nIdx of neighbors) {
+            const d = Math.abs(spanBetween(regionPosts, fromIdx, nIdx) - stubLabelM);
+            if (d <= stubTol && d < stubArmDelta) {
+              stubArmDelta = d;
+              stubArm = nIdx;
+            }
+          }
+          const mainTol = Math.max(spanToleranceFor(labelM), 10, 0.35 * labelM);
+          let mainHopFits = false;
+          if (stubArm >= 0) {
+            for (const nn of unclaimedCableNeighbors(stubArm, graph, claimed)) {
+              if (nn === fromIdx) continue;
+              const hopSpan = spanBetween(regionPosts, stubArm, nn);
+              if (Math.abs(hopSpan - labelM) <= mainTol) {
+                mainHopFits = true;
+                break;
+              }
+            }
+          }
+          if (stubArm >= 0 && mainHopFits) {
+            chosenIdx = stubArm;
+            tapPlacedMainLabel.set(toNum, {
+              labelM,
+              juncIdx: fromIdx,
+            });
+            warn({
+              kind: "dwg-bifurcation-tap-stub",
+              at_post: toNum,
+              label_m: stubLabelM,
+              main_label_m: labelM,
+              note: "junction-swapped-labels",
+            });
+          }
+        }
+      }
+
+      if (chosenIdx !== undefined) {
+        // Tap / hint placement succeeded; skip remaining Case A selection.
       } else if (
         bifurcationTapEdges.has(tapEdgeKey) &&
         juncMainLabelM != null &&
@@ -1057,7 +1328,74 @@ export function pairPostsByGraphWalk({
             }
           }
 
-          if (extendPastDirect) {
+          // Branch-return override after direct scoring (Siriu post-45→46): a
+          // misleading stub can win directUsable; resume on the recorded spine arm.
+          let branchReturnHop = null;
+          const tryBranchReturn =
+            labelM != null &&
+            labelM > 0 &&
+            branchEntryStack.length > 0 &&
+            shouldTryBranchReturn({
+              fromNum,
+              fromIdx,
+              toNum,
+              labelM,
+              neighbors,
+              branchEntryStack,
+              regionPosts,
+              graph,
+              claimed,
+              gpsByPostNumber,
+              nextLabelM: nextLabel,
+            });
+          if (tryBranchReturn) {
+            let directNextDeltaBR = Infinity;
+            if (nextLabel != null && Number.isFinite(nextLabel)) {
+              for (const nIdx of neighbors) {
+                const nd = bestNextSpanDeltaFor(
+                  nIdx,
+                  fromIdx,
+                  regionPosts,
+                  graph,
+                  claimed,
+                  [],
+                  nextLabel,
+                );
+                if (nd < directNextDeltaBR) directNextDeltaBR = nd;
+              }
+            }
+            for (let e = branchEntryStack.length - 1; e >= 0; e--) {
+              const entry = branchEntryStack[e];
+              const armHop = findBranchReturnArm({
+                junctionIdx: entry.junctionIdx,
+                fromIdx,
+                labelM,
+                nextLabelM: nextLabel,
+                directNextDelta: directNextDeltaBR,
+                richGraph: graph,
+                claimed,
+                regionPosts,
+                visitedIdx,
+                unusedArmIdx: entry.unusedArmIdx,
+              });
+              if (armHop) {
+                branchReturnHop = armHop;
+                branchEntryStack.splice(e, 1);
+                warn({
+                  kind: "dwg-branch-return",
+                  at_post: toNum,
+                  junction_idx: entry.junctionIdx,
+                  arm_idx: armHop.endpoint,
+                });
+                break;
+              }
+            }
+          }
+
+          if (branchReturnHop) {
+            chosenIdx = branchReturnHop.endpoint;
+            chainIntermediates = branchReturnHop.intermediates;
+          } else if (extendPastDirect) {
             chosenIdx = extendPastDirect.endpoint;
             chainIntermediates = extendPastDirect.intermediates;
           } else if (directUsable) {
@@ -1400,6 +1738,65 @@ export function pairPostsByGraphWalk({
     claimed.add(chosenIdx);
     visitedIdx.push(chosenIdx);
     visitedPostNums.push(toNum);
+
+    // Branch-entry recording (Option A). If the node we just left (fromIdx) is a
+    // high-degree junction (deg >= 4) that STILL has unclaimed arms after this
+    // step, the walk has tapped off the spine — record the junction so that a
+    // later branch terminal can resume along its remaining arm. Dedupe by index.
+  // One active branch excursion at a time (Siriu: post-36 junction only).
+    if (
+      fromIdx != null &&
+      (graph.get(fromIdx)?.size ?? 0) >= 4 &&
+      branchEntryStack.length === 0
+    ) {
+      const openArms = unclaimedCableNeighbors(fromIdx, graph, claimed).filter(
+        (a) => a !== chosenIdx,
+      );
+      if (openArms.length > 0) {
+        // Record the spine arm left behind (prefer unvisited; tie-break by next-label fit).
+        let unusedArmIdx = openArms[0];
+        if (openArms.length > 1) {
+          const visited = new Set(visitedIdx);
+          const unvisited = openArms.filter((a) => !visited.has(a));
+          const pool = unvisited.length > 0 ? unvisited : openArms;
+          const nextRoute = posts[i + 2];
+          const nextLbl =
+            nextRoute != null
+              ? getDistLabel(distMap, toNum, nextRoute.number)
+              : null;
+          if (nextLbl != null && Number.isFinite(nextLbl)) {
+            let bestDelta = Infinity;
+            for (const arm of pool) {
+              const nd = bestNextSpanDeltaFor(
+                arm,
+                fromIdx,
+                regionPosts,
+                graph,
+                claimed,
+                [],
+                nextLbl,
+              );
+              if (nd < bestDelta) {
+                bestDelta = nd;
+                unusedArmIdx = arm;
+              }
+            }
+          } else {
+            // Longest unvisited arm is the spine continuation (tap took the short stub).
+            unusedArmIdx = pool.reduce((best, arm) => {
+              const s = spanBetween(regionPosts, fromIdx, arm);
+              const bestS = spanBetween(regionPosts, fromIdx, best);
+              return s > bestS ? arm : best;
+            }, pool[0]);
+          }
+        }
+        branchEntryStack.push({
+          junctionIdx: fromIdx,
+          unusedArmIdx,
+          entryPostNum: fromNum,
+        });
+      }
+    }
   }
 
   // Step 4 — Strict pairing check

@@ -1,5 +1,5 @@
 ---
-status: partial-fix
+status: branch-return-fixed
 trigger: DWG graph-walk errors spike at post 45 (67m) and fail at post 48→49 (no-candidate)
 created: 2026-05-29
 updated: 2026-05-29
@@ -49,9 +49,27 @@ genuine branch returns (which have `labelM == null`) are unaffected.
 
 `fix(dwg): reject phantom inferred-label hint when direct consecutive neighbor matches (Siriu post 45)`
 
-## REMAINING FAILURE (open — distinct, harder problem)
+## Branch return + post-48 bifurcation (fixed 2026-05-29)
 
-After post 45 the walk still drifts: posts 46–52 land 265–365m off.
+### Branch return (Option A)
+- Record branch-entry at post-36 junction (idx 123) with `unusedArmIdx` 153.
+- At post-45 terminal (idx 76), resume spine via `findBranchReturnArm` when stub
+  neighbor fails next-label lookahead (`shouldTryBranchReturn` gates).
+- Posts 45–46: 6.7m / 2.2m. East spine 47–55: all <8m.
+
+### Post 48 bifurcation (swapped legacy-midpoint labels)
+PDF associator has **48→49=22.6** and **49→50=8.4** swapped vs map reality
+(48→49=8.4 stub to post 49, 49→50=22.6 chord, 48→54=44.7 other arm).
+- `junction-swapped-labels`: at deg≥3 junction, match stub arm via `toNum→next` label.
+- `swappedTapStep` on next step: use recorded main label (22.6) for 49→50.
+- Posts 48–50: 2.5m / 2.5m / 3.7m.
+
+Walk now reaches post 60+ before failing at 61 (no-candidate). Post 58+ still
+needs separate investigation (likely another branch / label issue).
+
+## REMAINING FAILURE (open — downstream of post 55)
+
+After post 55 the walk drifts again (post 58 ~243m).
 
 **Topology (confirmed via probes):**
 - The parallel branch is posts 36–45. Post 45 (idx 76) is a TRUE TERMINAL of that
