@@ -558,6 +558,24 @@ export function pairPostsByGraphWalk({
       const neighbors = unclaimedCableNeighbors(fromIdx, graph, claimed);
       if (neighbors.length === 0) caseAStuckNoNeighbors = true;
 
+      // If the consecutive Distancia_Poste label (labelM) is matched by a DIRECT
+      // unclaimed cable neighbor within tolerance, the consecutive edge physically
+      // exists in the DWG. In that case a non-consecutive inferred-label hint
+      // (e.g. a phantom 43->45 mirroring 43->44) must NOT override the real
+      // neighbor by multi-hopping from an already-visited junction. Compute the
+      // flag here and use it to suppress the broad hint-jumpback below.
+      let hasDirectConsecutiveMatch = false;
+      if (labelM != null && labelM > 0) {
+        const directTol = spanToleranceFor(labelM);
+        for (const nIdx of neighbors) {
+          const span = spanBetween(regionPosts, fromIdx, nIdx);
+          if (Math.abs(span - labelM) <= directTol) {
+            hasDirectConsecutiveMatch = true;
+            break;
+          }
+        }
+      }
+
       // Branch-return jumpback helper (runs BEFORE direct-neighbor logic and BEFORE
       // the labelM==null single-neighbor shortcut). If we have a non-consecutive
       // Distância_Poste label from any previously visited post to the target
@@ -697,7 +715,7 @@ export function pairPostsByGraphWalk({
             hintOriginNums.push(prevNum);
           }
         }
-        if (chosenIdx === undefined) {
+        if (chosenIdx === undefined && !hasDirectConsecutiveMatch) {
           for (let k = visitedPostNums.length - 1; k >= 0; k--) {
             const vNum = visitedPostNums[k];
             if (vNum === fromNum || vNum === toNum) continue;
