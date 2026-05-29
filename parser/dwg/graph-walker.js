@@ -192,10 +192,25 @@ function findBifurcationTapChordTarget(
     if (bestIdx >= 0) return bestIdx;
   }
 
+  // Span-based pick (smallest span that fits the tap-chord window). This is the
+  // authoritative choice; GPS only confirms or refines, never overrides blindly.
+  let spanBestIdx = -1;
+  let bestSpan = Infinity;
+  for (const { idx, span } of candidates) {
+    if (span < bestSpan) {
+      bestSpan = span;
+      spanBestIdx = idx;
+    }
+  }
+
   if (gpsByPostNumber?.get(toNum)) {
-    let bestIdx = -1;
+    const gpsRadiusM = Math.max(20, 5 * spanToleranceFor(mainLabelM));
+    /** Candidates tied with the span-based shortest leg (GPS may break ties only). */
+    const spanTied = candidates.filter((c) => Math.abs(c.span - bestSpan) <= 0.5);
+
+    let gpsBestIdx = -1;
     let bestGps = Infinity;
-    for (const { idx } of candidates) {
+    for (const { idx } of spanTied) {
       const g = insertDistanceToGpsPost(
         regionPosts,
         idx,
@@ -204,21 +219,25 @@ function findBifurcationTapChordTarget(
       );
       if (g != null && g < bestGps) {
         bestGps = g;
-        bestIdx = idx;
+        gpsBestIdx = idx;
       }
     }
-    if (bestIdx >= 0) return bestIdx;
-  }
 
-  let bestIdx = -1;
-  let bestSpan = Infinity;
-  for (const { idx, span } of candidates) {
-    if (span < bestSpan) {
-      bestSpan = span;
-      bestIdx = idx;
+    // GPS confirms when it agrees with the span pick, or breaks a genuine span
+    // tie among in-window candidates with a clearly small GPS distance. Never
+    // override a shorter span leg with a GPS-nearer longer chord (Siriu post 24:
+    // span idx 145 vs GPS idx 421).
+    if (gpsBestIdx >= 0) {
+      if (gpsBestIdx === spanBestIdx) {
+        return gpsBestIdx;
+      }
+      if (spanTied.length > 1 && bestGps < gpsRadiusM) {
+        return gpsBestIdx;
+      }
     }
   }
-  return bestIdx;
+
+  return spanBestIdx;
 }
 
 /**
