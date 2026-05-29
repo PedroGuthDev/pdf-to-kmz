@@ -53,6 +53,38 @@ function getDistLabel(distMap, fromNum, toNum) {
   );
 }
 
+/**
+ * Hop label from the post we're placing to the next numbered post — used for
+ * next-hop / spine-chord scoring. Bifurcation-tap consecutive labels (e.g.
+ * Siriu 11→12 = 23 m) measure the stub leg, not the cable hop to the next
+ * INSERT (~24 m); using the tap label mis-picks multi-hop arms (10→11).
+ */
+function effectiveNextRouteLabelM(
+  stepIndex,
+  toNum,
+  posts,
+  distMap,
+  bifurcationTapEdges,
+) {
+  const nextPost = posts[stepIndex + 2];
+  if (!nextPost) return null;
+  let labelM = getDistLabel(distMap, toNum, nextPost.number);
+  if (labelM == null || labelM <= 0) return null;
+  if (!bifurcationTapEdges.has(`${toNum}->${nextPost.number}`)) return labelM;
+
+  const beyond = posts[stepIndex + 3];
+  if (!beyond) return labelM;
+
+  const afterTap = getDistLabel(distMap, nextPost.number, beyond.number);
+  if (afterTap != null && afterTap > 0) return afterTap;
+
+  const mainM = getDistLabel(distMap, toNum, beyond.number);
+  if (mainM != null && mainM > labelM) {
+    return Math.max(mainM - labelM, spanToleranceFor(mainM) * 2);
+  }
+  return labelM;
+}
+
 function unclaimedCableNeighbors(idx, adjacencyGraph, claimed) {
   const neighbors = adjacencyGraph.get(idx);
   if (!neighbors) return [];
@@ -206,7 +238,9 @@ function findBifurcationTapChordTarget(
   if (gpsByPostNumber?.get(toNum)) {
     const gpsRadiusM = Math.max(20, 5 * spanToleranceFor(mainLabelM));
     /** Candidates tied with the span-based shortest leg (GPS may break ties only). */
-    const spanTied = candidates.filter((c) => Math.abs(c.span - bestSpan) <= 0.5);
+    const spanTied = candidates.filter(
+      (c) => Math.abs(c.span - bestSpan) <= 0.5,
+    );
 
     let gpsBestIdx = -1;
     let bestGps = Infinity;
@@ -250,26 +284,71 @@ function findSpineChordByNextLabel(
   claimed,
   regionPosts,
   graph,
+  chordLabelM = null,
 ) {
   if (nextLabelM == null || !Number.isFinite(nextLabelM) || nextLabelM <= 0) {
     return -1;
   }
   const nextTol = spanToleranceFor(nextLabelM);
-  let bestIdx = -1;
-  let bestNextDelta = Infinity;
+  /** @type {Array<{ idx: number, nextDelta: number, chordSpan: number }>} */
+  const viable = [];
   for (let i = 0; i < regionPosts.length; i++) {
     if (claimed.has(i) || i === fromIdx) continue;
+    let bestDeltaForI = Infinity;
     for (const nn of unclaimedCableNeighbors(i, graph, claimed)) {
       if (nn === fromIdx) continue;
       const hopSpan = spanBetween(regionPosts, i, nn);
       const delta = Math.abs(hopSpan - nextLabelM);
-      if (delta <= nextTol && delta < bestNextDelta) {
-        bestNextDelta = delta;
-        bestIdx = i;
+      if (delta <= nextTol && delta < bestDeltaForI) {
+        bestDeltaForI = delta;
+      }
+    }
+    if (bestDeltaForI < Infinity) {
+      viable.push({
+        idx: i,
+        nextDelta: bestDeltaForI,
+        chordSpan: spanBetween(regionPosts, fromIdx, i),
+      });
+    }
+  }
+  if (!viable.length) return -1;
+
+  viable.sort(
+    (a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan,
+  );
+  const bestByNext = viable[0];
+
+  if (chordLabelM != null && chordLabelM > 0) {
+    const chordTol = spanToleranceFor(chordLabelM);
+    const withChord = viable.filter(
+      (v) => Math.abs(v.chordSpan - chordLabelM) <= chordTol,
+    );
+    if (withChord.length) {
+      withChord.sort(
+        (a, b) =>
+          a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan,
+      );
+      const bestByChord = withChord[0];
+      const nextMiss = Math.abs(bestByNext.chordSpan - chordLabelM);
+      if (nextMiss > chordTol) {
+        // Siriu 59→60: label understates chord (~51 m) but next-hop is decisive
+        // (44→169 Δ≈0.02 m vs chord-fit 41 Δ≈2 m). Siriu 10→11: a stub INSERT
+        // can win next-hop while missing chord by ~100 m — prefer chord-fit 210.
+        if (
+          bestByNext.nextDelta + 1 < bestByChord.nextDelta &&
+          nextMiss < 25
+        ) {
+          return bestByNext.idx;
+        }
+        return bestByChord.idx;
+      }
+      if (bestByChord.nextDelta <= bestByNext.nextDelta + 1) {
+        return bestByChord.idx;
       }
     }
   }
-  return bestIdx;
+
+  return bestByNext.idx;
 }
 
 /** UTM distance from a region INSERT to a route post's PDF/GPS anchor (when provided). */
@@ -1304,11 +1383,13 @@ export function pairPostsByGraphWalk({
           // A too-aggressive adjacency union can introduce “leaf” candidates whose span
           // matches labelM but cannot continue to the next post (degree 0/1 after claiming).
           const nextNextPost = posts[i + 2];
-          const nextLabel =
-            nextNextPost != null
-              ? (distMap.get(`${toNum}->${nextNextPost.number}`) ??
-                distMap.get(`${nextNextPost.number}->${toNum}`))
-              : null;
+          const nextLabel = effectiveNextRouteLabelM(
+            i,
+            toNum,
+            posts,
+            distMap,
+            bifurcationTapEdges,
+          );
 
           /** @type {Array<{ idx: number, span: number, delta: number, deg: number, nextDelta: number|null }>} */
           const direct = [];
@@ -1464,6 +1545,7 @@ export function pairPostsByGraphWalk({
               claimed,
               regionPosts,
               graph,
+              labelM,
             );
             if (spineChordIdx >= 0) {
               spineChordNextDelta = bestNextSpanDeltaFor(
@@ -1652,7 +1734,21 @@ export function pairPostsByGraphWalk({
               Number.isFinite(spineChordNextDelta) &&
               Number.isFinite(hopNextDelta) &&
               spineChordNextDelta + 1 < hopNextDelta;
-            if (spineBeatsHop) {
+            const spineSpan =
+              spineChordIdx >= 0
+                ? spanBetween(regionPosts, fromIdx, spineChordIdx)
+                : null;
+            const spineChordDelta =
+              labelM != null && spineSpan != null
+                ? Math.abs(spineSpan - labelM)
+                : Infinity;
+            const hopFitsLabel =
+              hop != null && Number.isFinite(hop.delta) && hop.delta <= tol;
+            const spineFitsLabel =
+              Number.isFinite(spineChordDelta) && spineChordDelta <= tol;
+            const useSpineOverHop =
+              spineBeatsHop && (spineFitsLabel || !hopFitsLabel);
+            if (useSpineOverHop) {
               chosenIdx = spineChordIdx;
               warn({
                 kind: "dwg-spine-chord-next-label",
