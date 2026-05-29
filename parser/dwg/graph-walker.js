@@ -450,11 +450,39 @@ export function pairPostsByGraphWalk({
   const connMap = buildConnectionMap(connections);
   /** @type {Set<string>} */
   const bifurcationTapEdges = new Set();
+  // Map: "originNum:meters" -> targetNum for every bifurcation-main edge. Used to
+  // detect phantom inferred-label hints that duplicate a real bifurcation-main
+  // span (e.g. a spurious 36->39=35.5 that mirrors the real 36->38=35.5). Such a
+  // phantom would route the walker off the spine onto the wrong junction arm.
+  /** @type {Map<string, number>} */
+  const bifurcationMainByOriginMeters = new Map();
   for (const d of distances ?? []) {
     if (d?.source === "bifurcation-tap" && d.meters != null && d.meters > 0) {
       bifurcationTapEdges.add(`${d.from}->${d.to}`);
     }
+    if (
+      d?.source === "bifurcation-main" &&
+      d.meters != null &&
+      d.meters > 0 &&
+      d.from != null &&
+      d.to != null
+    ) {
+      bifurcationMainByOriginMeters.set(`${d.from}:${d.meters}`, d.to);
+    }
   }
+  /**
+   * A hint edge originNum->toNum with value meters is a phantom when a
+   * bifurcation-main edge originNum->otherPost carries the SAME meters but
+   * targets a DIFFERENT post. Genuine branch-return hints (e.g. 5->10) do not
+   * mirror a bifurcation-main span, so they pass.
+   */
+  const isPhantomBifurcationHint = (originNum, toNum, meters) => {
+    if (meters == null || meters <= 0) return false;
+    const mainTarget = bifurcationMainByOriginMeters.get(
+      `${originNum}:${meters}`,
+    );
+    return mainTarget != null && mainTarget !== toNum;
+  };
   // When the bifurcation-tap-stub handler places a tap post N, it advances the
   // walker onto the spine but the consecutive label N->(N+1) was cleared
   // (bifurcation-cleared). The continuation distance for the NEXT step lives in
@@ -464,7 +492,15 @@ export function pairPostsByGraphWalk({
   // neighbor of the tap-placed index. We record it here so the next step can
   // search the main label from the tap post (fromIdx) instead of from the
   // junction (whose path through the now-claimed tap index is blocked).
-  /** @type {Map<number, number>} tap-post number -> bifurcation-main label (m) */
+  /**
+   * tap-post number -> { labelM, juncIdx } where labelM is the bifurcation-main
+   * label (junction->(N+1)) in meters and juncIdx is the DXF INSERT index of the
+   * junction the tap branched from. The continuation hop for the cleared
+   * N->(N+1) edge is searched first from the tap post (fromIdx) and, failing
+   * that, from the junction index — because a true auxiliary tap leaves the
+   * spine, so (N+1) is reachable from the junction, not from the tap stub.
+   * @type {Map<number, { labelM: number, juncIdx: number|undefined }>}
+   */
   const tapPlacedMainLabel = new Map();
   buildPostByNumber(posts); // validate; result unused in graph-walk
 
@@ -548,19 +584,87 @@ export function pairPostsByGraphWalk({
         // here, whereas a junction-origin search would be blocked by the
         // now-claimed tap index. Only accept a tight match (the main label is a
         // real geometric span at an aux tap).
+        // Only attempt the tapMain multi-hop when the target is genuinely
+        // ambiguous (more than one unclaimed neighbor). If the tap post has a
+        // single unclaimed cable neighbor, that neighbor IS the next post — the
+        // recorded main label (e.g. 32→34 = 60.9) measures from the JUNCTION,
+        // not from this tap post, so multi-hopping it from fromIdx overshoots
+        // the real next post (lands on next+1). Defer to the single-neighbor
+        // shortcut below in that case.
+        const tapUnclaimed = unclaimedCableNeighbors(fromIdx, graph, claimed);
         if (chosenIdx === undefined && labelM == null) {
-          const tapMainLabelM = tapPlacedMainLabel.get(fromNum);
+          const tapRec = tapPlacedMainLabel.get(fromNum);
+          const tapMainLabelM = tapRec ? tapRec.labelM : null;
           if (tapMainLabelM != null && tapMainLabelM > 0) {
             const tapMainTol = spanToleranceFor(tapMainLabelM);
-            const tapMainHop = findMultiHopByLabel({
-              fromIdx,
-              labelM: tapMainLabelM,
-              tol: tapMainTol,
-              richGraph: graph,
-              claimed,
-              regionPosts,
-              maxHops: 4,
-            });
+            // First search from the tap post itself — but only when the tap post
+            // has more than one unclaimed neighbor (genuine ambiguity). With a
+            // single neighbor that neighbor IS the next post and the recorded
+            // main label measures from the JUNCTION, so a multi-hop from fromIdx
+            // would overshoot (see Issue 1, step 33->34).
+            let tapMainHop = null;
+            if (tapUnclaimed.length > 1) {
+              tapMainHop = findMultiHopByLabel({
+                fromIdx,
+                labelM: tapMainLabelM,
+                tol: tapMainTol,
+                richGraph: graph,
+                claimed,
+                regionPosts,
+                maxHops: 4,
+              });
+            }
+            // Fallback: a true auxiliary tap leaves the spine, so (N+1) is NOT
+            // reachable from the tap stub. Search the main label from the
+            // junction the tap branched off (Issue 2, step 37->38: post 38 sits
+            // on the spine off junction 36, not off tap 37).
+            if (
+              !tapMainHop &&
+              tapRec &&
+              tapRec.juncIdx != null &&
+              tapRec.juncIdx !== fromIdx
+            ) {
+              const juncIdx = tapRec.juncIdx;
+              const fallbackTol = Math.max(tapMainTol, 10, 0.35 * tapMainLabelM);
+              // Prefer a direct junction arm within tolerance, breaking ties by
+              // (1) HIGHEST degree — the numbered spine continues through a
+              // junction-degree node, not through a degree-2 side branch — then
+              // (2) tighter span delta. A pure label-delta search (e.g. arm
+              // 153@34.7 vs 124@31.0 against 35.5) would wrongly pick the
+              // slightly-closer side branch 153 over the true spine arm 124
+              // (deg 3). Only if no direct arm fits do we fall back to a deeper
+              // multi-hop search.
+              let armBest = null;
+              for (const arm of unclaimedCableNeighbors(juncIdx, graph, claimed)) {
+                const span = spanBetween(regionPosts, juncIdx, arm);
+                const delta = Math.abs(span - tapMainLabelM);
+                if (delta > fallbackTol) continue;
+                const deg = graph.get(arm)?.size ?? 0;
+                if (
+                  armBest == null ||
+                  deg > armBest.deg ||
+                  (deg === armBest.deg && delta < armBest.delta)
+                ) {
+                  armBest = { endpoint: arm, intermediates: [], deg, delta };
+                }
+              }
+              if (armBest) {
+                tapMainHop = {
+                  endpoint: armBest.endpoint,
+                  intermediates: armBest.intermediates,
+                };
+              } else {
+                tapMainHop = findMultiHopByLabel({
+                  fromIdx: juncIdx,
+                  labelM: tapMainLabelM,
+                  tol: fallbackTol,
+                  richGraph: graph,
+                  claimed,
+                  regionPosts,
+                  maxHops: 6,
+                });
+              }
+            }
             if (tapMainHop) {
               chosenIdx = tapMainHop.endpoint;
               chainIntermediates = tapMainHop.intermediates;
@@ -618,6 +722,19 @@ export function pairPostsByGraphWalk({
           ) {
             continue;
           }
+          // Reject phantom inferred-label hints that merely duplicate a real
+          // bifurcation-main span from the same origin (e.g. 36->39=35.5 mirrors
+          // 36->38=35.5). Following it routes the walk onto the wrong junction
+          // arm instead of the direct spine neighbor.
+          if (
+            isPhantomBifurcationHint(
+              hintOriginNumForHop,
+              toNum,
+              hintLabelForHop,
+            )
+          ) {
+            continue;
+          }
           const hintTolForHop = spanToleranceFor(hintLabelForHop);
           const hop = findMultiHopByLabel({
             fromIdx: hintOriginIdxForHop,
@@ -657,7 +774,10 @@ export function pairPostsByGraphWalk({
         // Record the main label so the NEXT step (toNum -> toNum+1, whose
         // consecutive label was bifurcation-cleared) can match it directly from
         // the tap-placed index instead of from the junction.
-        tapPlacedMainLabel.set(toNum, juncMainLabelM);
+        tapPlacedMainLabel.set(toNum, {
+          labelM: juncMainLabelM,
+          juncIdx: fromIdx,
+        });
         warn({
           kind: "dwg-bifurcation-tap-stub",
           at_post: toNum,
@@ -1179,6 +1299,34 @@ export function pairPostsByGraphWalk({
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
+    }
+
+    // Record the bifurcation-main label for the NEXT step whenever this step
+    // landed on a bifurcation tap post (toNum) and a junction->(toNum+1) main
+    // label exists. This covers BOTH the single-neighbor stub (recorded inline
+    // above) and the multi-neighbor case where the tap post was selected by the
+    // ordinary label-span path (e.g. junction 36 has neighbors [124,153,152]
+    // and post 37 is the 10.5m tap stub at idx152). The next step (37->38) has
+    // a bifurcation-cleared label and needs the 36->38 main label searched from
+    // the junction, since post 38 sits on the spine off the junction, not off
+    // the tap stub.
+    {
+      const nextRoutePost = posts[i + 2];
+      const tapMainNext =
+        nextRoutePost != null
+          ? getDistLabel(distMap, fromNum, nextRoutePost.number)
+          : null;
+      if (
+        bifurcationTapEdges.has(`${fromNum}->${toNum}`) &&
+        tapMainNext != null &&
+        tapMainNext > 0 &&
+        !tapPlacedMainLabel.has(toNum)
+      ) {
+        tapPlacedMainLabel.set(toNum, {
+          labelM: tapMainNext,
+          juncIdx: fromIdx,
+        });
+      }
     }
 
     if (process.env.GW_TRACE) {
