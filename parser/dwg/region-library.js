@@ -126,6 +126,29 @@ export function createRegionLibrary(idbFactory = null) {
       return { ...region, postIndex, adjacencyGraph };
     },
 
+    async importRegionFromManifest(manifest, sourceDxf = null) {
+      if (!manifest?.id) throw new Error("Manifest id is required.");
+      const postIndex = restorePostIndexFromDump(manifest.rbushDump);
+      const record = {
+        id: manifest.id,
+        name: manifest.name ?? manifest.id,
+        uploadedAt: manifest.uploadedAt ?? Date.now(),
+        crs: manifest.crs ?? { ...DEFAULT_CRS },
+        bboxUtm: manifest.bboxUtm ?? null,
+        bboxLatLon: manifest.bboxLatLon ?? null,
+        posts: manifest.posts ?? [],
+        cableEdges: manifest.cableEdges ?? [],
+        rbushDump: manifest.rbushDump ?? postIndex.toJSON(),
+        sourceDxf: sourceDxf,
+        parserVersion: manifest.parserVersion ?? PARSER_VERSION,
+      };
+
+      const db = await openRegionsDb(idbFactory);
+      await db.put("regions", record);
+      db.close?.();
+      return record;
+    },
+
     async deleteRegion(name) {
       const db = await openRegionsDb(idbFactory);
       await db.delete("regions", name);

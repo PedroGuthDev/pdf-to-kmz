@@ -575,8 +575,10 @@
       </h2>
       <p class="hint" style="margin: 0 0 var(--space-sm)">
         Carregue um arquivo DXF regional para coordenadas de maior precisão.
-        Pode fazer isso antes ou depois de enviar o PDF.
+        Pode fazer isso antes ou depois de enviar o PDF. Na Vercel com Blob
+        configurado, as regiões são sincronizadas na nuvem (além do cache local).
       </p>
+      <p id="dxfCloudStatus" class="hint" style="margin: 0 0 var(--space-xs)"></p>
       <label for="dxfRegionSelect">Região ativa</label>
       <select id="dxfRegionSelect" aria-describedby="dxfRegionSelectHint">
         <option value="">Automático (por GPS do poste 1)</option>
@@ -608,6 +610,14 @@
           Carregar região DXF
         </button>
       </div>
+      <label for="dxfApiSecret">Chave API (opcional)</label>
+      <input
+        type="password"
+        id="dxfApiSecret"
+        placeholder="Só se DXF_API_SECRET estiver definido na Vercel"
+        autocomplete="off"
+        style="max-width: 28rem"
+      />
       <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>
     </section>
 

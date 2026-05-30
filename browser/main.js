@@ -13,13 +13,14 @@ import {
   formatDwgWarning,
 } from "../parser/dwg/coordinate-calculator-dwg.js";
 import { createRegionLibrary } from "../parser/dwg/region-library.js";
+import { createDefaultHybridRegionLibrary } from "../parser/dwg/region-library-hybrid.js";
 import { PRESET_COLORS, DEFAULT_OPTIONS } from "../parser/kmz-defaults.js";
 import {
   computeScaleFactor,
   buildPageTransforms,
 } from "../parser/geo/utm-calibrator.js";
 
-const regionLibrary = createRegionLibrary();
+const regionLibrary = createDefaultHybridRegionLibrary(createRegionLibrary());
 
 // ── Debug helpers ──────────────────────────────────────────────────────────
 const debugSection = document.getElementById("debugSection");
@@ -150,6 +151,8 @@ const dxfFileInput = document.getElementById("dxfFileInput");
 const dxfRegionName = document.getElementById("dxfRegionName");
 const dxfRegionSelect = document.getElementById("dxfRegionSelect");
 const dxfUploadStatus = document.getElementById("dxfUploadStatus");
+const dxfCloudStatus = document.getElementById("dxfCloudStatus");
+const dxfApiSecret = document.getElementById("dxfApiSecret");
 const coordWarning = document.getElementById("coordWarning");
 const secondAnchorToggle = document.getElementById("secondAnchorToggle");
 const secondAnchorPanel = document.getElementById("secondAnchorPanel");
@@ -212,7 +215,42 @@ async function refreshDxfRegionSelect(preferId = null) {
   }
 }
 
+async function updateDxfCloudBanner() {
+  if (!dxfCloudStatus || typeof regionLibrary.refreshCloudStatus !== "function") {
+    return;
+  }
+  const ok = await regionLibrary.refreshCloudStatus();
+  if (ok) {
+    dxfCloudStatus.textContent = "Nuvem: sincronização ativa (Vercel Blob).";
+    dxfCloudStatus.style.color = "var(--success)";
+  } else {
+    dxfCloudStatus.textContent =
+      "Nuvem: indisponível — apenas cache local neste browser.";
+    dxfCloudStatus.style.color = "var(--ink-muted)";
+  }
+}
+
+if (dxfApiSecret) {
+  try {
+    const saved = sessionStorage.getItem("pdf-to-kmz-dxf-api-secret");
+    if (saved) dxfApiSecret.value = saved;
+  } catch {
+    /* ignore */
+  }
+  dxfApiSecret.addEventListener("change", () => {
+    try {
+      const v = dxfApiSecret.value.trim();
+      if (v) sessionStorage.setItem("pdf-to-kmz-dxf-api-secret", v);
+      else sessionStorage.removeItem("pdf-to-kmz-dxf-api-secret");
+      regionLibrary.refreshCloudStatus?.().then(() => updateDxfCloudBanner());
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 refreshDxfRegionSelect().catch(() => {});
+updateDxfCloudBanner().catch(() => {});
 
 // ── DWG DXF upload handler ────────────────────────────────────────────────
 if (dxfUploadBtn && dxfFileInput) {
@@ -253,9 +291,12 @@ if (dxfFileInput) {
       await regionLibrary.addRegion(name, file);
       await refreshDxfRegionSelect(name);
       if (dxfUploadStatus) {
-        dxfUploadStatus.textContent = `Região "${name}" carregada com sucesso.`;
+        const cloud =
+          regionLibrary.cloudEnabled ? " e enviada para a nuvem" : "";
+        dxfUploadStatus.textContent = `Região "${name}" carregada${cloud}.`;
         dxfUploadStatus.style.color = "var(--success)";
       }
+      await updateDxfCloudBanner();
     } catch (err) {
       const msg = String(err?.message ?? err);
       if (dxfUploadStatus) {

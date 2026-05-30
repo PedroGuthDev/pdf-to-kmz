@@ -3,5 +3,11 @@
   "framework": null,
   "installCommand": "npm install --ignore-scripts",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "functions": {
+    "api/dxf/regions.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
 }

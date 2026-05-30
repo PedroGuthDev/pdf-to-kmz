@@ -19,6 +19,7 @@
   "type": "module",
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
+    "@vercel/blob": "^2.4.0",
     "canvas": "^3.2.3",
     "dxf-parser": "^1.1.2",
     "idb": "^8.0.3",
