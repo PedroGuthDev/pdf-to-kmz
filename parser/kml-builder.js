@@ -157,7 +157,7 @@ export function buildKml(posts, connections, options = {}) {
     );
     if (outs.length > 0) {
       for (const o of outs) {
-        if (o.to > e.from + 1 || o.to - e.from > 1) {
+        if (Math.abs(o.to - e.from) > 1) {
           branchStarts.add(o.to);
         }
       }
