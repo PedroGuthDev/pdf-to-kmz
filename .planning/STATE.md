@@ -80,7 +80,7 @@ Accuracy: João Born 22/34 < 5m, max 18.97m (posts 9-11 at 15-19m); Valmor 9/11 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 20260519 | Web research: external techniques for GPS coordinate accuracy (HMM/Viterbi, N1 arc-length, Hungarian) | 2026-05-19 | — | [20260519-web-research-accuracy](./quick/20260519-web-research-accuracy/) |
-| 260530-day | API DXF com Vercel Blob + biblioteca híbrida nuvem/local | 2026-05-30 | — | [260530-day-implemente-uma-api-com-liga-o-ao-blob-pa](./quick/260530-day-implemente-uma-api-com-liga-o-ao-blob-pa/) |
+| 260530-day | API DXF com Vercel Blob + biblioteca híbrida nuvem/local | 2026-05-30 | 8c70054 | [260530-day-implemente-uma-api-com-liga-o-ao-blob-pa](./quick/260530-day-implemente-uma-api-com-liga-o-ao-blob-pa/) |
 
 ---
 Last activity: 2026-05-30 - Completed quick task 260530-day: API DXF com Vercel Blob
