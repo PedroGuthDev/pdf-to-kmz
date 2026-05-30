@@ -52,6 +52,14 @@ function edgeKey(from, to) {
  */
 function preferMainRouteEdge(from, candidates, branchStarts, outMap, used) {
   const sorted = [...candidates].sort((a, b) => a.to - b.to);
+
+  // Part A (primary): a source-tagged main edge is authoritative. coordinate-calculator
+  // marks the true through-route at a bifurcation as `bifurcation-main` / `inferred-label`.
+  const mainTagged = sorted.find(
+    (e) => e.source === "bifurcation-main" || e.source === "inferred-label",
+  );
+  if (mainTagged) return mainTagged;
+
   const consecutive = sorted.find((e) => e.to === from + 1);
   const jumps = sorted.filter((e) => e.to !== from + 1);
 
@@ -63,6 +71,15 @@ function preferMainRouteEdge(from, candidates, branchStarts, outMap, used) {
       );
       if (mainCont) return jump;
     }
+    // Part B (fallback for source-less inputs): no jump has a hi→hi+1 continuation.
+    // A non-continuing jump whose target itself has outgoing edges is a bifurcation
+    // rejoin (its next edge is jumpback-suppressed, not absent), so prefer it as main
+    // over the consecutive tap. A jump to a bare leaf (no outgoing edges) is a genuine
+    // spur and must NOT override the consecutive through-route.
+    const continuingJump = jumps.find(
+      (jump) => (outMap.get(jump.to) ?? []).length > 0,
+    );
+    if (continuingJump) return continuingJump;
   }
 
   if (consecutive) return consecutive;
