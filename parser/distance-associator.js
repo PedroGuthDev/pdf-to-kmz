@@ -4,6 +4,14 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
+/**
+ * Ratio from overview-page PDF points to detail-page PDF points.
+ * 303.6 pt = typical detail-page width in PDF user-space units;
+ * 1191 pt = typical overview-page width at the same physical scale.
+ * Used as a fallback when no per-page UTM grid is available.
+ */
+const OVERVIEW_TO_DETAIL_SCALE = 303.6 / 1191;
+
 import { isOffRouteCablePost } from "./cable-builder.js";
 import { deduplicatePostsPreferLowerPage } from "./post-assembler.js";
 
@@ -101,7 +109,7 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
       const detailSf =
         pageSf ??
         opts.detailScaleFactor ??
-        (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+        (overviewSf != null ? overviewSf * OVERVIEW_TO_DETAIL_SCALE : null);
       if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
         const pdfM = pdfPt * detailSf;
         const ratio = pdfM / meters;
@@ -245,7 +253,7 @@ function associateSequentialMonotonic(
     const detailSf =
       pageSf ??
       opts.detailScaleFactor ??
-      (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+      (overviewSf != null ? overviewSf * OVERVIEW_TO_DETAIL_SCALE : null);
     if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
       const pdfM = pdfPt * detailSf;
       const ratio = pdfM / meters;
@@ -589,7 +597,7 @@ function refillSequentialGaps(
       const detailSf =
         pageSf ??
         opts.detailScaleFactor ??
-        (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+        (overviewSf != null ? overviewSf * OVERVIEW_TO_DETAIL_SCALE : null);
       const pdfPt = Math.hypot(b.x - a.x, b.y - a.y);
       if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
         const pdfM = pdfPt * detailSf;
@@ -733,7 +741,7 @@ function scoreLabelOnSequentialSeg(sortedPosts, segIdx, dt, opts) {
   const detailSf =
     pageSf ??
     opts.detailScaleFactor ??
-    (overviewSf != null ? overviewSf * (303.6 / 1191) : null);
+    (overviewSf != null ? overviewSf * OVERVIEW_TO_DETAIL_SCALE : null);
   if (!crossPage && detailSf != null && meters > 0 && pdfPt > 0) {
     const pdfM = pdfPt * detailSf;
     const ratio = pdfM / meters;
@@ -852,7 +860,7 @@ function refineSequentialWindows(posts, distItems, seq, warnings, opts) {
     return (
       pageSf ??
       opts.detailScaleFactor ??
-      (overviewSf != null ? overviewSf * (303.6 / 1191) : null)
+      (overviewSf != null ? overviewSf * OVERVIEW_TO_DETAIL_SCALE : null)
     );
   };
 
