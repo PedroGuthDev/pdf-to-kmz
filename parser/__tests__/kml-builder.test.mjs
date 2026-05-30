@@ -67,6 +67,95 @@ describe("buildRoutePolylines", () => {
       [3, 4],
     );
   });
+
+  it("source-tagged main wins when the jump target has no consecutive continuation (junction 64)", () => {
+    // 64→65 tap (leaf), 64→66 main tagged; 66 continues but NOT via 66→67
+    // (jumpback-suppressed). The pre-fix heuristic fell back to the 65 tap as main.
+    const connections = [
+      { from: 63, to: 64 },
+      { from: 64, to: 65 },
+      { from: 64, to: 66, source: "bifurcation-main" },
+      { from: 66, to: 67 },
+      { from: 67, to: 68 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    const paths = lines.map((l) => l.postNumbers.join(",")).sort();
+    // main trunk extends through the tagged edge into 66→67→68
+    assert.ok(
+      paths.includes("63,64,66,67,68"),
+      `main trunk should pass through 64,66,67,68 — got ${paths.join("|")}`,
+    );
+    // tap 64→65 is its own polyline, not merged into the trunk
+    assert.ok(
+      paths.includes("64,65"),
+      `tap 64→65 should be a separate polyline — got ${paths.join("|")}`,
+    );
+    // main edge must NOT be demoted to an isolated 2-pt stub
+    assert.ok(
+      !paths.includes("64,66"),
+      `64,66 must not be an isolated 2-pt stub — got ${paths.join("|")}`,
+    );
+  });
+
+  it("inferred-label main wins over consecutive tap (junction 14)", () => {
+    const connections = [
+      { from: 13, to: 14 },
+      { from: 14, to: 15 },
+      { from: 14, to: 18, source: "inferred-label" },
+      { from: 18, to: 19 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    const paths = lines.map((l) => l.postNumbers.join(",")).sort();
+    assert.ok(
+      paths.includes("13,14,18,19"),
+      `main trunk should pass through 14,18,19 — got ${paths.join("|")}`,
+    );
+    assert.ok(
+      paths.includes("14,15"),
+      `tap 14→15 should be a separate polyline — got ${paths.join("|")}`,
+    );
+  });
+
+  it("source-less non-continuing jump beats consecutive tap when its target has outgoing edges (Part B)", () => {
+    // No source tags. 36→37 tap (leaf), 36→38 jump; 38 has 38→… outgoing but no
+    // 38→39 continuation. The jump is the bifurcation rejoin and must win.
+    const connections = [
+      { from: 35, to: 36 },
+      { from: 36, to: 37 },
+      { from: 36, to: 38 },
+      { from: 38, to: 50 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    const paths = lines.map((l) => l.postNumbers.join(",")).sort();
+    assert.ok(
+      paths.includes("35,36,38,50"),
+      `source-less jump should be main — got ${paths.join("|")}`,
+    );
+    assert.ok(
+      paths.includes("36,37"),
+      `tap 36→37 should be a separate polyline — got ${paths.join("|")}`,
+    );
+  });
+
+  it("source-less jump to a bare leaf stays a spur (does not override consecutive)", () => {
+    // Guards Part B: 2→4 jumps to a leaf (no outgoing edges) → genuine spur, the
+    // consecutive 2→3 through-route must remain main.
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+      { from: 2, to: 4 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    const paths = lines.map((l) => l.postNumbers.join(",")).sort();
+    assert.ok(
+      paths.includes("1,2,3"),
+      `consecutive through-route should be main — got ${paths.join("|")}`,
+    );
+    assert.ok(
+      paths.includes("2,4"),
+      `leaf jump 2→4 should be a separate spur — got ${paths.join("|")}`,
+    );
+  });
 });
 
 describe("buildKml", () => {
