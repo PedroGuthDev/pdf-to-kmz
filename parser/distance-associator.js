@@ -1544,8 +1544,7 @@ export function applyBifurcationJunctionLabelRehome(
       const ly = it.y;
       const dJ = Math.hypot(lx - jp.x, ly - jp.y);
       const dT = Math.hypot(lx - tp.x, ly - tp.y);
-      if (dT < dJ * JUNCTION_CLOSER_RATIO) tapMainOnTap = true;
-      break;
+      if (dT < dJ * JUNCTION_CLOSER_RATIO) { tapMainOnTap = true; break; }
     }
     if (!tapMainOnTap) continue;
 
