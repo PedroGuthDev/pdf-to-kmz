@@ -219,13 +219,26 @@ async function updateDxfCloudBanner() {
   if (!dxfCloudStatus || typeof regionLibrary.refreshCloudStatus !== "function") {
     return;
   }
+  let secret = "";
+  try {
+    secret = sessionStorage.getItem("pdf-to-kmz-dxf-api-secret")?.trim() ?? "";
+  } catch {
+    /* ignore */
+  }
+  if (!secret) {
+    dxfCloudStatus.textContent =
+      "Nuvem privada: cole a chave API (valor de DXF_API_SECRET na Vercel).";
+    dxfCloudStatus.style.color = "var(--warn, #b45309)";
+    return;
+  }
   const ok = await regionLibrary.refreshCloudStatus();
   if (ok) {
-    dxfCloudStatus.textContent = "Nuvem: sincronização ativa (Vercel Blob).";
+    dxfCloudStatus.textContent =
+      "Nuvem privada: sincronização ativa (Blob + chave API).";
     dxfCloudStatus.style.color = "var(--success)";
   } else {
     dxfCloudStatus.textContent =
-      "Nuvem: indisponível — apenas cache local neste browser.";
+      "Nuvem indisponível (chave inválida ou Blob não configurado) — só cache local.";
     dxfCloudStatus.style.color = "var(--ink-muted)";
   }
 }

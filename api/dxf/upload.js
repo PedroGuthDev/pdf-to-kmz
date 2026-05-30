@@ -1,5 +1,6 @@
 import { handleUpload } from "@vercel/blob/client";
 
+import { requireAuth } from "../../lib/dxf-cloud-auth.js";
 import {
   CLIENT_DXF_MAX_BYTES,
   DXF_REGION_PREFIX,
@@ -10,17 +11,6 @@ function json(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
-}
-
-function requireAuth(req, res) {
-  const secret = process.env.DXF_API_SECRET;
-  if (!secret) return true;
-  const header = req.headers.authorization ?? "";
-  const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
-  const apiKey = req.headers["x-api-key"] ?? "";
-  if (bearer === secret || apiKey === secret) return true;
-  json(res, 401, { error: "Unauthorized" });
-  return false;
 }
 
 function readJsonBody(req) {
@@ -57,7 +47,7 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!requireAuth(req, res)) return;
+  if (!requireAuth(req, res, json)) return;
 
   let body;
   try {

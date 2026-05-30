@@ -134,11 +134,7 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
         const manifest = await cloudClient.getRegion(id);
         if (!manifest) return null;
 
-        let sourceDxf = null;
-        if (manifest.dxfUrl) {
-          const res = await fetch(manifest.dxfUrl);
-          if (res.ok) sourceDxf = await res.blob();
-        }
+        const sourceDxf = await cloudClient.fetchDxfBlob(id);
 
         await localLibrary.importRegionFromManifest(manifest, sourceDxf);
         return localLibrary.getRegionWithIndex(id);

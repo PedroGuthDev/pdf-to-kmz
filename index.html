@@ -576,8 +576,8 @@
       <p class="hint" style="margin: 0 0 var(--space-sm)">
         Carregue um arquivo DXF regional para coordenadas de maior precisão.
         Pode fazer isso antes ou depois de enviar o PDF. Na Vercel com Blob
-        configurado, o DXF completo e os dados parseados ficam na nuvem — em
-        outro dispositivo a app descarrega e usa o mesmo ficheiro.
+        configurado, os ficheiros ficam em Blob privado (não são URLs públicas).
+        Em outro dispositivo use a mesma chave API para listar e descarregar.
       </p>
       <p id="dxfCloudStatus" class="hint" style="margin: 0 0 var(--space-xs)"></p>
       <label for="dxfRegionSelect">Região ativa</label>
@@ -611,12 +611,13 @@
           Carregar região DXF
         </button>
       </div>
-      <label for="dxfApiSecret">Chave API (opcional)</label>
+      <label for="dxfApiSecret">Chave API (obrigatória para nuvem)</label>
       <input
         type="password"
         id="dxfApiSecret"
-        placeholder="Só se DXF_API_SECRET estiver definido na Vercel"
+        placeholder="Mesmo valor que DXF_API_SECRET na Vercel"
         autocomplete="off"
+        required
         style="max-width: 28rem"
       />
       <div id="dxfUploadStatus" class="hint" style="margin-top: 6px"></div>

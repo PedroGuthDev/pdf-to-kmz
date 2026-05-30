@@ -1,8 +1,13 @@
+import { Readable } from "node:stream";
+
+import { requireAuth } from "../../lib/dxf-cloud-auth.js";
 import {
   deleteRegion,
   getRegionManifest,
   isBlobConfigured,
   listRegionSummaries,
+  readRegionDxfStream,
+  sanitizeManifestForClient,
   upsertRegion,
 } from "../../lib/dxf-cloud-store.js";
 
@@ -10,17 +15,6 @@ function json(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
-}
-
-function requireAuth(req, res) {
-  const secret = process.env.DXF_API_SECRET;
-  if (!secret) return true;
-  const header = req.headers.authorization ?? "";
-  const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
-  const apiKey = req.headers["x-api-key"] ?? "";
-  if (bearer === secret || apiKey === secret) return true;
-  json(res, 401, { error: "Unauthorized" });
-  return false;
 }
 
 function readBody(req) {
@@ -47,20 +41,38 @@ export default async function handler(req, res) {
     });
   }
 
+  if (!requireAuth(req, res, json)) return;
+
   const id = typeof req.query?.id === "string" ? req.query.id : null;
+  const asset = typeof req.query?.asset === "string" ? req.query.asset : null;
 
   if (req.method === "GET") {
+    if (id && asset === "dxf") {
+      const blob = await readRegionDxfStream(id);
+      if (!blob) return json(res, 404, { error: "Region or DXF not found" });
+
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/dxf");
+      res.setHeader("Cache-Control", "private, no-store");
+      const nodeStream = Readable.fromWeb(blob.stream);
+      nodeStream.on("error", () => {
+        if (!res.headersSent) json(res, 500, { error: "Stream failed" });
+        else res.end();
+      });
+      return nodeStream.pipe(res);
+    }
+
     if (id) {
       const manifest = await getRegionManifest(id);
       if (!manifest) return json(res, 404, { error: "Region not found" });
-      return json(res, 200, { region: manifest });
+      return json(res, 200, { region: sanitizeManifestForClient(manifest) });
     }
+
     const regions = await listRegionSummaries();
     return json(res, 200, { regions });
   }
 
   if (req.method === "POST") {
-    if (!requireAuth(req, res)) return;
     let body;
     try {
       body = await readBody(req);
@@ -70,12 +82,13 @@ export default async function handler(req, res) {
 
     const name = String(body.name ?? "").trim();
     const dxfText = typeof body.dxfText === "string" ? body.dxfText : "";
-    const dxfUrl = typeof body.dxfUrl === "string" ? body.dxfUrl : "";
+    const dxfPathname =
+      typeof body.dxfPathname === "string" ? body.dxfPathname : "";
     const manifest = body.manifest && typeof body.manifest === "object" ? body.manifest : null;
 
     if (!name) return json(res, 400, { error: "name is required" });
-    if (!dxfText && !dxfUrl) {
-      return json(res, 400, { error: "dxfText or dxfUrl is required" });
+    if (!dxfText && !dxfPathname) {
+      return json(res, 400, { error: "dxfText or dxfPathname is required" });
     }
     if (!manifest) return json(res, 400, { error: "manifest is required" });
 
@@ -84,7 +97,7 @@ export default async function handler(req, res) {
         id: name,
         name,
         dxfText: dxfText || undefined,
-        dxfUrl: dxfUrl || undefined,
+        dxfPathname: dxfPathname || undefined,
         manifest,
       });
       return json(res, 201, result);
@@ -97,7 +110,6 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    if (!requireAuth(req, res)) return;
     if (!id) return json(res, 400, { error: "Query id is required" });
     try {
       await deleteRegion(id);

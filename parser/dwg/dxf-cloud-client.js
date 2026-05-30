@@ -22,14 +22,25 @@ export function createDxfCloudClient(options = {}) {
     return { Authorization: `Bearer ${secret}` };
   }
 
-  async function registerRegion({ name, manifest, dxfText, dxfUrl }) {
+  function requireSecret() {
+    const secret = getSecret();
+    if (!secret) {
+      throw new Error(
+        "Chave API em falta. Defina DXF_API_SECRET na Vercel e cole a chave no campo abaixo."
+      );
+    }
+    return secret;
+  }
+
+  async function registerRegion({ name, manifest, dxfText, dxfPathname }) {
+    requireSecret();
     const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(),
       },
-      body: JSON.stringify({ name, manifest, dxfText, dxfUrl }),
+      body: JSON.stringify({ name, manifest, dxfText, dxfPathname }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -41,8 +52,16 @@ export function createDxfCloudClient(options = {}) {
   return {
     async probe() {
       try {
-        const res = await fetch(apiUrl("/api/dxf/regions", baseUrl));
+        requireSecret();
+      } catch (err) {
+        return { ok: false, reason: String(err?.message ?? err) };
+      }
+      try {
+        const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
+          headers: authHeaders(),
+        });
         if (res.status === 503) return { ok: false, reason: "blob_not_configured" };
+        if (res.status === 401) return { ok: false, reason: "invalid_api_key" };
         return { ok: res.ok, status: res.status };
       } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
@@ -50,7 +69,9 @@ export function createDxfCloudClient(options = {}) {
     },
 
     async listRegions() {
-      const res = await fetch(apiUrl("/api/dxf/regions", baseUrl));
+      const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
+        headers: authHeaders(),
+      });
       if (!res.ok) throw new Error(`Cloud list failed (${res.status})`);
       const data = await res.json();
       return data.regions ?? [];
@@ -58,7 +79,8 @@ export function createDxfCloudClient(options = {}) {
 
     async getRegion(id) {
       const res = await fetch(
-        apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl)
+        apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl),
+        { headers: authHeaders() }
       );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`Cloud get failed (${res.status})`);
@@ -66,10 +88,21 @@ export function createDxfCloudClient(options = {}) {
       return data.region ?? null;
     },
 
-    /**
-     * Upload DXF + manifest. Large files go browser → Blob; small files inline in POST.
-     */
+    async fetchDxfBlob(id) {
+      const res = await fetch(
+        apiUrl(
+          `/api/dxf/regions?id=${encodeURIComponent(id)}&asset=dxf`,
+          baseUrl
+        ),
+        { headers: authHeaders() }
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`DXF download failed (${res.status})`);
+      return res.blob();
+    },
+
     async uploadRegion({ name, dxfFile, dxfText, manifest }) {
+      requireSecret();
       const regionId = name;
       const pathname = regionDxfBlobPath(regionId);
       const size =
@@ -78,17 +111,22 @@ export function createDxfCloudClient(options = {}) {
 
       if (dxfFile && size > INLINE_DXF_MAX_BYTES) {
         const blob = await upload(pathname, dxfFile, {
-          access: "public",
+          access: "private",
           handleUploadUrl: apiUrl("/api/dxf/upload", baseUrl),
           multipart: size > 5 * 1024 * 1024,
           contentType: "application/dxf",
           headers: authHeaders(),
         });
-        return registerRegion({ name, manifest, dxfUrl: blob.url });
+        return registerRegion({
+          name,
+          manifest,
+          dxfPathname: blob.pathname,
+        });
       }
 
       const text =
-        dxfText ?? (dxfFile && typeof dxfFile.text === "function"
+        dxfText ??
+        (dxfFile && typeof dxfFile.text === "function"
           ? await dxfFile.text()
           : "");
       if (!text) throw new Error("DXF content is required for cloud upload.");
