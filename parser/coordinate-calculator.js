@@ -290,10 +290,7 @@ export function parseCoordinateInput(input) {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Reject inputs mixing multiple separator types (e.g. "1,234.5 -48.6").
   const hasComma = trimmed.includes(",");
-  const hasSpace = /\s/.test(trimmed);
-  if (hasComma && hasSpace) return null;
 
   // Try comma-separated first, then space-separated
   let parts;
