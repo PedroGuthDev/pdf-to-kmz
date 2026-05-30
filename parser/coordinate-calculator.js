@@ -1088,7 +1088,10 @@ export function detectGaps(posts, distances, cableSegments) {
       if (connected) break;
     }
 
-    const hasDistance = distMap.get(`${curr.number}->${next.number}`) != null;
+    const fwd = `${curr.number}->${next.number}`;
+    const rev = `${next.number}->${curr.number}`;
+    const distM = distMap.get(fwd) ?? distMap.get(rev);
+    const hasDistance = distM != null && distM > 0;
 
     // D-10: It's a gap if no cable connects them AND there's no distance label
     if (!connected && !hasDistance) {
