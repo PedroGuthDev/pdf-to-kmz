@@ -23,12 +23,15 @@ export async function ensureNodeCanvasPolyfills() {
   if (!globalThis.Path2D && napi.Path2D) {
     globalThis.Path2D = napi.Path2D;
   }
-  if (!globalThis.navigator?.language) {
-    globalThis.navigator = {
-      language: "en-US",
-      platform: "",
-      userAgent: "",
-    };
+  if (typeof globalThis.navigator === "undefined") {
+    try {
+      Object.defineProperty(globalThis, "navigator", {
+        value: { language: "en-US", platform: "", userAgent: "" },
+        configurable: true,
+      });
+    } catch {
+      // navigator is non-configurable on this runtime; skip polyfill
+    }
   }
   _polyfillsDone = true;
 }
