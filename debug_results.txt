@@ -1,3 +1,233 @@
+Parser warnings
+
+    Page 2: skipped post OCR — not a viewport-calibrated route detail page
+    Page 6: skipped post OCR — not a viewport-calibrated route detail page
+    Page 7: skipped post OCR — not a viewport-calibrated route detail page
+    Page 8: skipped post OCR — not a viewport-calibrated route detail page
+    Page 9: skipped post OCR — not a viewport-calibrated route detail page
+    Post at (272.7, 444.3) page 3: OCR failed — attempting sequence inference
+    Post at (272.7, 444.3) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (342.4, 428.8) page 3: OCR failed — attempting sequence inference
+    Post at (342.4, 428.8) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (436.8, 396.8) page 3: OCR failed — attempting sequence inference
+    Post at (436.8, 396.8) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (508.9, 301.7) page 3: OCR failed — attempting sequence inference
+    Post at (508.9, 301.7) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (504.1, 382.4) page 3: OCR failed — attempting sequence inference
+    Post at (504.1, 382.4) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (606.0, 277.7) page 3: OCR failed — attempting sequence inference
+    Post at (606.0, 277.7) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (668.5, 261.5) page 3: OCR failed — attempting sequence inference
+    Post at (668.5, 261.5) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (752.5, 236.9) page 3: OCR failed — attempting sequence inference
+    Post at (752.5, 236.9) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (849.5, 215.0) page 3: OCR failed — attempting sequence inference
+    Post at (849.5, 215.0) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (883.1, 201.4) page 3: OCR failed — attempting sequence inference
+    Post at (883.1, 201.4) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (939.5, 189.3) page 3: OCR failed — attempting sequence inference
+    Post at (939.5, 189.3) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (986.2, 179.3) page 3: OCR failed — attempting sequence inference
+    Post at (986.2, 179.3) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (1048.1, 160.9) page 3: OCR failed — attempting sequence inference
+    Post at (1048.1, 160.9) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (1139.7, 136.4) page 3: OCR failed — attempting sequence inference
+    Post at (1139.7, 136.4) page 3: OCR failed and sequence inference unavailable — post skipped
+    Post at (152.4, 283.3) page 4: OCR failed — attempting sequence inference
+    Post at (152.4, 283.3) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (247.6, 258.8) page 4: OCR failed — attempting sequence inference
+    Post at (247.6, 258.8) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (349.5, 231.7) page 4: OCR failed — attempting sequence inference
+    Post at (349.5, 231.7) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (439.1, 206.9) page 4: OCR failed — attempting sequence inference
+    Post at (439.1, 206.9) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (550.0, 177.5) page 4: OCR failed — attempting sequence inference
+    Post at (550.0, 177.5) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (637.6, 154.6) page 4: OCR failed — attempting sequence inference
+    Post at (637.6, 154.6) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (735.9, 129.2) page 4: OCR failed — attempting sequence inference
+    Post at (735.9, 129.2) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (836.4, 104.8) page 4: OCR failed — attempting sequence inference
+    Post at (836.4, 104.8) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (949.9, 71.7) page 4: OCR failed — attempting sequence inference
+    Post at (949.9, 71.7) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (1037.2, 54.4) page 4: OCR failed — attempting sequence inference
+    Post at (1037.2, 54.4) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (1084.8, 42.5) page 4: OCR failed — attempting sequence inference
+    Post at (1084.8, 42.5) page 4: OCR failed and sequence inference unavailable — post skipped
+    Post at (134.2, 330.4) page 5: OCR failed — attempting sequence inference
+    Post at (134.2, 330.4) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (218.2, 303.8) page 5: OCR failed — attempting sequence inference
+    Post at (218.2, 303.8) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (310.3, 284.5) page 5: OCR failed — attempting sequence inference
+    Post at (310.3, 284.5) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (403.2, 262.1) page 5: OCR failed — attempting sequence inference
+    Post at (403.2, 262.1) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (481.5, 240.5) page 5: OCR failed — attempting sequence inference
+    Post at (481.5, 240.5) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (590.8, 216.3) page 5: OCR failed — attempting sequence inference
+    Post at (590.8, 216.3) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (672.4, 193.4) page 5: OCR failed — attempting sequence inference
+    Post at (672.4, 193.4) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (765.0, 167.5) page 5: OCR failed — attempting sequence inference
+    Post at (765.0, 167.5) page 5: OCR failed and sequence inference unavailable — post skipped
+    Post at (847.7, 116.7) page 5: OCR failed — attempting sequence inference
+    Post at (847.7, 116.7) page 5: OCR failed and sequence inference unavailable — post skipped
+    All OCR reads failed — assigning post numbers 1..N from route order on Numero_Poste circles (viewport-calibrated pages 3, 4, 5).
+    No distance label found between posts 3 and 4
+    [pdf-parser] Prefilled 1 gap distance(s) before pole placement (incl. tap connectors).
+    [post-positioning] Viterbi anchor: page 3 locked posts 1,2,3 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] post 4: relabeled arc jump (25 m cable vs 180.10052084651932 m label → nearest symbol at 4 pt).
+    [post-positioning] post 5: relabeled arc jump (142 m cable vs 38.9 m label → nearest symbol at 23 pt).
+    [post-positioning] post 6: relabeled arc jump (156 m cable vs 25.2 m label → nearest symbol at 26 pt).
+    [post-positioning] N3 page 3 path 0: Viterbi assigned 13 posts (11 labeled edges, label RMSE ≈ 1.1 m).
+    [post-positioning] Viterbi anchor: page 4 locked posts 15,16,18 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 4 path 0: Viterbi assigned 10 posts (8 labeled edges, label RMSE ≈ 0.3 m).
+    [post-positioning] Viterbi anchor: page 5 locked posts 26,27,28 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 5 path 0: Viterbi assigned 9 posts (8 labeled edges, label RMSE ≈ 0.5 m).
+    [post-positioning] post 1: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 1 on plan).
+    [post-positioning] post 2: using label anchor position (was 28 pt from marker; snapped pole was on cable, not at post 2 on plan).
+    [post-positioning] post 3: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 3 on plan).
+    [post-positioning] post 7: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 7 on plan).
+    [post-positioning] post 8: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 8 on plan).
+    [post-positioning] post 9: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 9 on plan).
+    [post-positioning] post 10: using label anchor position (was 38 pt from marker; snapped pole was on cable, not at post 10 on plan).
+    [post-positioning] post 11: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 11 on plan).
+    [post-positioning] post 12: using label anchor position (was 31 pt from marker; snapped pole was on cable, not at post 12 on plan).
+    [post-positioning] post 13: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 13 on plan).
+    [post-positioning] post 14: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 14 on plan).
+    [post-positioning] post 15: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 15 on plan).
+    [post-positioning] post 16: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 16 on plan).
+    [post-positioning] post 17: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 17 on plan).
+    [post-positioning] post 18: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 18 on plan).
+    [post-positioning] post 19: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 19 on plan).
+    [post-positioning] post 20: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 20 on plan).
+    [post-positioning] post 21: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 21 on plan).
+    [post-positioning] post 22: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 22 on plan).
+    [post-positioning] post 23: using label anchor position (was 35 pt from marker; snapped pole was on cable, not at post 23 on plan).
+    [post-positioning] post 24: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 24 on plan).
+    [post-positioning] post 25: realigned to Poste near label anchor (50 pt from cable snap, 14 pt to anchor).
+    [post-positioning] post 26: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 26 on plan).
+    [post-positioning] post 27: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 27 on plan).
+    [post-positioning] post 28: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 28 on plan).
+    [post-positioning] post 29: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 29 on plan).
+    [post-positioning] post 30: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 30 on plan).
+    [post-positioning] post 31: using label anchor position (was 30 pt from marker; snapped pole was on cable, not at post 31 on plan).
+    [post-positioning] post 32: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 32 on plan).
+    [post-positioning] post 33: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 33 on plan).
+    [post-positioning] post 34: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 34 on plan).
+    [post-positioning] post 25: relabeled arc jump (16 m cable vs 35.2 m label → nearest symbol at 14 pt).
+    [post-positioning] Viterbi anchor: page 3 locked posts 1,2,3 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 3 path 0: Viterbi assigned 11 posts (8 labeled edges, label RMSE ≈ 1.3 m).
+    [post-positioning] Viterbi anchor: page 4 locked posts 15,16,18 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 4 path 0: Viterbi assigned 10 posts (8 labeled edges, label RMSE ≈ 0.3 m).
+    [post-positioning] Viterbi anchor: page 5 locked posts 26,27,28 to symbols by short-lattice (k=5, n=3).
+    [post-positioning] N3 page 5 path 0: Viterbi assigned 9 posts (8 labeled edges, label RMSE ≈ 0.5 m).
+    [post-positioning] post 1: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 1 on plan).
+    [post-positioning] post 2: using label anchor position (was 28 pt from marker; snapped pole was on cable, not at post 2 on plan).
+    [post-positioning] post 3: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 3 on plan).
+    [post-positioning] post 7: using label anchor position (was 23 pt from marker; snapped pole was on cable, not at post 7 on plan).
+    [post-positioning] post 8: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 8 on plan).
+    [post-positioning] post 9: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 9 on plan).
+    [post-positioning] post 10: using label anchor position (was 38 pt from marker; snapped pole was on cable, not at post 10 on plan).
+    [post-positioning] post 11: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 11 on plan).
+    [post-positioning] post 12: using label anchor position (was 31 pt from marker; snapped pole was on cable, not at post 12 on plan).
+    [post-positioning] post 13: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 13 on plan).
+    [post-positioning] post 14: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 14 on plan).
+    [post-positioning] post 15: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 15 on plan).
+    [post-positioning] post 16: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 16 on plan).
+    [post-positioning] post 17: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 17 on plan).
+    [post-positioning] post 18: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 18 on plan).
+    [post-positioning] post 19: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 19 on plan).
+    [post-positioning] post 20: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 20 on plan).
+    [post-positioning] post 21: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 21 on plan).
+    [post-positioning] post 22: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 22 on plan).
+    [post-positioning] post 23: using label anchor position (was 35 pt from marker; snapped pole was on cable, not at post 23 on plan).
+    [post-positioning] post 24: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 24 on plan).
+    [post-positioning] post 26: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 26 on plan).
+    [post-positioning] post 27: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 27 on plan).
+    [post-positioning] post 28: using label anchor position (was 27 pt from marker; snapped pole was on cable, not at post 28 on plan).
+    [post-positioning] post 29: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 29 on plan).
+    [post-positioning] post 30: using label anchor position (was 25 pt from marker; snapped pole was on cable, not at post 30 on plan).
+    [post-positioning] post 31: using label anchor position (was 30 pt from marker; snapped pole was on cable, not at post 31 on plan).
+    [post-positioning] post 32: using label anchor position (was 26 pt from marker; snapped pole was on cable, not at post 32 on plan).
+    [post-positioning] post 33: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 33 on plan).
+    [post-positioning] post 34: using label anchor position (was 24 pt from marker; snapped pole was on cable, not at post 34 on plan).
+
+══ PARSE DEBUG DUMP ══════════════════════════════════════════════════
+
+Posts found: 34
+  Post 01: page=3  x=272.66  y=444.30  anchor=(272.66,444.30)  type=11-450 (U)
+  Post 02: page=3  x=342.38  y=428.82  anchor=(342.38,428.82)  type=11-600 (U)
+  Post 03: page=3  x=436.82  y=396.78  anchor=(436.82,396.78)  type=11-300 (U)
+  Post 04: page=3  x=500.42  y=356.94  anchor=(500.42,356.94)  type=10-150 (U)
+  Post 05: page=3  x=528.38  y=321.90  anchor=(528.38,321.90)  type=10-150 (U)
+  Post 06: page=3  x=597.38  y=305.82  anchor=(597.38,305.82)  type=11-150 (U)
+  Post 07: page=3  x=668.54  y=261.54  anchor=(668.54,261.54)  type=11-300 (U)
+  Post 08: page=3  x=752.54  y=236.94  anchor=(752.54,236.94)  type=11-300 (U)
+  Post 09: page=3  x=849.50  y=214.98  anchor=(849.50,214.98)  type=11-300 (U)
+  Post 10: page=3  x=883.10  y=201.42  anchor=(883.10,201.42)  type=12-1000 (U)
+  Post 11: page=3  x=939.50  y=189.30  anchor=(939.50,189.30)  type=11-300 (U)
+  Post 12: page=3  x=986.18  y=179.34  anchor=(986.18,179.34)  type=11-600 (U)
+  Post 13: page=3  x=1048.10  y=160.86  anchor=(1048.10,160.86)  type=11-300 (U)
+  Post 14: page=3  x=1139.66  y=136.38  anchor=(1139.66,136.38)  type=11-300 (U)
+  Post 15: page=4  x=152.42  y=283.26  anchor=(152.42,283.26)  type=10-150 (U)
+  Post 16: page=4  x=247.58  y=258.78  anchor=(247.58,258.78)  type=11-300 (U)
+  Post 17: page=4  x=349.46  y=231.66  anchor=(349.46,231.66)  type=11-300 (U)
+  Post 18: page=4  x=439.10  y=206.94  anchor=(439.10,206.94)  type=11-300 (U)
+  Post 19: page=4  x=549.98  y=177.54  anchor=(549.98,177.54)  type=11-300 (U)
+  Post 20: page=4  x=637.58  y=154.62  anchor=(637.58,154.62)  type=11-300 (U)
+  Post 21: page=4  x=735.86  y=129.18  anchor=(735.86,129.18)  type=12-600 (U)
+  Post 22: page=4  x=836.42  y=104.82  anchor=(836.42,104.82)  type=12-300 (U)
+  Post 23: page=4  x=949.94  y=71.70  anchor=(949.94,71.70)  type=13-1000 (U)
+  Post 24: page=4  x=1037.18  y=54.42  anchor=(1037.18,54.42)  type=11-300 (U)
+  Post 25: page=4  x=1133.90  y=51.84  anchor=(1133.90,51.84)  type=12-1000 (U)
+  Post 26: page=5  x=134.18  y=330.42  anchor=(134.18,330.42)  type=11-300 (U)
+  Post 27: page=5  x=218.18  y=303.78  anchor=(218.18,303.78)  type=11-300 (U)
+  Post 28: page=5  x=310.34  y=284.46  anchor=(310.34,284.46)  type=11-300 (U)
+  Post 29: page=5  x=403.22  y=262.14  anchor=(403.22,262.14)  type=11-300 (U)
+  Post 30: page=5  x=481.46  y=240.54  anchor=(481.46,240.54)  type=11-300 (U)
+  Post 31: page=5  x=590.78  y=216.30  anchor=(590.78,216.30)  type=11-300 (U)
+  Post 32: page=5  x=672.38  y=193.38  anchor=(672.38,193.38)  type=11-300 (U)
+  Post 33: page=5  x=765.02  y=167.46  anchor=(765.02,167.46)  type=11-600 (U)
+  Post 34: page=5  x=847.70  y=116.70  anchor=(847.70,116.70)  type=11-600 (U)
+
+Page dimensions (w × h in PDF points):
+  Page 1: 1191.00 × 842.00 pt
+  Page 2: 1191.00 × 842.00 pt
+  Page 3: 1191.00 × 842.00 pt
+  Page 4: 1191.00 × 842.00 pt
+  Page 5: 1191.00 × 842.00 pt
+  Page 6: 1191.00 × 842.00 pt
+  Page 7: 1191.00 × 842.00 pt
+  Page 8: 1191.00 × 842.00 pt
+  Page 9: 1191.00 × 842.00 pt
+
+UTM grid paths per page (isUtmGridLayerName hits):
+  Page 1: 0 path(s)  total ops=0
+  Page 2: 38 path(s)  total ops=76
+  Page 3: 13 path(s)  total ops=26
+  Page 4: 13 path(s)  total ops=26
+  Page 5: 12 path(s)  total ops=24
+  Page 6: 0 path(s)  total ops=0
+  Page 7: 0 path(s)  total ops=0
+  Page 8: 0 path(s)  total ops=0
+  Page 9: 0 path(s)  total ops=0
+
+Scale factor computation:
+  Page 2 UTM paths: 38
+  computeScaleFactor(page2) → 1.266464 m/pt
+  → Using scale factor: 1.266464 m/pt
+  → Implied 50m UTM grid spacing: 39.5 PDF points
+
+Viewport boxes (paired from page-2 Padrão layer):
+  Count: 3
+  pageNum=3  x=161.5  y=495.2  w=303.6  h=181.6
+  pageNum=4  x=465.1  y=447.0  w=303.6  h=181.6
+  pageNum=5  x=768.7  y=356.2  w=303.6  h=181.7
+
+══ END DUMP ══════════════════════════════════════════════════════════
+
 Anchors: post 1 from reference (single-anchor UTM)
 Pipeline: 2026-05-corridor-nudge+detail-clamp
 
@@ -5,12 +235,12 @@ Post  Ref lat             Calc lat            Ref lon             Calc lon      
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
 1     -27.64196660        -27.64196661        -48.66305969        -48.66306017        0.05m       ✓
 2     -27.64189641        -27.64189874        -48.66274618        -48.66282003        7.28m       ~
-3     -27.64183537        -27.64175522        -48.66249642        -48.66250727        8.98m       ~
+3     -27.64183537        -27.64183691        -48.66249642        -48.66247521        2.10m       ✓
 4     -27.64175907        -27.64171939        -48.66222253        -48.66224573        4.97m       ✓
 5     -27.64167515        -27.64162777        -48.66218636        -48.66221187        5.84m       ~
-6     -27.64160190        -27.64152169        -48.66191420        -48.66202115        13.80m      ~
+6     -27.64160190        -27.64162169        -48.66191420        -48.66197135        6.04m       ~
 7     -27.64153171        -27.64146573        -48.66165065        -48.66174417        11.78m      ~
-8     -27.64145541        -27.64140677        -48.66129064        -48.66136408        9.03m       ~
+8     -27.64145541        -27.64138168        -48.66129064        -48.66137006        11.33m      ~
 9     -27.64141879        -27.64134296        -48.66114940        -48.66109675        9.90m       ~
 10    -27.64136996        -27.64131821        -48.66099092        -48.66093756        7.79m       ~
 11    -27.64134097        -27.64130137        -48.66080661        -48.66075175        6.97m       ~
@@ -38,7 +268,7 @@ Post  Ref lat             Calc lat            Ref lon             Calc lon      
 33    -27.63949850        -27.63957568        -48.65349022        -48.65350438        8.69m       ~
 34    -27.63935438        -27.63936230        -48.65323375        -48.65322614        1.16m       ✓
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-Max error: 13.80 m  |  Posts with null GPS: 0/34
+Max error: 11.78 m  |  Posts with null GPS: 0/34
 
 Legend: ✓ < 5m  ~ 5–50m  ✗ > 50m or null
 
@@ -48,7 +278,7 @@ Calibration (compare run):
   [seam-lock] Skipped — multi-sheet route (global label-lsq fit page origins).
   [boundary-locked] 2 page origin(s) re-aligned after label chain at sheet breaks.
 
-2 anchors:
+
 
 Anchors: post 1 + post 34 from reference (similarity refinement)
 Pipeline: 2026-05-corridor-nudge+detail-clamp
@@ -57,12 +287,12 @@ Post  Ref lat             Calc lat            Ref lon             Calc lon      
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
 1     -27.64196660        -27.64196661        -48.66305969        -48.66306017        0.05m       ✓
 2     -27.64189641        -27.64188691        -48.66274618        -48.66281976        7.32m       ~
-3     -27.64183537        -27.64172704        -48.66249642        -48.66250973        12.12m      ~
+3     -27.64183537        -27.64180870        -48.66249642        -48.66247256        3.78m       ✓
 4     -27.64175907        -27.64167898        -48.66222253        -48.66224578        9.20m       ~
 5     -27.64167515        -27.64157254        -48.66218636        -48.66217545        11.46m      ~
-6     -27.64160190        -27.64147506        -48.66191420        -48.66194471        14.42m      ~
+6     -27.64160190        -27.64151977        -48.66191420        -48.66193311        9.32m       ~
 7     -27.64153171        -27.64138533        -48.66165065        -48.66169651        16.89m      ~
-8     -27.64145541        -27.64130885        -48.66129064        -48.66133815        16.96m      ~
+8     -27.64145541        -27.64128608        -48.66129064        -48.66134523        19.58m      ~
 9     -27.64141879        -27.64121234        -48.66114940        -48.66099792        27.38m      ~
 10    -27.64136996        -27.64120539        -48.66099092        -48.66089763        20.48m      ~
 11    -27.64134097        -27.64117019        -48.66080661        -48.66073306        20.33m      ~
@@ -70,7 +300,7 @@ Post  Ref lat             Calc lat            Ref lon             Calc lon      
 13    -27.64120363        -27.64103207        -48.66029502        -48.66028690        19.09m      ~
 14    -27.64110445        -27.64095046        -48.65993156        -48.65995909        17.34m      ~
 15    -27.64099763        -27.64084266        -48.65955950        -48.65962965        18.57m      ~
-16    -27.64092896        -27.64080353        -48.65925288        -48.65929355        14.51m      ~
+16    -27.64092896        -27.64087547        -48.65925288        -48.65929270        7.12m       ~
 17    -27.64084046        -27.64083616        -48.65890493        -48.65893764        3.26m       ✓
 18    -27.64075653        -27.64074736        -48.65856215        -48.65859676        3.56m       ✓
 19    -27.64067260        -27.64065667        -48.65820558        -48.65823537        3.43m       ✓

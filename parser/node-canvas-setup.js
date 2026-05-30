@@ -47,3 +47,23 @@ export async function createNodeCanvas(w, h) {
 export function isNodeRuntime() {
   return typeof process !== "undefined" && !!process.versions?.node;
 }
+
+/**
+ * Create a canvas in an environment-agnostic (isomorphic) way.
+ * Uses OffscreenCanvas in the browser, and @napi-rs/canvas in Node.js.
+ *
+ * @param {number} w
+ * @param {number} h
+ * @returns {Promise<OffscreenCanvas | import('@napi-rs/canvas').Canvas>}
+ */
+export async function createIsomorphicCanvas(w, h) {
+  if (typeof OffscreenCanvas !== "undefined") {
+    return new OffscreenCanvas(w, h);
+  }
+  if (isNodeRuntime()) {
+    return await createNodeCanvas(w, h);
+  }
+  throw new Error(
+    "No canvas implementation (OffscreenCanvas or @napi-rs/canvas)"
+  );
+}

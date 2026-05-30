@@ -13,6 +13,7 @@ import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 
 import { parsePdf } from "./parser/pdf-parser.js";
+import { deduplicatePostsPreferLowerPage } from "./parser/post-assembler.js";
 import { calculateCoordinatesWithDwg } from "./parser/dwg/coordinate-calculator-dwg.js";
 import { createRegionLibrary } from "./parser/dwg/region-library.js";
 import { associateDistancesRich } from "./parser/distance-associator.js";
@@ -223,7 +224,15 @@ console.log(`[dwg+pdf] has connection 10↔11: ${has1011}`);
 if ((result.dwgStatus ?? "") === "pdf-fallback") {
   const prevGwPartial = process.env.GW_RETURN_PARTIAL;
   process.env.GW_RETURN_PARTIAL = "1";
-  const routePosts = (result.posts ?? []).length ? result.posts : posts;
+  const routePosts = deduplicatePostsPreferLowerPage(
+    (result.posts ?? []).length ? result.posts : posts,
+  ).sort((a, b) => a.number - b.number);
+  const routeNums = routePosts.map((p) => p.number);
+  if (routeNums.length !== new Set(routeNums).size) {
+    console.warn(
+      `[dwg+pdf] WARNING: duplicate post numbers in route (${routePosts.length} entries, ${new Set(routeNums).size} unique)`,
+    );
+  }
   const gw = pairPostsByGraphWalk({
     posts: routePosts,
     distances,

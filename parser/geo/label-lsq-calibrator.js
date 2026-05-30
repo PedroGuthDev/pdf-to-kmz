@@ -1313,7 +1313,12 @@ export function prefillGapDistancesForPolePlacement(
   // graph and pull mid-route posts onto the wrong cable arm.
   const suppressed = new Set();
   for (const d of distances) {
-    if (d.source === "jumpback-suppressed" || d.source === "bifurcation-cleared") {
+    if (
+      d.source === "jumpback-suppressed" ||
+      d.source === "bifurcation-cleared" ||
+      d.source === "bifurcation-tap" ||
+      d.source === "bifurcation-main"
+    ) {
       const lo = Math.min(d.from, d.to);
       const hi = Math.max(d.from, d.to);
       suppressed.add(`${lo}->${hi}`);
@@ -1488,6 +1493,49 @@ export function refineAuxiliaryPostsPdfByLabelBracket(
   }
 
   return adjusted;
+}
+
+/**
+ * Snap bifurcation tap posts (e.g. 37) along junction→main chord using
+ * junction→tap + junction→main labels (tap→main is cleared).
+ * @returns {number[]} post numbers whose PDF position was adjusted
+ */
+export function snapBifurcationTapPostsByLabelBracket(
+  sortedPosts,
+  distMap,
+  warnings,
+) {
+  const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  const adjustedNums = [];
+  for (let i = 0; i + 2 < sorted.length; i++) {
+    const junction = sorted[i];
+    const tap = sorted[i + 1];
+    const main = sorted[i + 2];
+    if (tap.number !== junction.number + 1 || main.number !== tap.number + 1) {
+      continue;
+    }
+    const mTap =
+      distMap.get(`${junction.number}->${tap.number}`) ??
+      distMap.get(`${tap.number}->${junction.number}`);
+    const mMain =
+      distMap.get(`${junction.number}->${main.number}`) ??
+      distMap.get(`${main.number}->${junction.number}`);
+    const mWrong =
+      distMap.get(`${tap.number}->${main.number}`) ??
+      distMap.get(`${main.number}->${tap.number}`);
+    if (mTap == null || mTap <= 0 || mMain == null || mMain <= 0) continue;
+    if (mWrong != null && mWrong > 0) continue;
+
+    if (
+      tryLabelBracketPdfSnap(junction, tap, main, distMap, warnings, {
+        mAfterOverride: mMain,
+        relaxForAuxiliary: true,
+      })
+    ) {
+      adjustedNums.push(tap.number);
+    }
+  }
+  return adjustedNums;
 }
 
 /**

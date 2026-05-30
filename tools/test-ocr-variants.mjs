@@ -73,11 +73,11 @@ async function binarizeImage(img, mode) {
     thresh = otsuThreshold(hist, n);
   }
   for (let i = 0; i < cd.length; i += 4) {
-    const lum =
-      0.299 * cd[i] + 0.587 * cd[i + 1] + 0.114 * cd[i + 2];
-    const dark = mode === "fixed110"
-      ? cd[i] < 110 && cd[i + 1] < 110 && cd[i + 2] < 110
-      : lum < thresh;
+    const lum = 0.299 * cd[i] + 0.587 * cd[i + 1] + 0.114 * cd[i + 2];
+    const dark =
+      mode === "fixed110"
+        ? cd[i] < 110 && cd[i + 1] < 110 && cd[i + 2] < 110
+        : lum < thresh;
     const v = dark ? 0 : 255;
     cd[i] = cd[i + 1] = cd[i + 2] = v;
     cd[i + 3] = 255;
@@ -142,14 +142,62 @@ const colorFiles = readdirSync(CROP_DIR)
   .sort((a, b) => a.idx - b.idx);
 
 const variants = [
-  { name: "baseline (fixed110+bilinear+psm6+last)", bin: "fixed110", upscale: "bilinear", psm: 6, parse: "last" },
-  { name: "3a otsu+bilinear+psm6+last", bin: "otsu", upscale: "bilinear", psm: 6, parse: "last" },
-  { name: "3b otsu+nearest+psm6+last", bin: "otsu", upscale: "nearest", psm: 6, parse: "last" },
-  { name: "3c otsu+nearest+psm6+longest", bin: "otsu", upscale: "nearest", psm: 6, parse: "longest" },
-  { name: "4a otsu+nearest+psm7+longest", bin: "otsu", upscale: "nearest", psm: 7, parse: "longest" },
-  { name: "4b otsu+nearest+psm8+longest", bin: "otsu", upscale: "nearest", psm: 8, parse: "longest" },
-  { name: "5  otsu+nearest+psm6+longest", bin: "otsu", upscale: "nearest", psm: 6, parse: "longest" },
-  { name: "3+4+5 combined", bin: "otsu", upscale: "nearest", psm: 7, parse: "longest" },
+  {
+    name: "baseline (fixed110+bilinear+psm6+last)",
+    bin: "fixed110",
+    upscale: "bilinear",
+    psm: 6,
+    parse: "last",
+  },
+  {
+    name: "3a otsu+bilinear+psm6+last",
+    bin: "otsu",
+    upscale: "bilinear",
+    psm: 6,
+    parse: "last",
+  },
+  {
+    name: "3b otsu+nearest+psm6+last",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 6,
+    parse: "last",
+  },
+  {
+    name: "3c otsu+nearest+psm6+longest",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 6,
+    parse: "longest",
+  },
+  {
+    name: "4a otsu+nearest+psm7+longest",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 7,
+    parse: "longest",
+  },
+  {
+    name: "4b otsu+nearest+psm8+longest",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 8,
+    parse: "longest",
+  },
+  {
+    name: "5  otsu+nearest+psm6+longest",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 6,
+    parse: "longest",
+  },
+  {
+    name: "3+4+5 combined",
+    bin: "otsu",
+    upscale: "nearest",
+    psm: 7,
+    parse: "longest",
+  },
 ];
 
 const workers = new Map();
@@ -164,9 +212,19 @@ const scores = Object.fromEntries(
 
 console.log("Siriu OCR variant test on saved color crops\n");
 console.log(
-  "idx | expect | baseline | " + variants.slice(1).map((v) => v.name.split(" ")[0]).join(" | "),
+  "idx | expect | baseline | " +
+    variants
+      .slice(1)
+      .map((v) => v.name.split(" ")[0])
+      .join(" | "),
 );
-console.log("----|--------|----------|" + variants.slice(1).map(() => "--------").join("|"));
+console.log(
+  "----|--------|----------|" +
+    variants
+      .slice(1)
+      .map(() => "--------")
+      .join("|"),
+);
 
 for (const { file, idx } of colorFiles) {
   if (!TARGETS.includes(idx)) continue;
@@ -195,7 +253,7 @@ for (const { file, idx } of colorFiles) {
   const base = row.results[variants[0].name].num;
   const cells = variants.slice(1).map((v) => {
     const n = row.results[v.name].num;
-    const mark = n === expect ? "✓" : n === base ? "=" : n ?? "∅";
+    const mark = n === expect ? "✓" : n === base ? "=" : (n ?? "∅");
     return `${String(n ?? "null").padStart(4)}${mark}`;
   });
   console.log(
@@ -203,7 +261,9 @@ for (const { file, idx } of colorFiles) {
   );
 }
 
-console.log("\n--- Accuracy on targets 48–60 (by sort index = filename idxNNN) ---\n");
+console.log(
+  "\n--- Accuracy on targets 48–60 (by sort index = filename idxNNN) ---\n",
+);
 const baselineName = variants[0].name;
 const baselineOk = scores[baselineName]?.ok ?? 0;
 for (const v of variants) {

@@ -2074,14 +2074,17 @@ export function assignPostsByRouteOrder(markers, _cablePaths = [], opts = {}) {
     if (opts.reverseRoute) {
       pageMarkers = pageMarkers.reverse();
     } else if (pageMarkers.length >= 2) {
-      // Prefer orienting markers by Cabo Projetado sheet entry (low-X endpoint) when available.
+      // Orient by cable path first-M endpoint (sheet entry point); fall back to high-X.
+      // The first M operation is where the cable path starts drawing on this sheet,
+      // which aligns with the sheet-edge entry (not an interior minimum-X point).
       const paths = cablesByPage.get(pg) ?? [];
       /** @type {{ x: number, y: number }|null} */
       let entry = null;
+      let bestLen = 0;
       for (const ops of paths) {
-        for (const op of ops || []) {
-          if (op?.type !== "M" && op?.type !== "L") continue;
-          if (!entry || op.x < entry.x) entry = { x: op.x, y: op.y };
+        if (!ops || ops.length <= bestLen) continue;
+        for (const op of ops) {
+          if (op?.type === "M") { entry = { x: op.x, y: op.y }; bestLen = ops.length; break; }
         }
       }
       if (entry) {
@@ -2091,7 +2094,7 @@ export function assignPostsByRouteOrder(markers, _cablePaths = [], opts = {}) {
         const dLast = Math.hypot(last.x - entry.x, last.y - entry.y);
         if (dLast < dFirst) pageMarkers = pageMarkers.reverse();
       } else {
-        // Fallback: post 01 is usually at feeder/source end; many exports are high-X. Reverse when low→high X.
+        // Fallback: post 01 is usually at feeder/source end; many exports are high-X.
         const first = pageMarkers[0];
         const last = pageMarkers[pageMarkers.length - 1];
         if (last.x - first.x > SAME_COLUMN_X_PT) pageMarkers = pageMarkers.reverse();
@@ -2099,7 +2102,6 @@ export function assignPostsByRouteOrder(markers, _cablePaths = [], opts = {}) {
     }
     ordered.push(...pageMarkers);
   }
-
   return ordered.map((c, i) => ({
     number: i + 1,
     x: c.x,

@@ -1,0 +1,178 @@
+NO-GPS:   ok=true failedAt=-
+WITH-GPS: ok=true failedAt=-
+First divergent post: null (NO-GPS idx=undefined vs WITH-GPS idx=undefined)
+idx map (post: nogps / gps):
+  1: 240 / 240
+  2: 237 / 237
+  3: 231 / 231
+  4: 215 / 215
+  5: 209 / 209
+  6: 202 / 202
+  7: 200 / 200
+  8: 197 / 197
+  9: 194 / 194
+  10: 207 / 207
+  11: 210 / 210
+  12: 213 / 213
+  13: 216 / 216
+  14: 218 / 218
+  15: 214 / 214
+  16: 135 / 135
+  17: 134 / 134
+  18: 219 / 219
+  19: 221 / 221
+  20: 222 / 222
+  21: 140 / 140
+  22: 142 / 142
+  23: 143 / 143
+  24: 145 / 145
+  25: 146 / 146
+  26: 147 / 147
+  27: 149 / 149
+  28: 150 / 150
+  29: 105 / 105
+  30: 103 / 103
+  31: 119 / 119
+  32: 118 / 118
+  33: 117 / 117
+  34: 121 / 121
+  35: 122 / 122
+  36: 123 / 123
+  37: 152 / 152
+  38: 124 / 124
+  39: 127 / 127
+  40: 128 / 128
+  41: 130 / 130
+  42: 132 / 132
+  43: 133 / 133
+  44: 74 / 74
+  45: 76 / 76
+  46: 153 / 153
+
+WITH-GPS warnings (dwg-* kinds):
+  {"kind":"dwg-bifurcation-tap-stub","at_post":12,"label_m":23,"main_label_m":51,"note":"single-neighbor-stub"}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":24,"label_m":26.1,"main_label_m":55.2,"chord_span_m":39.05261322951494}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":33,"label_m":19.3,"main_label_m":60.9,"chord_span_m":33.17907774482348}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":37,"label_m":10.5,"main_label_m":35.5,"chord_span_m":16.063987673747604}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":42,"label_m":8.4,"main_label_m":28.3,"chord_span_m":43.73886715543017}
+  {"kind":"dwg-branch-return","at_post":46,"junction_idx":123,"arm_idx":153}
+  {"kind":"dwg-bifurcation-tap-stub","at_post":49,"label_m":8.4,"main_label_m":22.6,"note":"junction-swapped-labels"}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":58,"label_m":19.3,"main_label_m":60.9,"chord_span_m":43.00247550977341}
+  {"kind":"dwg-spine-chord-next-label","at_post":60,"label_m":31.7,"next_label_m":27.4}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":65,"label_m":7.8,"main_label_m":33.8,"chord_span_m":12.375920168089284}
+  {"kind":"dwg-spine-chord-next-label","at_post":68,"label_m":17,"next_label_m":31}
+  {"kind":"dwg-spine-chord-next-label","at_post":70,"label_m":23.6,"next_label_m":38.7}
+  {"kind":"dwg-spine-chord-next-label","at_post":76,"label_m":40.3,"next_label_m":44.2}
+  {"kind":"dwg-spine-chord-next-label","at_post":78,"label_m":41.3,"next_label_m":25.2}
+  {"kind":"dwg-spine-chord-next-label","at_post":81,"label_m":40.6,"next_label_m":46.3}
+  {"kind":"dwg-spine-chord-next-label","at_post":84,"label_m":41.1,"next_label_m":34.9}
+
+NO-GPS warnings (dwg-* kinds):
+  {"kind":"dwg-bifurcation-tap-stub","at_post":12,"label_m":23,"main_label_m":51,"note":"single-neighbor-stub"}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":24,"label_m":26.1,"main_label_m":55.2,"chord_span_m":39.05261322951494}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":33,"label_m":19.3,"main_label_m":60.9,"chord_span_m":33.17907774482348}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":37,"label_m":10.5,"main_label_m":35.5,"chord_span_m":16.063987673747604}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":42,"label_m":8.4,"main_label_m":28.3,"chord_span_m":43.73886715543017}
+  {"kind":"dwg-branch-return","at_post":46,"junction_idx":123,"arm_idx":153}
+  {"kind":"dwg-bifurcation-tap-stub","at_post":49,"label_m":8.4,"main_label_m":22.6,"note":"junction-swapped-labels"}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":58,"label_m":19.3,"main_label_m":60.9,"chord_span_m":43.00247550977341}
+  {"kind":"dwg-spine-chord-next-label","at_post":60,"label_m":31.7,"next_label_m":27.4}
+  {"kind":"dwg-bifurcation-tap-chord","at_post":65,"label_m":7.8,"main_label_m":33.8,"chord_span_m":12.375920168089284}
+  {"kind":"dwg-spine-chord-next-label","at_post":68,"label_m":17,"next_label_m":31}
+  {"kind":"dwg-spine-chord-next-label","at_post":70,"label_m":23.6,"next_label_m":38.7}
+  {"kind":"dwg-spine-chord-next-label","at_post":76,"label_m":40.3,"next_label_m":44.2}
+  {"kind":"dwg-spine-chord-next-label","at_post":78,"label_m":41.3,"next_label_m":25.2}
+  {"kind":"dwg-spine-chord-next-label","at_post":81,"label_m":40.6,"next_label_m":46.3}
+  {"kind":"dwg-spine-chord-next-label","at_post":84,"label_m":41.1,"next_label_m":34.9}
+
+NO-GPS trace steps 1..44:
+  [gw] 1->2 fromIdx=240 -> chosen=237 intermediates=[] gap=false label=45.30
+  [gw] 2->3 fromIdx=237 -> chosen=231 intermediates=[232] gap=false label=51.40
+  [gw] 3->4 fromIdx=231 -> chosen=215 intermediates=[] gap=false label=20.00
+  [gw] 4->5 fromIdx=215 -> chosen=209 intermediates=[] gap=false label=32.60
+  [gw] 5->6 fromIdx=209 -> chosen=202 intermediates=[] gap=false label=28.50
+  [gw] 6->7 fromIdx=202 -> chosen=200 intermediates=[] gap=false label=23.00
+  [gw] 7->8 fromIdx=200 -> chosen=197 intermediates=[] gap=false label=43.00
+  [gw] 8->9 fromIdx=197 -> chosen=194 intermediates=[] gap=false label=49.10
+  [gw] 9->10 fromIdx=194 -> chosen=207 intermediates=[] gap=false label=null
+  [gw] 10->11 fromIdx=207 -> chosen=210 intermediates=[212] gap=false label=37.30
+  [gw] 11->12 fromIdx=210 -> chosen=213 intermediates=[] gap=false label=23.00
+  [gw] 12->13 fromIdx=213 -> chosen=216 intermediates=[] gap=true label=null
+  [gw] 13->14 fromIdx=216 -> chosen=218 intermediates=[] gap=false label=40.40
+  [gw] 14->15 fromIdx=218 -> chosen=214 intermediates=[] gap=false label=33.70
+  [gw] 15->16 fromIdx=214 -> chosen=135 intermediates=[] gap=false label=38.70
+  [gw] 16->17 fromIdx=135 -> chosen=134 intermediates=[] gap=false label=42.30
+  [gw] 17->18 fromIdx=134 -> chosen=219 intermediates=[] gap=true label=null
+  [gw] 18->19 fromIdx=219 -> chosen=221 intermediates=[] gap=false label=null
+  [gw] 19->20 fromIdx=221 -> chosen=222 intermediates=[] gap=false label=51.00
+  [gw] 20->21 fromIdx=222 -> chosen=140 intermediates=[] gap=false label=33.80
+  [gw] 21->22 fromIdx=140 -> chosen=142 intermediates=[] gap=false label=48.60
+  [gw] 22->23 fromIdx=142 -> chosen=143 intermediates=[] gap=false label=44.10
+  [gw] 23->24 fromIdx=143 -> chosen=145 intermediates=[] gap=false label=26.10
+  [gw] 24->25 fromIdx=145 -> chosen=146 intermediates=[] gap=true label=null
+  [gw] 25->26 fromIdx=146 -> chosen=147 intermediates=[] gap=false label=34.60
+  [gw] 26->27 fromIdx=147 -> chosen=149 intermediates=[148] gap=false label=26.90
+  [gw] 27->28 fromIdx=149 -> chosen=150 intermediates=[] gap=false label=45.20
+  [gw] 28->29 fromIdx=150 -> chosen=105 intermediates=[] gap=false label=39.00
+  [gw] 29->30 fromIdx=105 -> chosen=103 intermediates=[] gap=false label=32.20
+  [gw] 30->31 fromIdx=103 -> chosen=119 intermediates=[] gap=false label=26.10
+  [gw] 31->32 fromIdx=119 -> chosen=118 intermediates=[] gap=false label=26.20
+  [gw] 32->33 fromIdx=118 -> chosen=117 intermediates=[] gap=false label=19.30
+  [gw] 33->34 fromIdx=117 -> chosen=121 intermediates=[] gap=true label=null
+  [gw] 34->35 fromIdx=121 -> chosen=122 intermediates=[] gap=false label=34.00
+  [gw] 35->36 fromIdx=122 -> chosen=123 intermediates=[] gap=false label=47.90
+  [gw] 36->37 fromIdx=123 -> chosen=152 intermediates=[] gap=false label=10.50
+  [gw] 37->38 fromIdx=152 -> chosen=124 intermediates=[] gap=true label=null
+  [gw] 38->39 fromIdx=124 -> chosen=127 intermediates=[] gap=false label=null
+  [gw] 39->40 fromIdx=127 -> chosen=128 intermediates=[] gap=false label=34.70
+  [gw] 40->41 fromIdx=128 -> chosen=130 intermediates=[] gap=false label=43.70
+  [gw] 41->42 fromIdx=130 -> chosen=132 intermediates=[] gap=false label=8.40
+  [gw] 42->43 fromIdx=132 -> chosen=133 intermediates=[] gap=true label=null
+  [gw] 43->44 fromIdx=133 -> chosen=74 intermediates=[] gap=false label=28.90
+  [gw] 44->45 fromIdx=74 -> chosen=76 intermediates=[] gap=false label=32.30
+
+WITH-GPS trace steps 1..44:
+  [gw] 1->2 fromIdx=240 -> chosen=237 intermediates=[] gap=false label=45.30
+  [gw] 2->3 fromIdx=237 -> chosen=231 intermediates=[232] gap=false label=51.40
+  [gw] 3->4 fromIdx=231 -> chosen=215 intermediates=[] gap=false label=20.00
+  [gw] 4->5 fromIdx=215 -> chosen=209 intermediates=[] gap=false label=32.60
+  [gw] 5->6 fromIdx=209 -> chosen=202 intermediates=[] gap=false label=28.50
+  [gw] 6->7 fromIdx=202 -> chosen=200 intermediates=[] gap=false label=23.00
+  [gw] 7->8 fromIdx=200 -> chosen=197 intermediates=[] gap=false label=43.00
+  [gw] 8->9 fromIdx=197 -> chosen=194 intermediates=[] gap=false label=49.10
+  [gw] 9->10 fromIdx=194 -> chosen=207 intermediates=[] gap=false label=null
+  [gw] 10->11 fromIdx=207 -> chosen=210 intermediates=[212] gap=false label=37.30
+  [gw] 11->12 fromIdx=210 -> chosen=213 intermediates=[] gap=false label=23.00
+  [gw] 12->13 fromIdx=213 -> chosen=216 intermediates=[] gap=true label=null
+  [gw] 13->14 fromIdx=216 -> chosen=218 intermediates=[] gap=false label=40.40
+  [gw] 14->15 fromIdx=218 -> chosen=214 intermediates=[] gap=false label=33.70
+  [gw] 15->16 fromIdx=214 -> chosen=135 intermediates=[] gap=false label=38.70
+  [gw] 16->17 fromIdx=135 -> chosen=134 intermediates=[] gap=false label=42.30
+  [gw] 17->18 fromIdx=134 -> chosen=219 intermediates=[] gap=true label=null
+  [gw] 18->19 fromIdx=219 -> chosen=221 intermediates=[] gap=false label=null
+  [gw] 19->20 fromIdx=221 -> chosen=222 intermediates=[] gap=false label=51.00
+  [gw] 20->21 fromIdx=222 -> chosen=140 intermediates=[] gap=false label=33.80
+  [gw] 21->22 fromIdx=140 -> chosen=142 intermediates=[] gap=false label=48.60
+  [gw] 22->23 fromIdx=142 -> chosen=143 intermediates=[] gap=false label=44.10
+  [gw] 23->24 fromIdx=143 -> chosen=145 intermediates=[] gap=false label=26.10
+  [gw] 24->25 fromIdx=145 -> chosen=146 intermediates=[] gap=true label=null
+  [gw] 25->26 fromIdx=146 -> chosen=147 intermediates=[] gap=false label=34.60
+  [gw] 26->27 fromIdx=147 -> chosen=149 intermediates=[148] gap=false label=26.90
+  [gw] 27->28 fromIdx=149 -> chosen=150 intermediates=[] gap=false label=45.20
+  [gw] 28->29 fromIdx=150 -> chosen=105 intermediates=[] gap=false label=39.00
+  [gw] 29->30 fromIdx=105 -> chosen=103 intermediates=[] gap=false label=32.20
+  [gw] 30->31 fromIdx=103 -> chosen=119 intermediates=[] gap=false label=26.10
+  [gw] 31->32 fromIdx=119 -> chosen=118 intermediates=[] gap=false label=26.20
+  [gw] 32->33 fromIdx=118 -> chosen=117 intermediates=[] gap=false label=19.30
+  [gw] 33->34 fromIdx=117 -> chosen=121 intermediates=[] gap=true label=null
+  [gw] 34->35 fromIdx=121 -> chosen=122 intermediates=[] gap=false label=34.00
+  [gw] 35->36 fromIdx=122 -> chosen=123 intermediates=[] gap=false label=47.90
+  [gw] 36->37 fromIdx=123 -> chosen=152 intermediates=[] gap=false label=10.50
+  [gw] 37->38 fromIdx=152 -> chosen=124 intermediates=[] gap=true label=null
+  [gw] 38->39 fromIdx=124 -> chosen=127 intermediates=[] gap=false label=null
+  [gw] 39->40 fromIdx=127 -> chosen=128 intermediates=[] gap=false label=34.70
+  [gw] 40->41 fromIdx=128 -> chosen=130 intermediates=[] gap=false label=43.70
+  [gw] 41->42 fromIdx=130 -> chosen=132 intermediates=[] gap=false label=8.40
+  [gw] 42->43 fromIdx=132 -> chosen=133 intermediates=[] gap=true label=null
+  [gw] 43->44 fromIdx=133 -> chosen=74 intermediates=[] gap=false label=28.90
+  [gw] 44->45 fromIdx=74 -> chosen=76 intermediates=[] gap=false label=32.30

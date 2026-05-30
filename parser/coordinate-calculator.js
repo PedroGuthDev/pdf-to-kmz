@@ -31,10 +31,12 @@ import {
 import { placePostsOnCableByArcLength } from "./geo/cable-arc-placer.js";
 import { supplementDistancesBesideAuxiliaryPosts } from "./distance-associator.js";
 import { attachMarkerAnchors } from "./post-positioning.js";
+import { deduplicatePostsPreferLowerPage } from "./post-assembler.js";
 import {
   augmentCrossPageDistances,
   fillAdjacentMissingDistances,
   snapOffCableAuxiliaryPostsByLabelBracket,
+  snapBifurcationTapPostsByLabelBracket,
   snapRoutePostsPdfByLabelBracket,
   refineGpsPastAuxiliaryPostsOnAnchorPage,
   refineAnchorPageByDownstreamChord,
@@ -814,6 +816,29 @@ function metersForRouteHop(sorted, distMap, i, j) {
   return any ? sum : null;
 }
 
+/** Tap leg after a bifurcation: junction→tap + junction→main labels, tap→main cleared. */
+function isBifurcationTapLeg(fromNum, toNum, distMap) {
+  if (toNum !== fromNum + 1) return false;
+  const junction = fromNum - 1;
+  if (junction < 1) return false;
+  const mTap =
+    distMap.get(`${junction}->${fromNum}`) ??
+    distMap.get(`${fromNum}->${junction}`);
+  const mMain =
+    distMap.get(`${junction}->${toNum}`) ??
+    distMap.get(`${toNum}->${junction}`);
+  const mWrong =
+    distMap.get(`${fromNum}->${toNum}`) ??
+    distMap.get(`${toNum}->${fromNum}`);
+  return (
+    mTap != null &&
+    mTap > 0 &&
+    mMain != null &&
+    mMain > 0 &&
+    (mWrong == null || mWrong <= 0)
+  );
+}
+
 export function detectGaps(posts, distances, cableSegments) {
   const gaps = [];
   const distMap = new Map();
@@ -896,7 +921,9 @@ export function calculateCoordinates(
     return { posts: [], connections: [], warnings: [] };
 
   const warnings = [];
-  const sorted = [...posts].sort((a, b) => a.number - b.number);
+  const sorted = deduplicatePostsPreferLowerPage(posts).sort(
+    (a, b) => a.number - b.number,
+  );
 
   // Post (x,y) must already be Poste-layer pole symbols from parsePdf(). Cable geometry is
   // used below for gaps/topology and connection bearings — not to override pole positions.
@@ -1751,6 +1778,11 @@ export function calculateCoordinates(
 
     if (augDistMapForSeams?.size && cableSegments?.length) {
       const auxSnapCables = buildCablesByPage(cableSegments);
+      const snappedBifurcationNums = snapBifurcationTapPostsByLabelBracket(
+        sorted,
+        augDistMapForSeams,
+        warnings,
+      );
       const snappedAuxNums = snapOffCableAuxiliaryPostsByLabelBracket(
         sorted,
         augDistMapForSeams,
@@ -1765,7 +1797,13 @@ export function calculateCoordinates(
         warnings,
         { requireOnCableNeighbors: true },
       );
-      const snappedNums = [...new Set([...snappedAuxNums, ...snappedRouteNums])];
+      const snappedNums = [
+        ...new Set([
+          ...snappedBifurcationNums,
+          ...snappedAuxNums,
+          ...snappedRouteNums,
+        ]),
+      ];
       if (snappedNums.length > 0) {
         for (const num of snappedNums) {
           const post = postMap.get(num);
@@ -1928,7 +1966,8 @@ export function calculateCoordinates(
       bearing = pdfBearing(a, b);
     }
 
-    const isGap = gapSet.has(key);
+    let isGap = gapSet.has(key);
+    if (isBifurcationTapLeg(a.number, b.number, distMap)) isGap = false;
     connections.push({
       from: a.number,
       to: b.number,

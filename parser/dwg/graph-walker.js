@@ -375,10 +375,7 @@ function findHubBranchTapByHint({
       regionPosts,
       maxHops: 6,
     });
-    if (
-      multiHop &&
-      !endpoints.some((e) => e.endpoint === multiHop.endpoint)
-    ) {
+    if (multiHop && !endpoints.some((e) => e.endpoint === multiHop.endpoint)) {
       endpoints.push({
         endpoint: multiHop.endpoint,
         intermediates: multiHop.intermediates,
@@ -1514,7 +1511,10 @@ export function pairPostsByGraphWalk({
                 const delta = Math.abs(
                   spanBetween(regionPosts, fromIdx, arm) - tapMainLabelM,
                 );
-                if (delta <= tapMainTol && (!bestArm || delta < bestArm.delta)) {
+                if (
+                  delta <= tapMainTol &&
+                  (!bestArm || delta < bestArm.delta)
+                ) {
                   bestArm = { arm, delta };
                 }
               }
@@ -2046,10 +2046,7 @@ export function pairPostsByGraphWalk({
               nextLabel,
             );
             const hopNextTol = spanToleranceFor(nextLabel);
-            if (
-              !Number.isFinite(hopNextDelta) ||
-              hopNextDelta > hopNextTol
-            ) {
+            if (!Number.isFinite(hopNextDelta) || hopNextDelta > hopNextTol) {
               const offIdx = findOffCableInsertByNextLabel(
                 fromIdx,
                 nextLabel,
@@ -2306,10 +2303,7 @@ export function pairPostsByGraphWalk({
             }
             if (
               hubArmReturn &&
-              !hasOpenHubBranchFrom(
-                tapPlacedMainLabel,
-                hubArmReturn.hubIdx,
-              )
+              !hasOpenHubBranchFrom(tapPlacedMainLabel, hubArmReturn.hubIdx)
             ) {
               hubArmReturn = null;
             }

@@ -8,42 +8,37 @@
 //
 // Named ESM exports only — no default export, no CommonJS require.
 
-export const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+import {
+  createIsomorphicCanvas,
+  isNodeRuntime,
+} from "./node-canvas-setup.js";
 
-/** @type {((w: number, h: number) => import('@napi-rs/canvas').Canvas) | null} */
-let _nodeCreateCanvas = null;
+export const TESSERACT_CDN =
+  "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js";
 
-async function getNodeCreateCanvas() {
-  if (!_nodeCreateCanvas) {
-    const { createNodeCanvas } = await import('./node-canvas-setup.js');
-    _nodeCreateCanvas = createNodeCanvas;
+let _fsPromise = null;
+async function getFs() {
+  if (isNodeRuntime()) {
+    if (!_fsPromise) {
+      _fsPromise = Promise.all([
+        import("node:fs"),
+        import("node:path"),
+      ]).then(([fs, path]) => ({ fs, path }));
+    }
+    return _fsPromise;
   }
-  return _nodeCreateCanvas;
+  return null;
 }
 
-/**
- * Browser OffscreenCanvas or Node @napi-rs/canvas (via node-canvas-setup.js).
- * @param {number} w
- * @param {number} h
- */
-async function createOcrCanvas(w, h) {
-  if (typeof OffscreenCanvas !== 'undefined') {
-    return new OffscreenCanvas(w, h);
-  }
-  if (typeof process !== 'undefined' && process.versions?.node) {
-    const createCanvas = await getNodeCreateCanvas();
-    return await createCanvas(w, h);
-  }
-  throw new Error('No canvas implementation (OffscreenCanvas or @napi-rs/canvas)');
-}
+const RED_MARKER_COLOR_BOUNDS = { minA: 200, minR: 180, maxG: 100, maxB: 100 };
 
 /** @param {OffscreenCanvas | import('@napi-rs/canvas').Canvas} */
 async function canvasToPngBytes(canvas) {
-  if (typeof canvas.convertToBlob === 'function') {
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
+  if (typeof canvas.convertToBlob === "function") {
+    const blob = await canvas.convertToBlob({ type: "image/png" });
     return new Uint8Array(await blob.arrayBuffer());
   }
-  return canvas.toBuffer('image/png');
+  return canvas.toBuffer("image/png");
 }
 
 /**
@@ -86,9 +81,7 @@ function binarizeCropOtsu(cd, w, h) {
   const n = w * h;
   const lum = new Uint8Array(n);
   for (let p = 0, i = 0; p < n; p++, i += 4) {
-    const g = Math.round(
-      0.299 * cd[i] + 0.587 * cd[i + 1] + 0.114 * cd[i + 2],
-    );
+    const g = Math.round(0.299 * cd[i] + 0.587 * cd[i + 1] + 0.114 * cd[i + 2]);
     lum[p] = g;
     hist[g]++;
   }
@@ -101,8 +94,154 @@ function binarizeCropOtsu(cd, w, h) {
 }
 
 /**
+ * Connected components of red pixels in a window around (cx, cy).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} searchHalfPx
+ * @param {number} canvasW
+ * @param {number} canvasH
+ */
+function findRedComponents(ctx, cx, cy, searchHalfPx, canvasW, canvasH) {
+  const sx = Math.max(0, cx - searchHalfPx);
+  const sy = Math.max(0, cy - searchHalfPx);
+  const sw = Math.min(searchHalfPx * 2, canvasW - sx);
+  const sh = Math.min(searchHalfPx * 2, canvasH - sy);
+  if (sw <= 0 || sh <= 0) return [];
+  const { data } = ctx.getImageData(sx, sy, sw, sh);
+  const mask = new Uint8Array(sw * sh);
+  for (let y = 0; y < sh; y++) {
+    for (let x = 0; x < sw; x++) {
+      const idx = (y * sw + x) * 4;
+      const r = data[idx],
+        g = data[idx + 1],
+        b = data[idx + 2],
+        a = data[idx + 3];
+      if (
+        a > RED_MARKER_COLOR_BOUNDS.minA &&
+        r > RED_MARKER_COLOR_BOUNDS.minR &&
+        g < RED_MARKER_COLOR_BOUNDS.maxG &&
+        b < RED_MARKER_COLOR_BOUNDS.maxB
+      ) {
+        mask[y * sw + x] = 1;
+      }
+    }
+  }
+  const visited = new Uint8Array(sw * sh);
+  const components = [];
+  const queue = [];
+  for (let startY = 0; startY < sh; startY++) {
+    for (let startX = 0; startX < sw; startX++) {
+      const startI = startY * sw + startX;
+      if (!mask[startI] || visited[startI]) continue;
+      let minX = startX,
+        minY = startY,
+        maxX = startX,
+        maxY = startY;
+      let count = 0;
+      queue.length = 0;
+      queue.push(startI);
+      visited[startI] = 1;
+      let qHead = 0;
+      while (qHead < queue.length) {
+        const i = queue[qHead++];
+        const py = Math.floor(i / sw);
+        const px = i - py * sw;
+        count++;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+        if (px > 0) {
+          const n = i - 1;
+          if (mask[n] && !visited[n]) {
+            visited[n] = 1;
+            queue.push(n);
+          }
+        }
+        if (px < sw - 1) {
+          const n = i + 1;
+          if (mask[n] && !visited[n]) {
+            visited[n] = 1;
+            queue.push(n);
+          }
+        }
+        if (py > 0) {
+          const n = i - sw;
+          if (mask[n] && !visited[n]) {
+            visited[n] = 1;
+            queue.push(n);
+          }
+        }
+        if (py < sh - 1) {
+          const n = i + sw;
+          if (mask[n] && !visited[n]) {
+            visited[n] = 1;
+            queue.push(n);
+          }
+        }
+      }
+      const cw = maxX - minX + 1;
+      const ch = maxY - minY + 1;
+      components.push({
+        bbox: {
+          minX: minX + sx,
+          minY: minY + sy,
+          maxX: maxX + sx,
+          maxY: maxY + sy,
+        },
+        center: { x: (minX + maxX) / 2 + sx, y: (minY + maxY) / 2 + sy },
+        width: cw,
+        height: ch,
+        aspect: cw / ch,
+        pixels: count,
+      });
+    }
+  }
+  return components;
+}
+
+/**
+ * Locate the visible red marker ring near the given coordinates using component analysis.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} scale
+ * @param {number} canvasW
+ * @param {number} canvasH
+ * @returns {object} { ring, components, ringCandidates }
+ */
+export function locateRedMarkerRing(ctx, cx, cy, scale, canvasW, canvasH) {
+  const searchHalfPx = Math.round(25 * scale);
+  const circleMinPx = Math.round(5 * scale);
+  const circleMaxPx = Math.round(22 * scale);
+
+  const components = findRedComponents(ctx, cx, cy, searchHalfPx, canvasW, canvasH);
+  const ringCandidates = components.filter(
+    (c) =>
+      c.width >= circleMinPx &&
+      c.width <= circleMaxPx &&
+      c.height >= circleMinPx &&
+      c.height <= circleMaxPx &&
+      c.aspect >= 0.6 &&
+      c.aspect <= 1.7,
+  );
+  let ring = null;
+  let ringDist = Infinity;
+  for (const c of ringCandidates) {
+    const d = Math.hypot(c.center.x - cx, c.center.y - cy);
+    if (d < ringDist) {
+      ringDist = d;
+      ring = c;
+    }
+  }
+  return { ring, components, ringCandidates };
+}
+
+/**
  * Parse Tesseract digit output. Prefer the longest digit run (full label) over the
- * last run (legacy: trailing fragment when ring noise splits digits).
+ * last run.
  * @param {string} text
  * @returns {number|null}
  */
@@ -115,11 +254,11 @@ export function parseOcrDigitText(text) {
 
 /** @param {string} dir */
 async function writeDebugPng(dir, name, canvas) {
-  if (!dir || typeof process === 'undefined' || !process.versions?.node) return;
-  const { writeFileSync, mkdirSync } = await import('node:fs');
-  const { join } = await import('node:path');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), await canvasToPngBytes(canvas));
+  const nodeFs = await getFs();
+  if (!nodeFs) return;
+  const { fs, path } = nodeFs;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), await canvasToPngBytes(canvas));
 }
 
 /**
@@ -129,30 +268,26 @@ async function writeDebugPng(dir, name, canvas) {
  * @returns {Promise<import('tesseract.js').Worker>}
  */
 export async function createOcrWorker() {
-  // Dynamic import — browser uses CDN; Node uses local package when available.
   let createWorker;
-  if (typeof process !== 'undefined' && process.versions?.node) {
+  if (isNodeRuntime()) {
     try {
-      ({ createWorker } = await import('tesseract.js'));
+      ({ createWorker } = await import("tesseract.js"));
     } catch {
       ({ createWorker } = (await import(TESSERACT_CDN)).default);
     }
   } else {
     ({ createWorker } = (await import(TESSERACT_CDN)).default);
   }
-  const worker = await createWorker('eng', 1, { logger: () => {} });
+  const worker = await createWorker("eng", 1, { logger: () => {} });
   await worker.setParameters({
-    tessedit_char_whitelist: '0123456789',
-    // PSM 7 = single text line — fits 1–2 digit crops inside post rings (Siriu A/B:
-    // fixes 50→30, 53→93, 58→8 vs PSM 6 on Otsu+nearest crops).
-    tessedit_pageseg_mode: '7',
+    tessedit_char_whitelist: "0123456789",
+    tessedit_pageseg_mode: "7",
   });
   return worker;
 }
 
 /**
- * Some crops (notably thin "1" in 71) regress under Otsu+nearest with PSM 7, returning a
- * single digit ("7"). In those cases, retry with PSM 6 (single uniform block) and prefer
+ * Some crops regress under Otsu+nearest with PSM 7. Retry with PSM 6 and prefer
  * the parse with a longer digit run (or higher confidence when tied).
  *
  * @param {import('tesseract.js').Worker} worker
@@ -163,7 +298,7 @@ async function recognizeDigitsWithFallback(worker, pngBytes) {
   const runWithPsm = async (psm) => {
     await worker.setParameters({ tessedit_pageseg_mode: String(psm) });
     const { data } = await worker.recognize(pngBytes);
-    const text = (data.text ?? '').trim();
+    const text = (data.text ?? "").trim();
     return { data, text, num: parseOcrDigitText(text) };
   };
 
@@ -179,8 +314,8 @@ async function recognizeDigitsWithFallback(worker, pngBytes) {
   if (bestLen6 > bestLen7) return p6;
   if (bestLen7 > bestLen6) return p7;
 
-  const conf7 = (p7.data?.words?.[0]?.confidence ?? 0);
-  const conf6 = (p6.data?.words?.[0]?.confidence ?? 0);
+  const conf7 = p7.data?.words?.[0]?.confidence ?? 0;
+  const conf6 = p6.data?.words?.[0]?.confidence ?? 0;
   return conf6 > conf7 ? p6 : p7;
 }
 
@@ -190,119 +325,36 @@ async function recognizeDigitsWithFallback(worker, pngBytes) {
  * @param {import('pdfjs-dist').PDFPageProxy} page
  * @param {number} pageHeight  page.view[3]
  * @param {Array<{x: number, y: number, pageNum?: number}>} circles
- *   Circle centroids with flipY already applied (y = pageHeight - rawY, y increases downward).
- * @param {object|null} ocConfigPromise  Optional OptionalContentConfig promise for forcing all layers visible.
- * @param {import('tesseract.js').Worker} worker  Pre-created Tesseract worker (WR-05: shared across pages).
+ * @param {object|null} ocConfigPromise
+ * @param {import('tesseract.js').Worker} worker
  * @param {{ debugDir?: string, sortIndexBase?: number }} [options]
- *   debugDir: save color/binarized/upscaled PNGs + JSON per crop (Node only).
- *   sortIndexBase: global index in route sort order for filenames (debug tooling).
  * @returns {Promise<Array<{circle: {x: number, y: number, pageNum?: number}, number: number|null, ocrDebug?: object}>>}
  */
-export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromise = null, worker, options = {}) {
+export async function ocrCircleNumbers(
+  page,
+  pageHeight,
+  circles,
+  ocConfigPromise = null,
+  worker,
+  options = {},
+) {
   const { debugDir = null, sortIndexBase = 0 } = options;
   if (circles.length === 0) return [];
 
-  // STEP 2 — Render full page to OffscreenCanvas. Scale 6× because the overview
-  // page (page 2 in INFOVIAS exports) has very small post-marker circles whose
-  // digits are only ~6 pt tall. At 4× those rendered to ~24 px which forced a
-  // 5× bilinear upscale before OCR (visibly blurry). At 6× they're 36 px native,
-  // so any extra upscaling is gentle and digits stay sharp.
-  // ocConfigPromise forces all OCG layers visible so post-number paths render even if off by default.
   const SCALE = 6;
   const viewport = page.getViewport({ scale: SCALE });
   const canvasW = Math.ceil(viewport.width);
   const canvasH = Math.ceil(viewport.height);
-  const canvas = await createOcrCanvas(canvasW, canvasH);
-  const ctx = canvas.getContext('2d');
+  const canvas = await createIsomorphicCanvas(canvasW, canvasH);
+  const ctx = canvas.getContext("2d");
   const renderOpts = { canvasContext: ctx, viewport };
-  if (ocConfigPromise) renderOpts.optionalContentConfigPromise = ocConfigPromise;
+  if (ocConfigPromise)
+    renderOpts.optionalContentConfigPromise = ocConfigPromise;
   await page.render(renderOpts).promise;
 
-  // STEP 3 — Locate the visible red marker via connected-component analysis,
-  // then crop the *interior* of the ring (where the BLACK digit sits) and OCR.
-  //
-  // The Numero_Poste CTM (e,f) does NOT sit on the visible circle centre — it's
-  // a CAD label-anchor offset by ~5–10 pt. We scan a window around (e,f) for
-  // red pixels, group them into connected components, and pick the component
-  // whose bbox looks like a small square ring (post marker) — not a long thin
-  // shape (cable line) or tall thin shape (red text glyph like "8,03 daN").
-  // Then we crop the ring's interior to isolate the digit on a clean white BG.
-  // All pixel constants below are derived from SCALE so bumping the render
-  // scale doesn't break the size filters.
-  const SEARCH_HALF_PX = Math.round(25 * SCALE);  // 25 pt window around (e,f)
-  // Expected marker outline bbox: visible circle radius ~5–18 pt → ~10–36 pt
-  // diameter → CIRCLE_MIN..CIRCLE_MAX px at the current scale.
-  const CIRCLE_MIN_PX = Math.round(5 * SCALE);
-  const CIRCLE_MAX_PX = Math.round(22 * SCALE);
-  // Minimum canvas dimension fed to Tesseract — anything smaller is upscaled with
-  // high-quality smoothing so small page-overview circles still have enough pixels
-  // per digit (Tesseract's reliable threshold is ~25 px character height).
   const MIN_OCR_DIM = 120;
   const results = [];
 
-  /**
-   * Connected components of red pixels in a window around (cx, cy).
-   * @param {number} cx  candidate centre, canvas pixels
-   * @param {number} cy  candidate centre, canvas pixels
-   * @returns {Array<{ bbox: {minX:number, minY:number, maxX:number, maxY:number},
-   *                    center: {x:number, y:number}, width:number, height:number,
-   *                    aspect:number, pixels:number }>}
-   */
-  function findRedComponents(cx, cy) {
-    const sx = Math.max(0, cx - SEARCH_HALF_PX);
-    const sy = Math.max(0, cy - SEARCH_HALF_PX);
-    const sw = Math.min(SEARCH_HALF_PX * 2, canvasW - sx);
-    const sh = Math.min(SEARCH_HALF_PX * 2, canvasH - sy);
-    if (sw <= 0 || sh <= 0) return [];
-    const { data } = ctx.getImageData(sx, sy, sw, sh);
-    const mask = new Uint8Array(sw * sh);
-    for (let y = 0; y < sh; y++) {
-      for (let x = 0; x < sw; x++) {
-        const idx = (y * sw + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
-        if (a > 200 && r > 180 && g < 100 && b < 100) mask[y * sw + x] = 1;
-      }
-    }
-    const visited = new Uint8Array(sw * sh);
-    const components = [];
-    const queue = [];
-    for (let startY = 0; startY < sh; startY++) {
-      for (let startX = 0; startX < sw; startX++) {
-        const startI = startY * sw + startX;
-        if (!mask[startI] || visited[startI]) continue;
-        let minX = startX, minY = startY, maxX = startX, maxY = startY;
-        let count = 0;
-        queue.length = 0;
-        queue.push(startI);
-        visited[startI] = 1;
-        let qHead = 0;
-        while (qHead < queue.length) {
-          const i = queue[qHead++];
-          const py = Math.floor(i / sw);
-          const px = i - py * sw;
-          count++;
-          if (px < minX) minX = px;
-          if (px > maxX) maxX = px;
-          if (py < minY) minY = py;
-          if (py > maxY) maxY = py;
-          if (px > 0)      { const n = i - 1;  if (mask[n] && !visited[n]) { visited[n] = 1; queue.push(n); } }
-          if (px < sw - 1) { const n = i + 1;  if (mask[n] && !visited[n]) { visited[n] = 1; queue.push(n); } }
-          if (py > 0)      { const n = i - sw; if (mask[n] && !visited[n]) { visited[n] = 1; queue.push(n); } }
-          if (py < sh - 1) { const n = i + sw; if (mask[n] && !visited[n]) { visited[n] = 1; queue.push(n); } }
-        }
-        const cw = maxX - minX + 1;
-        const ch = maxY - minY + 1;
-        components.push({
-          bbox: { minX: minX + sx, minY: minY + sy, maxX: maxX + sx, maxY: maxY + sy },
-          center: { x: (minX + maxX) / 2 + sx, y: (minY + maxY) / 2 + sy },
-          width: cw, height: ch, aspect: cw / ch, pixels: count,
-        });
-      }
-    }
-    return components;
-  }
-
-  // Cap debug data-URL emissions so we can see crops without flooding the console.
   let cropsLogged = 0;
   const DEBUG_CROPS_PER_PAGE = 6;
 
@@ -312,53 +364,49 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
     const rawCx = Math.round(circle.x * SCALE);
     const rawCy = Math.round(circle.y * SCALE);
 
-    const components = findRedComponents(rawCx, rawCy);
-    const ringCandidates = components.filter(c =>
-      c.width  >= CIRCLE_MIN_PX && c.width  <= CIRCLE_MAX_PX &&
-      c.height >= CIRCLE_MIN_PX && c.height <= CIRCLE_MAX_PX &&
-      c.aspect >= 0.6 && c.aspect <= 1.7
+    const { ring, components, ringCandidates } = locateRedMarkerRing(
+      ctx,
+      rawCx,
+      rawCy,
+      SCALE,
+      canvasW,
+      canvasH
     );
-    let ring = null, ringDist = Infinity;
-    for (const c of ringCandidates) {
-      const d = Math.hypot(c.center.x - rawCx, c.center.y - rawCy);
-      if (d < ringDist) { ringDist = d; ring = c; }
-    }
 
-    // Ring center in flipY PDF pt — this is the visual center of the post symbol,
-    // more accurate than the CTM anchor stored in circle.x/y (which is a label offset).
     const ringCenterPt = ring
       ? { x: ring.center.x / SCALE, y: ring.center.y / SCALE }
       : null;
 
     let cropX, cropY, cropW, cropH;
     if (ring) {
-      // Adaptive shrink: 15% of the smaller dimension, floor 2 px. Keeps small
-      // overview-page rings from clipping their digit while letting bigger zoom
-      // rings strip more of the red outline.
-      const ringShrink = Math.max(2, Math.floor(Math.min(ring.width, ring.height) * 0.15));
+      const ringShrink = Math.max(
+        2,
+        Math.floor(Math.min(ring.width, ring.height) * 0.15),
+      );
       cropX = ring.bbox.minX + ringShrink;
       cropY = ring.bbox.minY + ringShrink;
-      cropW = ring.width  - ringShrink * 2;
+      cropW = ring.width - ringShrink * 2;
       cropH = ring.height - ringShrink * 2;
       if (cropW < 12 || cropH < 12) {
-        cropX = ring.bbox.minX; cropY = ring.bbox.minY;
-        cropW = ring.width;     cropH = ring.height;
+        cropX = ring.bbox.minX;
+        cropY = ring.bbox.minY;
+        cropW = ring.width;
+        cropH = ring.height;
       }
       console.info(
-        `[ocr] page=${circle.pageNum ?? '?'} (${rawCx},${rawCy}) ring=${ring.width}×${ring.height}` +
-        ` shrink=${ringShrink}` +
-        ` Δ=(${(ring.center.x - rawCx).toFixed(0)},${(ring.center.y - rawCy).toFixed(0)})` +
-        ` candidates=${ringCandidates.length}/${components.length}`
+        `[ocr] page=${circle.pageNum ?? "?"} (${rawCx},${rawCy}) ring=${ring.width}×${ring.height}` +
+          ` shrink=${ringShrink}` +
+          ` Δ=(${(ring.center.x - rawCx).toFixed(0)},${(ring.center.y - rawCy).toFixed(0)})` +
+          ` candidates=${ringCandidates.length}/${components.length}`,
       );
     } else {
-      // Fallback: fixed 50 px (12.5 pt) crop at the path centroid.
       cropX = Math.max(0, rawCx - 50);
       cropY = Math.max(0, rawCy - 50);
       cropW = Math.min(100, canvasW - cropX);
       cropH = Math.min(100, canvasH - cropY);
       console.info(
-        `[ocr] page=${circle.pageNum ?? '?'} (${rawCx},${rawCy}) NO red ring found ` +
-        `(components=${components.length}) — using raw-centred fallback crop`
+        `[ocr] page=${circle.pageNum ?? "?"} (${rawCx},${rawCy}) NO red ring found ` +
+          `(components=${components.length}) — using raw-centred fallback crop`,
       );
     }
 
@@ -367,12 +415,12 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       continue;
     }
 
-    const cropCanvas = await createOcrCanvas(cropW, cropH);
-    const cropCtx = cropCanvas.getContext('2d');
+    const cropCanvas = await createIsomorphicCanvas(cropW, cropH);
+    const cropCtx = cropCanvas.getContext("2d");
     cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
     const debugStem = debugDir
-      ? `idx${String(sortIdx + 1).padStart(3, '0')}_p${circle.pageNum ?? 0}_ocr`
+      ? `idx${String(sortIdx + 1).padStart(3, "0")}_p${circle.pageNum ?? 0}_ocr`
       : null;
     if (debugStem) {
       await writeDebugPng(debugDir, `${debugStem}_color.png`, cropCanvas);
@@ -385,19 +433,17 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       await writeDebugPng(debugDir, `${debugStem}_bin.png`, cropCanvas);
     }
 
-    // Upscale small crops with nearest-neighbor (keeps stroke edges sharp for OCR).
     let ocrSource = cropCanvas;
     if (cropW < MIN_OCR_DIM || cropH < MIN_OCR_DIM) {
       const scaleUp = Math.max(MIN_OCR_DIM / cropW, MIN_OCR_DIM / cropH);
       const upW = Math.round(cropW * scaleUp);
       const upH = Math.round(cropH * scaleUp);
-      ocrSource = await createOcrCanvas(upW, upH);
-      const upCtx = ocrSource.getContext('2d');
+      ocrSource = await createIsomorphicCanvas(upW, upH);
+      const upCtx = ocrSource.getContext("2d");
       upCtx.imageSmoothingEnabled = false;
       upCtx.drawImage(cropCanvas, 0, 0, upW, upH);
     }
 
-    // Convert to Blob — more reliable than OffscreenCanvas across Tesseract.js versions
     const pngBytes = await canvasToPngBytes(ocrSource);
     if (!pngBytes?.length || pngBytes.length < 64) {
       results.push({ circle, number: null, ringCenter: ringCenterPt });
@@ -407,7 +453,10 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       await writeDebugPng(debugDir, `${debugStem}_upscale.png`, ocrSource);
     }
 
-    const { data, text, num } = await recognizeDigitsWithFallback(worker, pngBytes);
+    const { data, text, num } = await recognizeDigitsWithFallback(
+      worker,
+      pngBytes,
+    );
     const runs = text.match(/\d{1,3}/g);
 
     const ocrDebug = debugStem
@@ -417,7 +466,9 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
           circle: { x: circle.x, y: circle.y },
           ringFound: !!ring,
           ringPx: ring ? { w: ring.width, h: ring.height } : null,
-          ringShrink: ring ? Math.max(2, Math.floor(Math.min(ring.width, ring.height) * 0.15)) : null,
+          ringShrink: ring
+            ? Math.max(2, Math.floor(Math.min(ring.width, ring.height) * 0.15))
+            : null,
           cropPx: { w: cropW, h: cropH },
           upscaled: ocrSource !== cropCanvas,
           ocrText: text,
@@ -436,26 +487,28 @@ export async function ocrCircleNumbers(page, pageHeight, circles, ocConfigPromis
       : undefined;
 
     if (debugStem) {
-      const { writeFileSync } = await import('node:fs');
-      const { join } = await import('node:path');
-      writeFileSync(
-        join(debugDir, `${debugStem}.json`),
-        JSON.stringify(ocrDebug, null, 2),
-      );
+      const nodeFs = await getFs();
+      if (nodeFs) {
+        const { fs, path } = nodeFs;
+        fs.writeFileSync(
+          path.join(debugDir, `${debugStem}.json`),
+          JSON.stringify(ocrDebug, null, 2),
+        );
+      }
     }
     console.info(
-      `[ocr] page=${circle.pageNum ?? '?'} circle=(${circle.x.toFixed(0)},${circle.y.toFixed(0)})` +
-      ` ocr=${JSON.stringify(text)} → number=${num}`
+      `[ocr] page=${circle.pageNum ?? "?"} circle=(${circle.x.toFixed(0)},${circle.y.toFixed(0)})` +
+        ` ocr=${JSON.stringify(text)} → number=${num}`,
     );
 
-    // Emit the first few FAILED crops as data URLs so we can diagnose why OCR
-    // missed them. Successful reads don't need visual inspection. Open the URL
-    // in a browser tab to see exactly what Tesseract was given.
     if (num === null && cropsLogged < DEBUG_CROPS_PER_PAGE) {
-      const u8 = pngBytes instanceof Uint8Array ? pngBytes : new Uint8Array(pngBytes);
-      let bin = '';
+      const u8 =
+        pngBytes instanceof Uint8Array ? pngBytes : new Uint8Array(pngBytes);
+      let bin = "";
       for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-      console.info(`[ocr-crop] page=${circle.pageNum ?? '?'} (${circle.x.toFixed(0)},${circle.y.toFixed(0)}) data:image/png;base64,${btoa(bin)}`);
+      console.info(
+        `[ocr-crop] page=${circle.pageNum ?? "?"} (${circle.x.toFixed(0)},${circle.y.toFixed(0)}) data:image/png;base64,${btoa(bin)}`,
+      );
       cropsLogged++;
     }
 

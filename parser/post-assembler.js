@@ -51,110 +51,7 @@ function textAnchor(t) {
  * @param {string[]} warnings  Mutable warning accumulator (D-07).
  * @returns {{ posts: Array<{ number: number, x: number, y: number, pageNum?: number }>, warnings: string[] }}
  */
-export function assemblePostData(textoItems, circles, warnings = []) {
-  const posts = [];
 
-  const digitItems = textoItems.filter((t) => {
-    const s = t.str.trim();
-    return /^\d{1,3}$/.test(s) && parseInt(s, 10) >= 1;
-  });
-  const usedCircle = new Set();
-  const usedText = new Set();
-
-  // Greedy by globally shortest text–circle edge first (within threshold).
-  // Text-ordered greedy caused under-matching when two labels “competed” for the same
-  // nearest circle — the first text consumed it and the second fell outside 50 pt.
-  while (true) {
-    let bestTi = -1;
-    let bestCi = -1;
-    let bestDist = Infinity;
-    let bestScore = Infinity;
-
-    for (let ti = 0; ti < digitItems.length; ti++) {
-      if (usedText.has(ti)) continue;
-      const text = digitItems[ti];
-      const anchor = textAnchor(text);
-      for (let ci = 0; ci < circles.length; ci++) {
-        if (usedCircle.has(ci)) continue;
-        const d = distance2D(anchor, circles[ci]);
-        const crossPagePenalty =
-          text.pageNum != null &&
-          circles[ci].pageNum != null &&
-          text.pageNum !== circles[ci].pageNum
-            ? CROSS_PAGE_PENALTY
-            : 0;
-        const score = d + crossPagePenalty;
-        if (score < bestScore || (score === bestScore && d < bestDist)) {
-          bestScore = score;
-          bestDist = d;
-          bestTi = ti;
-          bestCi = ci;
-        }
-      }
-    }
-
-    if (bestTi === -1 || bestDist > PROXIMITY_THRESHOLD) break;
-
-    const text = digitItems[bestTi];
-    const trimmed = text.str.trim();
-    console.debug(
-      `[postAssembler] "${trimmed}" → circle ${bestCi}: ${bestDist.toFixed(1)} pt` +
-        (bestScore > bestDist
-          ? ` (cross-page, score=${bestScore.toFixed(0)})`
-          : ""),
-    );
-
-    usedText.add(bestTi);
-    usedCircle.add(bestCi);
-    const c = circles[bestCi];
-    posts.push({
-      number: parseInt(trimmed, 10),
-      x: c.x,
-      y: c.y,
-      pageNum: c.pageNum,
-    });
-  }
-
-  for (let ti = 0; ti < digitItems.length; ti++) {
-    if (usedText.has(ti)) continue;
-    const text = digitItems[ti];
-    const trimmed = text.str.trim();
-    const anchor = textAnchor(text);
-    let nearestIdx = -1;
-    let nearestDist = Infinity;
-    for (let ci = 0; ci < circles.length; ci++) {
-      const d = distance2D(anchor, circles[ci]);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearestIdx = ci;
-      }
-    }
-    warnings.push(
-      `Post number "${trimmed}" at (${anchor.x.toFixed(1)}, ${anchor.y.toFixed(1)}) ` +
-        `has no nearby circle within ${PROXIMITY_THRESHOLD} PDF points` +
-        (nearestIdx !== -1 ? ` (nearest: ${nearestDist.toFixed(1)} pt)` : ""),
-    );
-  }
-
-  return { posts, warnings };
-}
-
-/**
- * Deduplicate posts across pages, keeping first occurrence per sequential number.
- * Sorted by number ascending on return (D-13, D-11).
- *
- * @param {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>} allPosts
- * @returns {Array<{ number: number, x: number, y: number, pageNum?: number, postType?: string }>}
- */
-export function deduplicatePosts(allPosts) {
-  const seen = new Set();
-  const deduped = allPosts.filter((p) => {
-    if (seen.has(p.number)) return false;
-    seen.add(p.number);
-    return true;
-  });
-  return deduped.sort((a, b) => a.number - b.number);
-}
 
 /**
  * One post per sequential number: keep the occurrence on the **highest page number**
@@ -398,10 +295,17 @@ function sequenceTypoExpected(sorted, i, maxPost) {
   return best;
 }
 
+// Tesseract digit misread offsets for 90s range corrections (e.g. 99 -> 59, 93 -> 55)
+const TESSERACT_DIGIT_MISREAD_OFFSET_PRIMARY = 40; // E.g., 99 -> 59 correction
+const TESSERACT_DIGIT_MISREAD_OFFSET_SECONDARY = 38; // E.g., 93 -> 55 correction
+
 /** Candidate repairs for 90s-style OCR (99→59, 93→53 or 55). */
 function repairNinetiesCandidates(n, maxPost) {
   if (n < 86 || n > 99) return [];
-  return [n - 40, n - 38].filter((c) => c >= 1 && c <= maxPost);
+  return [
+    n - TESSERACT_DIGIT_MISREAD_OFFSET_PRIMARY,
+    n - TESSERACT_DIGIT_MISREAD_OFFSET_SECONDARY,
+  ].filter((c) => c >= 1 && c <= maxPost);
 }
 
 /** Default repair for neighbor context (prefer n−40: 99→59). */

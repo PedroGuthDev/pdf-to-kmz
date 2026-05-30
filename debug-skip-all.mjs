@@ -1,0 +1,12 @@
+import { spawnSync } from "child_process";
+import { readFileSync, writeFileSync } from "fs";
+const path = "./parser/geo/label-lsq-calibrator.js";
+const orig = readFileSync(path, "utf8");
+const target = `function tryLabelBracketPdfSnap(\r\n  prev,\r\n  post,\r\n  next,\r\n  distMap,\r\n  warnings,\r\n  opts = {},\r\n) {\r\n  const mBefore =`;
+const replacement = `function tryLabelBracketPdfSnap(\r\n  prev,\r\n  post,\r\n  next,\r\n  distMap,\r\n  warnings,\r\n  opts = {},\r\n) {\r\n  return false; // ALL SKIP\r\n  const mBefore =`;
+const patched = orig.replace(target, replacement);
+writeFileSync(path, patched);
+spawnSync("node", ["debug-refresh-results.mjs"], { encoding: "utf8" });
+const r = spawnSync("node", ["debug-run-calc.mjs", "joao-born"], { encoding: "utf8" });
+console.log(r.stdout.split("Comparison vs reference:")[1] || "");
+writeFileSync(path, orig);
