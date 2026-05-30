@@ -335,7 +335,7 @@ async function recognizeDigitsWithFallback(worker, pngBytes) {
  * @param {Array<{x: number, y: number, pageNum?: number}>} circles
  * @param {object|null} ocConfigPromise
  * @param {import('tesseract.js').Worker} worker
- * @param {{ debugDir?: string, sortIndexBase?: number }} [options]
+ * @param {{ debugDir?: string, sortIndexBase?: number, onCircleComplete?: () => void }} [options]
  * @returns {Promise<Array<{circle: {x: number, y: number, pageNum?: number}, number: number|null, ocrDebug?: object}>>}
  */
 export async function ocrCircleNumbers(
@@ -346,7 +346,8 @@ export async function ocrCircleNumbers(
   worker,
   options = {},
 ) {
-  const { debugDir = null, sortIndexBase = 0 } = options;
+  const { debugDir = null, sortIndexBase = 0, onCircleComplete = null } =
+    options;
   if (circles.length === 0) return [];
 
   const SCALE = 6;
@@ -367,6 +368,7 @@ export async function ocrCircleNumbers(
   const DEBUG_CROPS_PER_PAGE = 6;
 
   for (let ci = 0; ci < circles.length; ci++) {
+    try {
     const circle = circles[ci];
     const sortIdx = sortIndexBase + ci;
     const rawCx = Math.round(circle.x * SCALE);
@@ -421,7 +423,7 @@ export async function ocrCircleNumbers(
 
     if (cropW <= 0 || cropH <= 0) {
       results.push({ circle, number: null, ringCenter: ringCenterPt });
-      continue;
+      continue; // finally: onCircleComplete
     }
 
     const cropCanvas = await createIsomorphicCanvas(cropW, cropH);
@@ -456,7 +458,7 @@ export async function ocrCircleNumbers(
     const pngBytes = await canvasToPngBytes(ocrSource);
     if (!pngBytes?.length || pngBytes.length < 64) {
       results.push({ circle, number: null, ringCenter: ringCenterPt });
-      continue;
+      continue; // finally: onCircleComplete
     }
     if (debugStem && ocrSource !== cropCanvas) {
       await writeDebugPng(debugDir, `${debugStem}_upscale.png`, ocrSource);
@@ -522,6 +524,9 @@ export async function ocrCircleNumbers(
     }
 
     results.push({ circle, number: num, ringCenter: ringCenterPt, ocrDebug });
+    } finally {
+      onCircleComplete?.();
+    }
   }
 
   return results;

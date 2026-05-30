@@ -534,7 +534,13 @@ async function handlePdfFile(file) {
   let result;
   try {
     result = await parsePdf(buf, {
-      onProgress: ({ message }) => showStatus(message, "info"),
+      onProgress: ({ message, stage, percent }) => {
+        if (stage === "ocr" && percent != null) {
+          showStatus(`Lendo números dos postes... ${percent}%`, "info");
+        } else {
+          showStatus(message, "info");
+        }
+      },
     });
   } catch (err) {
     showStatus("Erro inesperado: " + err.message, "error");

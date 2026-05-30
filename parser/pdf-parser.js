@@ -256,7 +256,7 @@ function pairLabelsToRects(labels, rects, pageHeight, maxPageNum) {
  * Parse an INFOVIAS PDF and return structured post, distance, and cable data.
  *
  * @param {ArrayBuffer} arrayBuffer  PDF file contents from FileReader.arrayBuffer().
- * @param {{ onProgress?: (info: { stage?: string, message: string, pageNum?: number, numPages?: number }) => void }} [hooks]
+ * @param {{ onProgress?: (info: { stage?: string, message: string, pageNum?: number, numPages?: number, percent?: number, current?: number, total?: number }) => void }} [hooks]
  * @returns {Promise<
  *   | { posts: Array, distances: Array, cableSegments: Array, warnings: string[], layerMap: { allNames: string[] } }
  *   | { error: 'missing_layers', missing: string[], allNames: string[] }
@@ -586,7 +586,29 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     const calibratedPageNums = pairedViewportBoxes.map((v) => v.pageNum);
     const calibratedPageSet = new Set(calibratedPageNums);
 
-    onProgress?.({ stage: "ocr", message: "Lendo números dos postes..." });
+    let totalOcrCircles = 0;
+    for (const batch of pendingOcrBatches) {
+      const pageNum = batch.circles[0]?.pageNum;
+      if (calibratedPageSet.has(pageNum)) {
+        totalOcrCircles += batch.circles.length;
+      }
+    }
+    let ocrDone = 0;
+    const reportOcrProgress = () => {
+      const percent =
+        totalOcrCircles > 0
+          ? Math.min(100, Math.round((ocrDone / totalOcrCircles) * 100))
+          : 100;
+      onProgress?.({
+        stage: "ocr",
+        message: `Lendo números dos postes... ${percent}%`,
+        current: ocrDone,
+        total: totalOcrCircles,
+        percent,
+      });
+    };
+    reportOcrProgress();
+
     const allOcrResults = [];
     let ocrSortIndex = 0;
     const ocrDebugDir =
@@ -599,15 +621,21 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         );
         continue;
       }
+      const ocrOptions = {
+        sortIndexBase: ocrSortIndex,
+        onCircleComplete: () => {
+          ocrDone++;
+          reportOcrProgress();
+        },
+      };
+      if (ocrDebugDir) ocrOptions.debugDir = ocrDebugDir;
       const pageOcrResults = await ocrCircleNumbers(
         batch.page,
         batch.pageHeight,
         batch.circles,
         ocrOcPromise,
         ocrWorker,
-        ocrDebugDir
-          ? { debugDir: ocrDebugDir, sortIndexBase: ocrSortIndex }
-          : {},
+        ocrOptions,
       );
       ocrSortIndex += pageOcrResults.length;
       allOcrResults.push(...pageOcrResults);
