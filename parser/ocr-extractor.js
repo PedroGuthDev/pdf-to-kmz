@@ -103,8 +103,9 @@ function binarizeCropOtsu(cd, w, h) {
  * @param {number} canvasH
  */
 function findRedComponents(ctx, cx, cy, searchHalfPx, canvasW, canvasH) {
-  const sx = Math.max(0, cx - searchHalfPx);
-  const sy = Math.max(0, cy - searchHalfPx);
+  // Clamp start so the window is centred on (cx, cy) even near canvas edges.
+  const sx = Math.max(0, Math.min(cx - searchHalfPx, canvasW - searchHalfPx * 2));
+  const sy = Math.max(0, Math.min(cy - searchHalfPx, canvasH - searchHalfPx * 2));
   const sw = Math.min(searchHalfPx * 2, canvasW - sx);
   const sh = Math.min(searchHalfPx * 2, canvasH - sy);
   if (sw <= 0 || sh <= 0) return [];
