@@ -311,12 +311,19 @@ async function recognizeDigitsWithFallback(worker, pngBytes) {
 
   const bestLen7 = digits7.reduce((m, r) => Math.max(m, r.length), 0);
   const bestLen6 = digits6.reduce((m, r) => Math.max(m, r.length), 0);
-  if (bestLen6 > bestLen7) return p6;
-  if (bestLen7 > bestLen6) return p7;
 
-  const conf7 = p7.data?.words?.[0]?.confidence ?? 0;
-  const conf6 = p6.data?.words?.[0]?.confidence ?? 0;
-  return conf6 > conf7 ? p6 : p7;
+  let result;
+  if (bestLen6 > bestLen7) result = p6;
+  else if (bestLen7 > bestLen6) result = p7;
+  else {
+    const conf7 = p7.data?.words?.[0]?.confidence ?? 0;
+    const conf6 = p6.data?.words?.[0]?.confidence ?? 0;
+    result = conf6 > conf7 ? p6 : p7;
+  }
+
+  // Restore PSM to 7 so subsequent circles start from a known state.
+  await worker.setParameters({ tessedit_pageseg_mode: "7" });
+  return result;
 }
 
 /**
