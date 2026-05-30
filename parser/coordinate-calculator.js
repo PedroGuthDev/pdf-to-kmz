@@ -1106,7 +1106,10 @@ export function detectGaps(posts, distances, cableSegments) {
  * Calculate GPS coordinates for all posts using per-page UTM-grid calibration (D-REV-01).
  *
  * @param {Array<{ number, x, y, pageNum?, postType? }>} posts  flipY page-local coords
- * @param {Array<{ from, to, meters }>} distances
+ * @param {Array<{ from, to, meters }>} distances  NOTE: mutated in place — auxiliary
+ *   distance supplementation may write back augmented `meters` values into the
+ *   caller's array. If the same array is reused (e.g. in the DWG cascade), the
+ *   caller will see the updated meters values on the second pass.
  * @param {number} startLat  Latitude of post #1 (user-provided, D-14)
  * @param {number} startLon  Longitude of post #1
  * @param {Array<{ ops, pageNum? }>} cableSegments
