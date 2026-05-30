@@ -157,13 +157,6 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
 }
 
 export function createDefaultHybridRegionLibrary(localLibrary) {
-  const getApiSecret = () => {
-    try {
-      return sessionStorage.getItem("pdf-to-kmz-dxf-api-secret") || null;
-    } catch {
-      return null;
-    }
-  };
-  const cloud = createDxfCloudClient({ getApiSecret });
+  const cloud = createDxfCloudClient();
   return createHybridRegionLibrary(localLibrary, cloud);
 }

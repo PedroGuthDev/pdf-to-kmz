@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 
-import { requireAuth } from "../../lib/dxf-cloud-auth.js";
+import { requireWriteAuth } from "../../lib/dxf-cloud-auth.js";
 import {
   deleteRegion,
   getRegionManifest,
@@ -41,8 +41,6 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!requireAuth(req, res, json)) return;
-
   const id = typeof req.query?.id === "string" ? req.query.id : null;
   const asset = typeof req.query?.asset === "string" ? req.query.asset : null;
 
@@ -73,6 +71,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (!requireWriteAuth(req, res, json)) return;
     let body;
     try {
       body = await readBody(req);
@@ -110,6 +109,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    if (!requireWriteAuth(req, res, json)) return;
     if (!id) return json(res, 400, { error: "Query id is required" });
     try {
       await deleteRegion(id);

@@ -152,7 +152,6 @@ const dxfRegionName = document.getElementById("dxfRegionName");
 const dxfRegionSelect = document.getElementById("dxfRegionSelect");
 const dxfUploadStatus = document.getElementById("dxfUploadStatus");
 const dxfCloudStatus = document.getElementById("dxfCloudStatus");
-const dxfApiSecret = document.getElementById("dxfApiSecret");
 const coordWarning = document.getElementById("coordWarning");
 const secondAnchorToggle = document.getElementById("secondAnchorToggle");
 const secondAnchorPanel = document.getElementById("secondAnchorPanel");
@@ -219,47 +218,16 @@ async function updateDxfCloudBanner() {
   if (!dxfCloudStatus || typeof regionLibrary.refreshCloudStatus !== "function") {
     return;
   }
-  let secret = "";
-  try {
-    secret = sessionStorage.getItem("pdf-to-kmz-dxf-api-secret")?.trim() ?? "";
-  } catch {
-    /* ignore */
-  }
-  if (!secret) {
-    dxfCloudStatus.textContent =
-      "Nuvem privada: cole a chave API (valor de DXF_API_SECRET na Vercel).";
-    dxfCloudStatus.style.color = "var(--warn, #b45309)";
-    return;
-  }
   const ok = await regionLibrary.refreshCloudStatus();
   if (ok) {
     dxfCloudStatus.textContent =
-      "Nuvem privada: sincronização ativa (Blob + chave API).";
+      "Nuvem: biblioteca DXF sincronizada (ficheiros privados no Blob).";
     dxfCloudStatus.style.color = "var(--success)";
   } else {
     dxfCloudStatus.textContent =
-      "Nuvem indisponível (chave inválida ou Blob não configurado) — só cache local.";
+      "Nuvem indisponível (Blob não configurado) — só cache local neste browser.";
     dxfCloudStatus.style.color = "var(--ink-muted)";
   }
-}
-
-if (dxfApiSecret) {
-  try {
-    const saved = sessionStorage.getItem("pdf-to-kmz-dxf-api-secret");
-    if (saved) dxfApiSecret.value = saved;
-  } catch {
-    /* ignore */
-  }
-  dxfApiSecret.addEventListener("change", () => {
-    try {
-      const v = dxfApiSecret.value.trim();
-      if (v) sessionStorage.setItem("pdf-to-kmz-dxf-api-secret", v);
-      else sessionStorage.removeItem("pdf-to-kmz-dxf-api-secret");
-      regionLibrary.refreshCloudStatus?.().then(() => updateDxfCloudBanner());
-    } catch {
-      /* ignore */
-    }
-  });
 }
 
 refreshDxfRegionSelect().catch(() => {});

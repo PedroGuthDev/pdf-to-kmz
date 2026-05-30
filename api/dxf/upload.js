@@ -1,6 +1,6 @@
 import { handleUpload } from "@vercel/blob/client";
 
-import { requireAuth } from "../../lib/dxf-cloud-auth.js";
+import { requireWriteAuth } from "../../lib/dxf-cloud-auth.js";
 import {
   CLIENT_DXF_MAX_BYTES,
   DXF_REGION_PREFIX,
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!requireAuth(req, res, json)) return;
+  if (!requireWriteAuth(req, res, json)) return;
 
   let body;
   try {

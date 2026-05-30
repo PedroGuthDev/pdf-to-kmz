@@ -14,32 +14,11 @@ function apiUrl(path, base = DEFAULT_BASE) {
 
 export function createDxfCloudClient(options = {}) {
   const baseUrl = options.baseUrl ?? "";
-  const getSecret = options.getApiSecret ?? (() => null);
-
-  function authHeaders() {
-    const secret = getSecret();
-    if (!secret) return {};
-    return { Authorization: `Bearer ${secret}` };
-  }
-
-  function requireSecret() {
-    const secret = getSecret();
-    if (!secret) {
-      throw new Error(
-        "Chave API em falta. Defina DXF_API_SECRET na Vercel e cole a chave no campo abaixo."
-      );
-    }
-    return secret;
-  }
 
   async function registerRegion({ name, manifest, dxfText, dxfPathname }) {
-    requireSecret();
     const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, manifest, dxfText, dxfPathname }),
     });
     if (!res.ok) {
@@ -52,16 +31,8 @@ export function createDxfCloudClient(options = {}) {
   return {
     async probe() {
       try {
-        requireSecret();
-      } catch (err) {
-        return { ok: false, reason: String(err?.message ?? err) };
-      }
-      try {
-        const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
-          headers: authHeaders(),
-        });
+        const res = await fetch(apiUrl("/api/dxf/regions", baseUrl));
         if (res.status === 503) return { ok: false, reason: "blob_not_configured" };
-        if (res.status === 401) return { ok: false, reason: "invalid_api_key" };
         return { ok: res.ok, status: res.status };
       } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
@@ -69,9 +40,7 @@ export function createDxfCloudClient(options = {}) {
     },
 
     async listRegions() {
-      const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
-        headers: authHeaders(),
-      });
+      const res = await fetch(apiUrl("/api/dxf/regions", baseUrl));
       if (!res.ok) throw new Error(`Cloud list failed (${res.status})`);
       const data = await res.json();
       return data.regions ?? [];
@@ -79,8 +48,7 @@ export function createDxfCloudClient(options = {}) {
 
     async getRegion(id) {
       const res = await fetch(
-        apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl),
-        { headers: authHeaders() }
+        apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl)
       );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`Cloud get failed (${res.status})`);
@@ -93,8 +61,7 @@ export function createDxfCloudClient(options = {}) {
         apiUrl(
           `/api/dxf/regions?id=${encodeURIComponent(id)}&asset=dxf`,
           baseUrl
-        ),
-        { headers: authHeaders() }
+        )
       );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`DXF download failed (${res.status})`);
@@ -102,9 +69,7 @@ export function createDxfCloudClient(options = {}) {
     },
 
     async uploadRegion({ name, dxfFile, dxfText, manifest }) {
-      requireSecret();
-      const regionId = name;
-      const pathname = regionDxfBlobPath(regionId);
+      const pathname = regionDxfBlobPath(name);
       const size =
         dxfFile?.size ??
         (typeof dxfText === "string" ? new TextEncoder().encode(dxfText).length : 0);
@@ -115,7 +80,6 @@ export function createDxfCloudClient(options = {}) {
           handleUploadUrl: apiUrl("/api/dxf/upload", baseUrl),
           multipart: size > 5 * 1024 * 1024,
           contentType: "application/dxf",
-          headers: authHeaders(),
         });
         return registerRegion({
           name,
@@ -137,7 +101,7 @@ export function createDxfCloudClient(options = {}) {
     async deleteRegion(id) {
       const res = await fetch(
         apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl),
-        { method: "DELETE", headers: authHeaders() }
+        { method: "DELETE" }
       );
       if (!res.ok) throw new Error(`Cloud delete failed (${res.status})`);
       return res.json();
