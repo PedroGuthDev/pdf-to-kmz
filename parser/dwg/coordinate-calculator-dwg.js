@@ -212,10 +212,15 @@ export async function calculateCoordinatesWithDwg(
     cableSegments,
     opts,
   );
+  // Prefer walkConnections: the full consecutive topology snapshotted before
+  // finalizeBifurcationConnections prunes branch-return/jumpback edges for KMZ
+  // rendering. The graph-walk iterates posts in numeric order and needs an entry
+  // for every consecutive pair (e.g. 9→10); the pruned `connections` array would
+  // leave it with no-connection at branch-return rejoins and force pdf-fallback.
   const connections =
     Array.isArray(opts?.connections) && opts.connections.length > 0
       ? opts.connections
-      : (pdfResult.connections ?? []);
+      : (pdfResult.walkConnections ?? pdfResult.connections ?? []);
 
   // PDF parse order is not route order; calculateCoordinates returns posts sorted
   // by number and builds connections for consecutive numeric pairs (12→13, not 12→24).

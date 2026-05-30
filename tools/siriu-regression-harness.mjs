@@ -197,7 +197,10 @@ export async function runSiriuRegressionHarness() {
     const gw = pairPostsByGraphWalk({
       posts: routePosts,
       distances,
-      connections: result.connections ?? [],
+      // Use the un-pruned consecutive topology (walkConnections), matching what
+      // calculateCoordinatesWithDwg feeds its internal cascade. result.connections
+      // is the KMZ-pruned array and would leave the walk no-connection at branch returns.
+      connections: result.walkConnections ?? result.connections ?? [],
       startLat: start.lat,
       startLon: start.lon,
       region: { posts: regionPosts, cableEdges: regionEdges },

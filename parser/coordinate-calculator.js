@@ -2152,12 +2152,11 @@ export function calculateCoordinates(
     const key = `${a.number}->${b.number}`;
     const rev = `${b.number}->${a.number}`;
     if (hasConn.has(key) || hasConn.has(rev)) continue;
-    if (
-      isBlockedCableEdge(distLookup.get(key)) ||
-      isBlockedCableEdge(distLookup.get(rev))
-    ) {
-      continue;
-    }
+    // NOTE: do NOT skip blocked cable edges here. The DWG graph-walk requires an
+    // entry for every consecutive pair (the guarantee this loop exists to provide).
+    // Blocked edges (jumpback-suppressed / bifurcation-cleared) are pruned from the
+    // KMZ-facing `connections` later by finalizeBifurcationConnections, but they must
+    // first be present so walkConnections (snapshotted pre-prune) sees the full topology.
 
     const isCrossPage =
       a.pageNum != null && b.pageNum != null && a.pageNum !== b.pageNum;
@@ -2192,6 +2191,14 @@ export function calculateCoordinates(
     });
     hasConn.add(key);
   }
+
+  // The DWG graph-walk navigates posts in consecutive numeric order and requires
+  // a connection entry for every consecutive pair (N→N+1). finalizeBifurcationConnections
+  // prunes edges (jumpback-suppressed penults, redundant chords, branch-return tails)
+  // for KMZ polyline rendering, which would otherwise leave the walk with no-connection
+  // at branch-return rejoins (e.g. 9→10) and collapse it into pdf-fallback. Snapshot the
+  // full consecutive topology BEFORE pruning so the walk and KMZ rendering stay decoupled.
+  const walkConnections = connections.map((c) => ({ ...c }));
 
   finalizeBifurcationConnections(
     connections,
@@ -2229,5 +2236,5 @@ export function calculateCoordinates(
     }
   }
 
-  return { posts: sorted, connections, warnings };
+  return { posts: sorted, connections, walkConnections, warnings };
 }
