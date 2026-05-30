@@ -692,9 +692,13 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     };
 
     let distanceOverrides = null;
-    if (process.env.PDF_DISTANCE_OVERRIDES) {
+    const distanceOverridesJson =
+      typeof process !== "undefined"
+        ? process.env?.PDF_DISTANCE_OVERRIDES
+        : undefined;
+    if (distanceOverridesJson) {
       try {
-        distanceOverrides = JSON.parse(process.env.PDF_DISTANCE_OVERRIDES);
+        distanceOverrides = JSON.parse(distanceOverridesJson);
       } catch {
         warnings.push(
           "[pdf-parser] Failed to parse PDF_DISTANCE_OVERRIDES as JSON; ignoring overrides.",

@@ -16,6 +16,9 @@ import {
 import { prefillGapDistancesForPolePlacement } from "./geo/label-lsq-calibrator.js";
 import { buildCablesByPage } from "./cable-builder.js";
 
+const PP_DBG =
+  typeof process !== "undefined" && process.env?.PP_DBG === "1";
+
 /**
  * Calibrate post coordinates for multi-sheet or single-sheet routes.
  *
@@ -45,7 +48,7 @@ export function calibrateMultiSheetPostCoordinates(posts, {
       });
     }
 
-    if (process.env?.PP_DBG === "1") {
+    if (PP_DBG) {
       console.error(`[PP_DBG] PRE-N3#1 numbers=[${posts.map(p => p.number).join(",")}]`);
     }
     assignPolesGloballyByLabels(
@@ -60,7 +63,7 @@ export function calibrateMultiSheetPostCoordinates(posts, {
       },
     );
 
-    if (process.env?.PP_DBG === "1") {
+    if (PP_DBG) {
       console.error(`[PP_DBG] POST-N3#1 numbers=[${posts.map(p => p.number).join(",")}]`);
     }
     // D-N3-PASS2: Re-associate distances and re-run N3 once more so the distance
@@ -183,7 +186,7 @@ export function calibrateMultiSheetPostCoordinates(posts, {
         perPageScale,
       },
     );
-    if (process.env?.PP_DBG === "1") {
+    if (PP_DBG) {
       console.error(`[PP_DBG] POST-N3#2 numbers=[${posts.map(p => p.number).join(",")}]`);
     }
   } else {
