@@ -951,16 +951,18 @@ function findMultiHopByLabel({
     if (a.intermediates.length !== b.intermediates.length) {
       return a.intermediates.length < b.intermediates.length;
     }
-    return a.delta < b.delta;
+    if (a.delta !== b.delta) return a.delta < b.delta;
+    // Final deterministic tiebreak on endpoint index (independent of Set iteration order).
+    return a.endpoint < b.endpoint;
   };
 
-  const visit = (current, prev, accumSpan, intermediates) => {
+  const visit = (current, prev, accumSpan, intermediates, intermediateSet) => {
     const neighbors = richGraph.get(current);
     if (!neighbors) return;
     for (const next of neighbors) {
       if (next === prev) continue;
       if (claimed.has(next)) continue;
-      if (intermediates.includes(next)) continue; // avoid loops within a path
+      if (intermediateSet.has(next)) continue; // avoid loops within a path (O(1))
       const span = spanBetween(regionPosts, current, next);
       const total = accumSpan + span;
       const delta = Math.abs(total - labelM);
@@ -977,13 +979,15 @@ function findMultiHopByLabel({
       // Continue DFS if we still have hops budget.
       if (intermediates.length < maxHops) {
         intermediates.push(next);
-        visit(next, current, total, intermediates);
+        intermediateSet.add(next);
+        visit(next, current, total, intermediates, intermediateSet);
         intermediates.pop();
+        intermediateSet.delete(next);
       }
     }
   };
 
-  visit(fromIdx, -1, 0, []);
+  visit(fromIdx, -1, 0, [], new Set());
   return best;
 }
 
