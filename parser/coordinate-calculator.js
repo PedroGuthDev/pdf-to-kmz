@@ -290,15 +290,24 @@ export function parseCoordinateInput(input) {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
+  // Reject inputs mixing multiple separator types (e.g. "1,234.5 -48.6").
+  const hasComma = trimmed.includes(",");
+  const hasSpace = /\s/.test(trimmed);
+  if (hasComma && hasSpace) return null;
+
   // Try comma-separated first, then space-separated
   let parts;
-  if (trimmed.includes(",")) {
+  if (hasComma) {
     parts = trimmed.split(",").map((s) => s.trim());
   } else {
     parts = trimmed.split(/\s+/);
   }
 
   if (parts.length !== 2) return null;
+
+  // Validate each token as a strict signed decimal number.
+  const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
+  if (!DECIMAL_RE.test(parts[0]) || !DECIMAL_RE.test(parts[1])) return null;
 
   const lat = parseFloat(parts[0]);
   const lon = parseFloat(parts[1]);
