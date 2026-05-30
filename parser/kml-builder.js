@@ -204,7 +204,7 @@ export function buildKml(posts, connections, options = {}) {
       '<styleUrl>#postPoint</styleUrl>',
       '<Point>',
       '<altitudeMode>clampToGround</altitudeMode>',
-      `<coordinates>${post.lon},${post.lat},0</coordinates>`,
+      `<coordinates>${Number(post.lon).toFixed(7)},${Number(post.lat).toFixed(7)},0</coordinates>`,
       '</Point>',
       '</Placemark>',
     );
@@ -219,7 +219,7 @@ export function buildKml(posts, connections, options = {}) {
     for (const num of postNumbers) {
       const p = postByNum.get(num);
       if (!hasGps(p)) continue;
-      coords.push(`${p.lon},${p.lat},0`);
+      coords.push(`${Number(p.lon).toFixed(7)},${Number(p.lat).toFixed(7)},0`);
     }
     if (coords.length < 2) {
       stats.skippedLines += 1;
