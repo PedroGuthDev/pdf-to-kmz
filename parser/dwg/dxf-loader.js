@@ -48,17 +48,21 @@ export function parseDxfText(dxfText) {
     if (entity?.type === "LWPOLYLINE" && entity?.layer === "TrechoSecundarioAereo") {
       const vertices = entity?.vertices;
       if (Array.isArray(vertices) && vertices.length >= 2) {
-        const a = vertices[0];
-        const b = vertices[vertices.length - 1];
-        if (
-          a &&
-          b &&
-          typeof a.x === "number" &&
-          typeof a.y === "number" &&
-          typeof b.x === "number" &&
-          typeof b.y === "number"
-        ) {
-          cableEdges.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } });
+        // Emit one edge per consecutive vertex pair so intermediate posts on
+        // polyline bends are connected to their neighbours in the adjacency graph.
+        for (let k = 1; k < vertices.length; k++) {
+          const a = vertices[k - 1];
+          const b = vertices[k];
+          if (
+            a &&
+            b &&
+            typeof a.x === "number" &&
+            typeof a.y === "number" &&
+            typeof b.x === "number" &&
+            typeof b.y === "number"
+          ) {
+            cableEdges.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } });
+          }
         }
       }
     }
