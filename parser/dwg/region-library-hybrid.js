@@ -86,10 +86,9 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
       if (!(await ensureCloud())) return record;
 
       try {
-        const dxfText = await dxfBlob.text();
         await cloudClient.uploadRegion({
           name: record.id,
-          dxfText,
+          dxfFile: dxfBlob,
           manifest: manifestFromRecord(record),
         });
       } catch (err) {

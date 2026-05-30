@@ -77,6 +77,6 @@ export async function createIsomorphicCanvas(w, h) {
     return await createNodeCanvas(w, h);
   }
   throw new Error(
-    "No canvas implementation (OffscreenCanvas or @napi-rs/canvas)"
+    "No canvas implementation (OffscreenCanvas or @napi-rs/canvas)",
   );
 }

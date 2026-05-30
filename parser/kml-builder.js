@@ -1,4 +1,4 @@
-import { mergeOptions, resolveStyleColors } from './kmz-defaults.js';
+import { mergeOptions, resolveStyleColors } from "./kmz-defaults.js";
 
 /**
  * @param {string} str
@@ -6,11 +6,11 @@ import { mergeOptions, resolveStyleColors } from './kmz-defaults.js';
  */
 function escapeXml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 /**
@@ -18,7 +18,7 @@ function escapeXml(str) {
  * @returns {string}
  */
 function padPostNumber(n) {
-  return String(n).padStart(2, '0');
+  return String(n).padStart(2, "0");
 }
 
 /**
@@ -59,8 +59,7 @@ function preferMainRouteEdge(from, candidates, branchStarts, outMap, used) {
     for (const jump of jumps) {
       const hi = jump.to;
       const mainCont = (outMap.get(hi) ?? []).find(
-        (e) =>
-          e.to === hi + 1 && !used.has(`${e.from}->${e.to}`),
+        (e) => e.to === hi + 1 && !used.has(`${e.from}->${e.to}`),
       );
       if (mainCont) return jump;
     }
@@ -181,8 +180,8 @@ export function buildKml(posts, connections, options = {}) {
   const parts = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<kml xmlns="http://www.opengis.net/kml/2.2">',
-    '<Document>',
-    '<name>pdf-to-kmz route</name>',
+    "<Document>",
+    "<name>pdf-to-kmz route</name>",
     `<Style id="postPoint"><IconStyle><color>${colors.iconColorKml}</color><scale>1</scale><Icon><href>${escapeXml(merged.iconHref)}</href></Icon></IconStyle><LabelStyle><color>${colors.labelColorKml}</color><scale>${merged.labelScale}</scale></LabelStyle></Style>`,
     `<Style id="routeLine"><LineStyle><color>${colors.lineColorKml}</color><width>${merged.lineWidth}</width></LineStyle></Style>`,
   ];
@@ -198,15 +197,15 @@ export function buildKml(posts, connections, options = {}) {
     const name = `Poste ${padPostNumber(post.number)}`;
     const desc = `Lat: ${post.lat}, Lon: ${post.lon}`;
     parts.push(
-      '<Placemark>',
+      "<Placemark>",
       `<name>${escapeXml(name)}</name>`,
       `<description>${escapeXml(desc)}</description>`,
-      '<styleUrl>#postPoint</styleUrl>',
-      '<Point>',
-      '<altitudeMode>clampToGround</altitudeMode>',
+      "<styleUrl>#postPoint</styleUrl>",
+      "<Point>",
+      "<altitudeMode>clampToGround</altitudeMode>",
       `<coordinates>${Number(post.lon).toFixed(7)},${Number(post.lat).toFixed(7)},0</coordinates>`,
-      '</Point>',
-      '</Placemark>',
+      "</Point>",
+      "</Placemark>",
     );
     stats.placemarkCount += 1;
   }
@@ -234,15 +233,15 @@ export function buildKml(posts, connections, options = {}) {
         : `Route ${first}–${last}`;
 
     parts.push(
-      '<Placemark>',
+      "<Placemark>",
       `<name>${escapeXml(lineName)}</name>`,
       `<description>${lineDesc}</description>`,
-      '<styleUrl>#routeLine</styleUrl>',
-      '<LineString>',
-      '<tessellate>1</tessellate>',
-      `<coordinates>${coords.join(' ')}</coordinates>`,
-      '</LineString>',
-      '</Placemark>',
+      "<styleUrl>#routeLine</styleUrl>",
+      "<LineString>",
+      "<tessellate>1</tessellate>",
+      `<coordinates>${coords.join(" ")}</coordinates>`,
+      "</LineString>",
+      "</Placemark>",
     );
     stats.lineCount += 1;
     if (gap) {
@@ -252,6 +251,6 @@ export function buildKml(posts, connections, options = {}) {
     }
   }
 
-  parts.push('</Document>', '</kml>');
-  return { kml: parts.join(''), stats };
+  parts.push("</Document>", "</kml>");
+  return { kml: parts.join(""), stats };
 }

@@ -333,7 +333,8 @@ export function validateBrazilBounds(lat, lon) {
   }
   return {
     valid: false,
-    message: "Coordenadas fora dos limites do Brasil (lat -34 a 5, lon -74 a -35)",
+    message:
+      "Coordenadas fora dos limites do Brasil (lat -34 a 5, lon -74 a -35)",
   };
 }
 
@@ -837,8 +838,7 @@ function isBifurcationTapLeg(fromNum, toNum, distMap) {
     distMap.get(`${junction}->${toNum}`) ??
     distMap.get(`${toNum}->${junction}`);
   const mWrong =
-    distMap.get(`${fromNum}->${toNum}`) ??
-    distMap.get(`${toNum}->${fromNum}`);
+    distMap.get(`${fromNum}->${toNum}`) ?? distMap.get(`${toNum}->${fromNum}`);
   return (
     mTap != null &&
     mTap > 0 &&
@@ -955,9 +955,7 @@ function finalizeBifurcationConnections(
     const to = postMap.get(toNum);
     if (!from || !to) return null;
     const isCrossPage =
-      from.pageNum != null &&
-      to.pageNum != null &&
-      from.pageNum !== to.pageNum;
+      from.pageNum != null && to.pageNum != null && from.pageNum !== to.pageNum;
     let meters = metersOverride;
     if (meters == null) {
       meters =
@@ -2176,7 +2174,8 @@ export function calculateCoordinates(
     } else {
       const labelM = distMap.get(key) ?? distMap.get(rev) ?? null;
       const pdfD = Math.hypot(b.x - a.x, b.y - a.y);
-      meters = labelM != null ? labelM : scaleFactor != null ? pdfD * scaleFactor : 0;
+      meters =
+        labelM != null ? labelM : scaleFactor != null ? pdfD * scaleFactor : 0;
       bearing = pdfBearing(a, b);
     }
 

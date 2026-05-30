@@ -8,6 +8,10 @@
     "api/dxf/regions.js": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/dxf/upload.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }

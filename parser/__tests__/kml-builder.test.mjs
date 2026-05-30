@@ -1,9 +1,9 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { buildKml, buildRoutePolylines } from '../kml-builder.js';
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { buildKml, buildRoutePolylines } from "../kml-builder.js";
 
-describe('buildRoutePolylines', () => {
-  it('merges a simple chain into one polyline', () => {
+describe("buildRoutePolylines", () => {
+  it("merges a simple chain into one polyline", () => {
     const connections = [
       { from: 1, to: 2 },
       { from: 2, to: 3 },
@@ -14,7 +14,7 @@ describe('buildRoutePolylines', () => {
     assert.deepEqual(lines[0].postNumbers, [1, 2, 3, 4]);
   });
 
-  it('splits at bifurcation into main run and branch', () => {
+  it("splits at bifurcation into main run and branch", () => {
     const connections = [
       { from: 1, to: 2 },
       { from: 2, to: 3 },
@@ -24,14 +24,14 @@ describe('buildRoutePolylines', () => {
     const lines = buildRoutePolylines(connections, branchStarts);
     assert.equal(lines.length, 2);
     const sorted = lines
-      .map((l) => l.postNumbers.join(','))
+      .map((l) => l.postNumbers.join(","))
       .sort()
-      .join('|');
+      .join("|");
     assert.match(sorted, /1,2,3/);
     assert.match(sorted, /2,4/);
   });
 
-  it('branch return at junction prefers main rejoin over tap leg', () => {
+  it("branch return at junction prefers main rejoin over tap leg", () => {
     const connections = [
       { from: 3, to: 4 },
       { from: 4, to: 5 },
@@ -44,12 +44,12 @@ describe('buildRoutePolylines', () => {
     ];
     const lines = buildRoutePolylines(connections);
     assert.equal(lines.length, 2);
-    const paths = lines.map((l) => l.postNumbers.join(',')).sort();
-    assert.equal(paths[0], '3,4,5,10,11');
-    assert.equal(paths[1], '5,6,7,8,9');
+    const paths = lines.map((l) => l.postNumbers.join(",")).sort();
+    assert.equal(paths[0], "3,4,5,10,11");
+    assert.equal(paths[1], "5,6,7,8,9");
   });
 
-  it('splits on gap edges', () => {
+  it("splits on gap edges", () => {
     const connections = [
       { from: 1, to: 2 },
       { from: 2, to: 3, gap: true },
@@ -57,10 +57,7 @@ describe('buildRoutePolylines', () => {
     ];
     const lines = buildRoutePolylines(connections);
     assert.equal(lines.length, 3);
-    assert.deepEqual(
-      lines.find((l) => l.gap)?.postNumbers,
-      [2, 3],
-    );
+    assert.deepEqual(lines.find((l) => l.gap)?.postNumbers, [2, 3]);
     assert.deepEqual(
       lines.find((l) => !l.gap && l.postNumbers[0] === 1)?.postNumbers,
       [1, 2],
@@ -72,8 +69,8 @@ describe('buildRoutePolylines', () => {
   });
 });
 
-describe('buildKml', () => {
-  it('builds placemarks and one merged line for a simple route', () => {
+describe("buildKml", () => {
+  it("builds placemarks and one merged line for a simple route", () => {
     const posts = [
       { number: 1, lat: -27.65, lon: -48.69 },
       { number: 2, lat: -27.66, lon: -48.7 },
@@ -95,7 +92,7 @@ describe('buildKml', () => {
     assert.match(kml, /Route 01–03/);
   });
 
-  it('draws two cable runs at a branch (not one line per edge)', () => {
+  it("draws two cable runs at a branch (not one line per edge)", () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 2, lat: 2, lon: 2 },
@@ -112,7 +109,7 @@ describe('buildKml', () => {
     assert.equal(stats.lineCount, 2);
   });
 
-  it('omits posts without GPS and counts them', () => {
+  it("omits posts without GPS and counts them", () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 3, lat: null, lon: null },
@@ -123,20 +120,18 @@ describe('buildKml', () => {
     assert.doesNotMatch(kml, /<name>Poste 03<\/name>/);
   });
 
-  it('escapes line description in XML', () => {
+  it("escapes line description in XML", () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 2, lat: 2, lon: 2 },
     ];
-    const { kml } = buildKml(
-      posts,
-      [{ from: 1, to: 2 }],
-      { lineDescription: 'Cable <A>&B' },
-    );
+    const { kml } = buildKml(posts, [{ from: 1, to: 2 }], {
+      lineDescription: "Cable <A>&B",
+    });
     assert.match(kml, /Cable &lt;A&gt;&amp;B/);
   });
 
-  it('returns valid empty document', () => {
+  it("returns valid empty document", () => {
     const { kml, stats } = buildKml([], [], {});
     assert.equal(stats.placemarkCount, 0);
     assert.match(kml, /<Document>/);

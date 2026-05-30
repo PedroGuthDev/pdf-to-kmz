@@ -51,9 +51,6 @@ describe("bifurcation-aware route connections", () => {
     const polylines = buildRoutePolylines(drawable).map((l) =>
       l.postNumbers.join(","),
     );
-    assert.deepEqual(
-      polylines.sort(),
-      ["3,4,5,10,11", "5,6,7,8,9"].sort(),
-    );
+    assert.deepEqual(polylines.sort(), ["3,4,5,10,11", "5,6,7,8,9"].sort());
   });
 });

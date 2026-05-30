@@ -70,17 +70,21 @@ export default async function handler(req, res) {
 
     const name = String(body.name ?? "").trim();
     const dxfText = typeof body.dxfText === "string" ? body.dxfText : "";
+    const dxfUrl = typeof body.dxfUrl === "string" ? body.dxfUrl : "";
     const manifest = body.manifest && typeof body.manifest === "object" ? body.manifest : null;
 
     if (!name) return json(res, 400, { error: "name is required" });
-    if (!dxfText) return json(res, 400, { error: "dxfText is required" });
+    if (!dxfText && !dxfUrl) {
+      return json(res, 400, { error: "dxfText or dxfUrl is required" });
+    }
     if (!manifest) return json(res, 400, { error: "manifest is required" });
 
     try {
       const result = await upsertRegion({
         id: name,
         name,
-        dxfText,
+        dxfText: dxfText || undefined,
+        dxfUrl: dxfUrl || undefined,
         manifest,
       });
       return json(res, 201, result);
