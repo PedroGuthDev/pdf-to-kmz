@@ -142,6 +142,8 @@ const summaryEl = document.getElementById("summary");
 const summaryList = document.getElementById("summaryList");
 const warningsEl = document.getElementById("warnings");
 const warningsList = document.getElementById("warningsList");
+const parseNoticesEl = document.getElementById("parseNotices");
+const parseNoticesList = document.getElementById("parseNoticesList");
 const coordForm = document.getElementById("coordForm");
 const gpsInput = document.getElementById("gpsInput");
 const gpsInputLast = document.getElementById("gpsInputLast");
@@ -454,6 +456,8 @@ function resetSession() {
   summaryList.innerHTML = "";
   warningsEl.style.display = "none";
   warningsList.innerHTML = "";
+  parseNoticesEl.style.display = "none";
+  parseNoticesList.innerHTML = "";
   coordForm.style.display = "none";
   resultSection.style.display = "none";
   coordWarning.style.display = "none";
@@ -593,11 +597,27 @@ async function handlePdfFile(file) {
   };
 
   coordForm.style.display = "block";
+  showParseNotices(result.userWarnings);
   showWarnings(result.warnings);
   showDebug(dumpCalibrationData(result));
 }
 
 initAppearanceControls();
+
+/** User-facing post renumber / OCR correction notices (main workflow, not dev tools). */
+function showParseNotices(notices) {
+  parseNoticesList.innerHTML = "";
+  if (!notices || notices.length === 0) {
+    parseNoticesEl.style.display = "none";
+    return;
+  }
+  for (const text of notices) {
+    const li = document.createElement("li");
+    li.textContent = text;
+    parseNoticesList.appendChild(li);
+  }
+  parseNoticesEl.style.display = "block";
+}
 
 function showWarnings(warnings) {
   if (!warnings || warnings.length === 0) return;

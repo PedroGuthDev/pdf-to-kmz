@@ -488,16 +488,46 @@ function inferPostNumber(i, sorted, trusted, maxPost, rawNumber) {
 }
 
 /**
+ * Short Portuguese phrase for user-facing rename notices (neighbors on route).
+ */
+function neighborContextPhrase(sorted, i, maxPost) {
+  const pi = nearestContextNeighbor(sorted, i, -1, maxPost);
+  const ni = nearestContextNeighbor(sorted, i, 1, maxPost);
+  const lo = pi >= 0 ? contextNumber(sorted[pi], maxPost) : null;
+  const hi = ni >= 0 ? contextNumber(sorted[ni], maxPost) : null;
+  if (lo != null && hi != null) {
+    if (hi - lo === 2) return `entre os postes ${lo} e ${hi}`;
+    return `entre os postes ${lo} e ${hi} na folha`;
+  }
+  if (lo != null) return `após o poste ${lo}`;
+  if (hi != null) return `antes do poste ${hi}`;
+  return "sequência da rota na folha";
+}
+
+/**
+ * User-readable post renumber notice (shown outside developer tools).
+ */
+export function formatUserPostRenumber(page, ocrRead, assigned, contextPhrase) {
+  const readPart =
+    ocrRead == null
+      ? "sem número legível no OCR"
+      : `lido como ${ocrRead}`;
+  const ctx = contextPhrase ? ` (${contextPhrase})` : "";
+  return `Página ${page}: poste ${readPart} renumerado para ${assigned}${ctx}.`;
+}
+
+/**
  * Build posts[] from Tesseract.js OCR results.
  *
  * ocrResults: Array<{circle: {x, y, pageNum?}, number: number|null}>
- * Returns { posts: [{number, x, y, pageNum?}], warnings: string[] }
+ * Returns { posts: [{number, x, y, pageNum?}], warnings: string[], userWarnings: string[] }
  *
  * For circles where number is null (OCR failure), infer the post number from
  * the sequence of known numbers sorted by page then x-position (D-07).
  */
 export function assemblePostsFromOcr(ocrResults) {
   const warnings = [];
+  const userWarnings = [];
 
   // Sort by pageNum → x → y so that vertically-stacked circles (same X, different Y)
   // are ordered consistently top-to-bottom within each column (CR-03).
@@ -630,6 +660,16 @@ export function assemblePostsFromOcr(ocrResults) {
         anchorY: circle.y,
         ...(circle.pageNum !== undefined ? { pageNum: circle.pageNum } : {}),
       });
+      if (number !== inferred) {
+        userWarnings.push(
+          formatUserPostRenumber(
+            circle.pageNum ?? "?",
+            number,
+            inferred,
+            neighborContextPhrase(sorted, i, MAX_PLAUSIBLE_POST),
+          ),
+        );
+      }
       warnings.push(
         `Post ${inferred}: number inferred from sequence ` +
           `(OCR read ${number ?? "null"} at page ${circle.pageNum ?? "?"})`,
@@ -643,5 +683,5 @@ export function assemblePostsFromOcr(ocrResults) {
   }
 
   attachMarkerAnchors(posts);
-  return { posts, warnings };
+  return { posts, warnings, userWarnings };
 }

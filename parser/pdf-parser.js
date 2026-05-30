@@ -258,14 +258,15 @@ function pairLabelsToRects(labels, rects, pageHeight, maxPageNum) {
  * @param {ArrayBuffer} arrayBuffer  PDF file contents from FileReader.arrayBuffer().
  * @param {{ onProgress?: (info: { stage?: string, message: string, pageNum?: number, numPages?: number, percent?: number, current?: number, total?: number }) => void }} [hooks]
  * @returns {Promise<
- *   | { posts: Array, distances: Array, cableSegments: Array, warnings: string[], layerMap: { allNames: string[] } }
+ *   | { posts: Array, distances: Array, cableSegments: Array, warnings: string[], userWarnings: string[], layerMap: { allNames: string[] } }
  *   | { error: 'missing_layers', missing: string[], allNames: string[] }
  *   | { error: 'parse_failed', message: string, warnings: string[] }
  * >}
  */
 export async function parsePdf(arrayBuffer, hooks = {}) {
-  const warnings = [];
-  const onProgress =
+    const warnings = [];
+    const userWarnings = [];
+    const onProgress =
     typeof hooks.onProgress === "function" ? hooks.onProgress : null;
 
   try {
@@ -653,9 +654,10 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     }
 
     // ── Assemble posts from OCR results (D-06, D-07) ────────────────────────
-    const { posts: rawPosts, warnings: postWarnings } =
+    const { posts: rawPosts, warnings: postWarnings, userWarnings: postUserWarnings } =
       assemblePostsFromOcr(allOcrResults);
     warnings.push(...postWarnings);
+    userWarnings.push(...postUserWarnings);
     let posts = deduplicatePostsPreferLowerPage(rawPosts, calibratedPageNums);
 
     if (posts.length === 0 && allOcrResults.length > 0) {
@@ -814,6 +816,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
       distances,
       cableSegments,
       warnings,
+      userWarnings,
       layerMap: { allNames },
       utmGridPathsPerPage,
       viewportBoxes: pairedViewportBoxes,

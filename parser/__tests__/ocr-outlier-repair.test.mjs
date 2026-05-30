@@ -44,7 +44,7 @@ ocrResults[57].number = 8; // true 58
 ocrResults[58].number = 99; // true 59
 ocrResults[69].number = 40; // true 70
 
-const { posts, warnings } = assemblePostsFromOcr(ocrResults);
+const { posts, warnings, userWarnings } = assemblePostsFromOcr(ocrResults);
 const nums = new Set(posts.map((p) => p.number));
 const byX = new Map(posts.map((p) => [p.x, p.number]));
 
@@ -67,6 +67,12 @@ assert(nums.has(70), "post 70 recovered");
 assert(
   warnings.some((w) => /rejected sandwich outlier/.test(w)),
   "emits sandwich-outlier warnings",
+);
+assert(
+  userWarnings.some(
+    (w) => /40/.test(w) && /70/.test(w) && /69/.test(w) && /71/.test(w),
+  ),
+  "user notice for 40→70 between 69 and 71",
 );
 assert(
   !warnings.some((w) => /duplicate number .* renumbered/.test(w)),
