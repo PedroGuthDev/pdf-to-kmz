@@ -566,6 +566,7 @@ async function handlePdfFile(file) {
 
   coordForm.style.display = "block";
   showWarnings(result.warnings);
+  showDebug(dumpCalibrationData(result));
 }
 
 initAppearanceControls();
@@ -671,15 +672,24 @@ calcBtn.addEventListener("click", async () => {
     distanceLabelItems: currentParseData.distanceLabelItems,
     ...(lastParsed ? { lastPostGps: lastParsed } : {}),
   });
-  const result = await calculateCoordinatesWithDwg(
-    postsCopy,
-    currentParseData.distances,
-    lat,
-    lon,
-    currentParseData.cableSegments,
-    opts,
-    regionLibrary,
-  );
+  let result;
+  try {
+    result = await calculateCoordinatesWithDwg(
+      postsCopy,
+      currentParseData.distances,
+      lat,
+      lon,
+      currentParseData.cableSegments,
+      opts,
+      regionLibrary,
+    );
+  } catch (err) {
+    coordWarning.textContent =
+      "Erro ao calcular a rota: " + (err?.message ?? String(err));
+    coordWarning.style.display = "block";
+    console.error("[pdf-to-kmz] calculateCoordinatesWithDwg failed:", err);
+    return;
+  }
   const { posts: calculatedPosts, connections } = result;
 
   console.log("[pdf-to-kmz] Generated connections:", connections);
@@ -917,15 +927,24 @@ async function runReferenceCompare(twoAnchors) {
     posteRawCentroids: currentParseData.posteRawCentroids,
     ...(lastPostGps ? { lastPostGps } : {}),
   });
-  const calcResult = await calculateCoordinatesWithDwg(
-    postsCopy,
-    currentParseData.distances,
-    ref1.lat,
-    ref1.lon,
-    currentParseData.cableSegments,
-    calcOpts,
-    regionLibrary,
-  );
+  let calcResult;
+  try {
+    calcResult = await calculateCoordinatesWithDwg(
+      postsCopy,
+      currentParseData.distances,
+      ref1.lat,
+      ref1.lon,
+      currentParseData.cableSegments,
+      calcOpts,
+      regionLibrary,
+    );
+  } catch (err) {
+    compareOutput.textContent =
+      "Erro ao comparar: " + (err?.message ?? String(err));
+    compareOutput.style.display = "block";
+    console.error("[pdf-to-kmz] reference compare failed:", err);
+    return;
+  }
   const calcPosts = calcResult.posts;
   const calcWarnings = calcResult.warnings ?? [];
 

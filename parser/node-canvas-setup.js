@@ -48,6 +48,16 @@ export function isNodeRuntime() {
   return typeof process !== "undefined" && !!process.versions?.node;
 }
 
+/** True when `process.env[name] === "1"` (safe in browser bundles). */
+export function envFlag(name) {
+  return typeof process !== "undefined" && process.env?.[name] === "1";
+}
+
+/** True when `process.env[name]` is set and non-empty (safe in browser bundles). */
+export function envTruthy(name) {
+  return typeof process !== "undefined" && Boolean(process.env?.[name]);
+}
+
 /**
  * Create a canvas in an environment-agnostic (isomorphic) way.
  * Uses OffscreenCanvas in the browser, and @napi-rs/canvas in Node.js.

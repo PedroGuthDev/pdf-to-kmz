@@ -4,6 +4,7 @@ import {
   DEFAULT_TOLERANCE_M,
 } from "./region-pairing.js";
 import { latLonToUtm, utmToLatLon } from "../geo/utm-calibrator.js";
+import { envFlag, envTruthy } from "../node-canvas-setup.js";
 
 const SPAN_TOL_FLOOR_M = 2;
 const SPAN_TOL_CEIL_M = 10;
@@ -1113,7 +1114,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: null,
-      ...(process.env.GW_RETURN_IDX === "1"
+      ...(envFlag("GW_RETURN_IDX")
         ? { idxByPostNumber: Object.fromEntries(idxByNum) }
         : {}),
     };
@@ -1136,7 +1137,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: null,
-      ...(process.env.GW_RETURN_IDX === "1"
+      ...(envFlag("GW_RETURN_IDX")
         ? { idxByPostNumber: Object.fromEntries(idxByNum) }
         : {}),
     };
@@ -1162,7 +1163,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: Number.isFinite(anchorDist) ? anchorDist : null,
-      ...(process.env.GW_RETURN_IDX === "1"
+      ...(envFlag("GW_RETURN_IDX")
         ? { idxByPostNumber: Object.fromEntries(idxByNum) }
         : {}),
     };
@@ -1279,10 +1280,10 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: null,
-        ...(process.env.GW_RETURN_PARTIAL === "1"
+        ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(process.env.GW_RETURN_IDX === "1"
+        ...(envFlag("GW_RETURN_IDX")
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2558,7 +2559,7 @@ export function pairPostsByGraphWalk({
 
     // Final failure handling if neither case found a chosenIdx
     if (chosenIdx === undefined) {
-      if (process.env.GW_TRACE) {
+      if (envTruthy("GW_TRACE")) {
         const neighbors = unclaimedCableNeighbors(fromIdx, graph, claimed);
         const junctions = junctionSetFromVisited(visitedIdx, graph);
         const jumpCands = conn?.gap
@@ -2613,10 +2614,10 @@ export function pairPostsByGraphWalk({
           ok: false,
           failedAt: toNum,
           nearestDistance: caseADirectBestSpan,
-          ...(process.env.GW_RETURN_PARTIAL === "1"
+          ...(envFlag("GW_RETURN_PARTIAL")
             ? { partialCoords: buildPartialCoords() }
             : {}),
-          ...(process.env.GW_RETURN_IDX === "1"
+          ...(envFlag("GW_RETURN_IDX")
             ? { idxByPostNumber: Object.fromEntries(idxByNum) }
             : {}),
         };
@@ -2639,10 +2640,10 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: null,
-        ...(process.env.GW_RETURN_PARTIAL === "1"
+        ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(process.env.GW_RETURN_IDX === "1"
+        ...(envFlag("GW_RETURN_IDX")
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2676,7 +2677,7 @@ export function pairPostsByGraphWalk({
       }
     }
 
-    if (process.env.GW_TRACE) {
+    if (envTruthy("GW_TRACE")) {
       // eslint-disable-next-line no-console
       console.error(
         `[gw] ${fromNum}->${toNum} fromIdx=${fromIdx} -> chosen=${chosenIdx} intermediates=[${chainIntermediates?.join(",") ?? ""}] gap=${conn.gap} label=${labelM?.toFixed?.(2) ?? labelM}`,
@@ -2697,7 +2698,7 @@ export function pairPostsByGraphWalk({
             ok: false,
             failedAt: toNum,
             nearestDistance: 0,
-            ...(process.env.GW_RETURN_IDX === "1"
+            ...(envFlag("GW_RETURN_IDX")
               ? { idxByPostNumber: Object.fromEntries(idxByNum) }
               : {}),
           };
@@ -2718,7 +2719,7 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: 0,
-        ...(process.env.GW_RETURN_IDX === "1"
+        ...(envFlag("GW_RETURN_IDX")
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2802,10 +2803,10 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: p.number,
         nearestDistance: null,
-        ...(process.env.GW_RETURN_PARTIAL === "1"
+        ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(process.env.GW_RETURN_IDX === "1"
+        ...(envFlag("GW_RETURN_IDX")
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2828,7 +2829,7 @@ export function pairPostsByGraphWalk({
   return {
     ok: true,
     coords,
-    ...(process.env.GW_RETURN_IDX === "1"
+    ...(envFlag("GW_RETURN_IDX")
       ? { idxByPostNumber: Object.fromEntries(idxByNum) }
       : {}),
   };
