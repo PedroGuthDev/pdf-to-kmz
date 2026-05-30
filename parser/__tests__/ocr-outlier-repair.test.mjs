@@ -72,7 +72,11 @@ assert(
   userWarnings.some(
     (w) => /40/.test(w) && /70/.test(w) && /69/.test(w) && /71/.test(w),
   ),
-  "user notice for 40→70 between 69 and 71",
+  "user notice cites bracket 69 and 71 for 40→70",
+);
+assert(
+  !userWarnings.some((w) => /40/.test(w) && /61/.test(w)),
+  "user notice does not cite stray neighbor 61",
 );
 assert(
   !warnings.some((w) => /duplicate number .* renumbered/.test(w)),

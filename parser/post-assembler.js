@@ -492,8 +492,10 @@ function inferPostNumber(i, sorted, trusted, maxPost, rawNumber) {
 function neighborContextPhrase(sorted, i, maxPost) {
   const pi = nearestContextNeighbor(sorted, i, -1, maxPost);
   const ni = nearestContextNeighbor(sorted, i, 1, maxPost);
-  const lo = pi >= 0 ? contextNumber(sorted[pi], maxPost) : null;
-  const hi = ni >= 0 ? contextNumber(sorted[ni], maxPost) : null;
+  const lo =
+    pi >= 0 ? expandedSingleDigitEndpoint(sorted[pi], maxPost) : null;
+  const hi =
+    ni >= 0 ? expandedSingleDigitEndpoint(sorted[ni], maxPost) : null;
   if (lo != null && hi != null) {
     if (hi - lo === 2) return `entre os postes ${lo} e ${hi}`;
     return `entre os postes ${lo} e ${hi} na folha`;
@@ -501,6 +503,48 @@ function neighborContextPhrase(sorted, i, maxPost) {
   if (lo != null) return `após o poste ${lo}`;
   if (hi != null) return `antes do poste ${hi}`;
   return "sequência da rota na folha";
+}
+
+/** Bracket pair (lo, hi) that explains an assigned sandwich number N+1. */
+function bracketPairForAssigned(sorted, i, maxPost, assigned) {
+  const page = pageOfEntry(sorted[i]);
+  const mid = assigned - 1;
+  const hi = assigned + 1;
+  if (
+    assigned >= 2 &&
+    hasRouteLabelOnPage(sorted, page, mid, maxPost, i, null) &&
+    hasRouteLabelOnPage(sorted, page, hi, maxPost, null, i)
+  ) {
+    return { lo: mid, hi };
+  }
+
+  const seq = pageLabelSequence(sorted, page, maxPost);
+  const pos = seq.findIndex((e) => e.j === i);
+  if (pos < 0) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (let a = 0; a < pos; a++) {
+    for (let b = pos + 1; b < seq.length; b++) {
+      const lo = Math.min(seq[a].n, seq[b].n);
+      const hiN = Math.max(seq[a].n, seq[b].n);
+      const sandwich = sandwichValue(lo, hiN);
+      if (sandwich !== assigned) continue;
+      const score = b - a;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { lo, hi: hiN };
+      }
+    }
+  }
+  return best;
+}
+
+/** Bracket pair that justified the assigned number (for user messages). */
+function renumberContextPhrase(sorted, i, maxPost, assigned) {
+  const pair = bracketPairForAssigned(sorted, i, maxPost, assigned);
+  if (pair) return `entre os postes ${pair.lo} e ${pair.hi}`;
+  return neighborContextPhrase(sorted, i, maxPost);
 }
 
 /**
@@ -672,7 +716,12 @@ export function assemblePostsFromOcr(ocrResults) {
             circle.pageNum ?? "?",
             number,
             inferred,
-            neighborContextPhrase(sorted, i, MAX_PLAUSIBLE_POST),
+            renumberContextPhrase(
+              sorted,
+              i,
+              MAX_PLAUSIBLE_POST,
+              inferred,
+            ),
           ),
         );
       }
