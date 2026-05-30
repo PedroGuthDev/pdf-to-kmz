@@ -1115,7 +1115,7 @@ export function pairPostsByGraphWalk({
       failedAt: posts[0].number,
       nearestDistance: null,
       ...(envFlag("GW_RETURN_IDX")
-        ? { idxByPostNumber: Object.fromEntries(idxByNum) }
+        ? { idxByPostNumber: {} }
         : {}),
     };
   }
@@ -1138,7 +1138,7 @@ export function pairPostsByGraphWalk({
       failedAt: posts[0].number,
       nearestDistance: null,
       ...(envFlag("GW_RETURN_IDX")
-        ? { idxByPostNumber: Object.fromEntries(idxByNum) }
+        ? { idxByPostNumber: {} }
         : {}),
     };
   }
@@ -1164,7 +1164,7 @@ export function pairPostsByGraphWalk({
       failedAt: posts[0].number,
       nearestDistance: Number.isFinite(anchorDist) ? anchorDist : null,
       ...(envFlag("GW_RETURN_IDX")
-        ? { idxByPostNumber: Object.fromEntries(idxByNum) }
+        ? { idxByPostNumber: {} }
         : {}),
     };
   }
