@@ -839,6 +839,198 @@ function isBifurcationTapLeg(fromNum, toNum, distMap) {
   );
 }
 
+/** @param {Array<{ from: number, to: number, meters?: number|null, source?: string }>} distances */
+function buildDistanceLookup(distances) {
+  /** @type {Map<string, { from: number, to: number, meters?: number|null, source?: string }>} */
+  const lookup = new Map();
+  for (const d of distances ?? []) {
+    lookup.set(`${d.from}->${d.to}`, d);
+    lookup.set(`${d.to}->${d.from}`, d);
+  }
+  return lookup;
+}
+
+function isBlockedCableEdge(d) {
+  return (
+    d != null &&
+    d.meters == null &&
+    (d.source === "jumpback-suppressed" || d.source === "bifurcation-cleared")
+  );
+}
+
+function hasActiveMeters(d) {
+  return d != null && d.meters != null && d.meters > 0;
+}
+
+/**
+ * Branch return: cable leaves junction lo→lo+1, runs through lo+1..hi-1, rejoins at hi.
+ * The bogus sequential edge (hi-1)→hi is jumpback-suppressed.
+ *
+ * @param {Array<{ number: number }>} sorted
+ * @param {Map<string, { from: number, to: number, meters?: number|null, source?: string }>} distLookup
+ */
+function findBranchReturns(sorted, distLookup) {
+  /** @type {Map<number, { junction: number, rejoin: number, tip: number }>} */
+  const byRejoin = new Map();
+
+  for (const p of sorted) {
+    const J = p.number;
+    const tapEdge = distLookup.get(`${J}->${J + 1}`);
+    if (!hasActiveMeters(tapEdge)) continue;
+
+    for (const d of distLookup.values()) {
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (lo !== J || hi <= J + 1) continue;
+      if (!hasActiveMeters(d)) continue;
+      if (d.source !== "inferred-label" && d.source !== "bifurcation-main")
+        continue;
+      const penult = distLookup.get(`${hi - 1}->${hi}`);
+      if (!isBlockedCableEdge(penult)) continue;
+      let chainOk = true;
+      for (let n = J + 1; n < hi - 1; n++) {
+        if (!hasActiveMeters(distLookup.get(`${n}->${n + 1}`))) {
+          chainOk = false;
+          break;
+        }
+      }
+      if (!chainOk) continue;
+      const existing = byRejoin.get(hi);
+      if (!existing || J > existing.junction) {
+        byRejoin.set(hi, { junction: J, rejoin: hi, tip: hi - 1 });
+      }
+      break;
+    }
+  }
+  return [...byRejoin.values()];
+}
+
+/**
+ * Non-consecutive inferred chord is redundant when every consecutive hop already
+ * carries an active label (e.g. 4→6 while 4→5 and 5→6 exist).
+ */
+function isRedundantInferredChord(from, to, distLookup) {
+  if (to - from <= 1) return false;
+  const d = distLookup.get(`${from}->${to}`);
+  if (!d || d.source !== "inferred-label") return false;
+  for (let n = from; n < to; n++) {
+    const step = distLookup.get(`${n}->${n + 1}`);
+    if (!hasActiveMeters(step)) return false;
+  }
+  return true;
+}
+
+/**
+ * @param {Array<{ from: number, to: number, meters?: number, bearing?: number, gap?: boolean, implied?: boolean, cross_page?: boolean }>} connections
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, lat?: number|null, lon?: number|null }>} sorted
+ * @param {Map<number, { number: number, x: number, y: number, pageNum?: number, lat?: number|null, lon?: number|null }>} postMap
+ * @param {Map<string, { from: number, to: number, meters?: number|null, source?: string }>} distLookup
+ * @param {Map<string, number|null>} distMap
+ * @param {number|null} scaleFactor
+ * @param {(from: object, to: object) => number} pdfBearing
+ */
+function finalizeBifurcationConnections(
+  connections,
+  sorted,
+  postMap,
+  distLookup,
+  distMap,
+  scaleFactor,
+  pdfBearing,
+) {
+  const connKey = (from, to) => `${from}->${to}`;
+  const hasConn = new Set(connections.map((c) => connKey(c.from, c.to)));
+
+  const makeConn = (fromNum, toNum, metersOverride = null) => {
+    const from = postMap.get(fromNum);
+    const to = postMap.get(toNum);
+    if (!from || !to) return null;
+    const isCrossPage =
+      from.pageNum != null &&
+      to.pageNum != null &&
+      from.pageNum !== to.pageNum;
+    let meters = metersOverride;
+    if (meters == null) {
+      meters =
+        distMap.get(connKey(fromNum, toNum)) ??
+        distMap.get(connKey(toNum, fromNum)) ??
+        null;
+    }
+    if (meters == null && scaleFactor != null) {
+      meters = Math.hypot(to.x - from.x, to.y - from.y) * scaleFactor;
+    }
+    let bearing = 0;
+    if (isCrossPage && from.lat != null && to.lat != null) {
+      bearing = gpsBearing(from.lat, from.lon, to.lat, to.lon);
+    } else {
+      bearing = pdfBearing(from, to);
+    }
+    return {
+      from: fromNum,
+      to: toNum,
+      meters: meters ?? 0,
+      bearing,
+      gap: false,
+      ...(isCrossPage ? { cross_page: true } : {}),
+    };
+  };
+
+  /** @type {Set<string>} */
+  const dropKeys = new Set();
+  for (const [key, d] of distLookup) {
+    if (isBlockedCableEdge(d)) dropKeys.add(key);
+    const [a, b] = key.split("->").map(Number);
+    if (isRedundantInferredChord(a, b, distLookup)) dropKeys.add(key);
+  }
+
+  for (const br of findBranchReturns(sorted, distLookup)) {
+    dropKeys.add(connKey(br.tip, br.rejoin));
+    for (const d of distLookup.values()) {
+      if (d.source !== "inferred-label" || !hasActiveMeters(d)) continue;
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (lo < br.junction && hi === br.rejoin) {
+        dropKeys.add(connKey(lo, hi));
+      }
+    }
+    const main = makeConn(
+      br.junction,
+      br.rejoin,
+      distMap.get(connKey(br.junction, br.rejoin)),
+    );
+    if (main && !hasConn.has(connKey(br.junction, br.rejoin))) {
+      connections.push(main);
+      hasConn.add(connKey(br.junction, br.rejoin));
+    }
+  }
+
+  for (const d of distLookup.values()) {
+    if (d.source !== "bifurcation-main" || !hasActiveMeters(d)) continue;
+    const lo = Math.min(d.from, d.to);
+    const hi = Math.max(d.from, d.to);
+    const norm = connKey(lo, hi);
+    if (dropKeys.has(norm) || isRedundantInferredChord(lo, hi, distLookup))
+      continue;
+    if (hi - lo === 2) {
+      dropKeys.add(connKey(lo + 1, hi));
+    }
+    if (!hasConn.has(norm)) {
+      const main = makeConn(lo, hi, d.meters);
+      if (main) {
+        connections.push(main);
+        hasConn.add(norm);
+      }
+    }
+  }
+
+  for (let i = connections.length - 1; i >= 0; i--) {
+    const c = connections[i];
+    if (dropKeys.has(connKey(c.from, c.to))) {
+      connections.splice(i, 1);
+    }
+  }
+}
+
 export function detectGaps(posts, distances, cableSegments) {
   const gaps = [];
   const distMap = new Map();
@@ -1823,6 +2015,7 @@ export function calculateCoordinates(
 
   // ── Build connections array (D-REV-14, D-REV-15, D-04, D-17) ────────────
   const connections = [];
+  const distLookup = buildDistanceLookup(distances);
   const cablesByPageForConn = cableSegments?.length
     ? buildCablesByPage(cableSegments)
     : new Map();
@@ -1946,6 +2139,12 @@ export function calculateCoordinates(
     const key = `${a.number}->${b.number}`;
     const rev = `${b.number}->${a.number}`;
     if (hasConn.has(key) || hasConn.has(rev)) continue;
+    if (
+      isBlockedCableEdge(distLookup.get(key)) ||
+      isBlockedCableEdge(distLookup.get(rev))
+    ) {
+      continue;
+    }
 
     const isCrossPage =
       a.pageNum != null && b.pageNum != null && a.pageNum !== b.pageNum;
@@ -1979,6 +2178,16 @@ export function calculateCoordinates(
     });
     hasConn.add(key);
   }
+
+  finalizeBifurcationConnections(
+    connections,
+    sorted,
+    postMap,
+    distLookup,
+    distMap,
+    scaleFactor,
+    pdfBearing,
+  );
 
   // ── Label vs haversine sanity-check (D-ACC-08) ───────────────────────────
   // postMap entries are live refs into sorted — lat/lon reflect snap + projection + similarity.

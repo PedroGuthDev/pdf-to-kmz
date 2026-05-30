@@ -39,17 +39,33 @@ function edgeKey(from, to) {
 }
 
 /**
- * At a bifurcation, prefer the main-route successor (consecutive post number)
- * over a branch spur (branch start posts).
+ * At a bifurcation, follow the main route. When both a consecutive tap leg and a
+ * longer rejoin jump exist (branch return), prefer the jump when it continues
+ * sequentially (e.g. 5→10→11). Otherwise prefer consecutive main or non-branch spur.
  *
  * @param {number} from
  * @param {Array<{ from: number, to: number }>} candidates
  * @param {Set<number>} branchStarts
+ * @param {Map<number, Array<{ from: number, to: number }>>} outMap
+ * @param {Set<string>} used
  * @returns {{ from: number, to: number }}
  */
-function preferMainRouteEdge(from, candidates, branchStarts) {
+function preferMainRouteEdge(from, candidates, branchStarts, outMap, used) {
   const sorted = [...candidates].sort((a, b) => a.to - b.to);
   const consecutive = sorted.find((e) => e.to === from + 1);
+  const jumps = sorted.filter((e) => e.to !== from + 1);
+
+  if (jumps.length > 0 && consecutive) {
+    for (const jump of jumps) {
+      const hi = jump.to;
+      const mainCont = (outMap.get(hi) ?? []).find(
+        (e) =>
+          e.to === hi + 1 && !used.has(`${e.from}->${e.to}`),
+      );
+      if (mainCont) return jump;
+    }
+  }
+
   if (consecutive) return consecutive;
   const nonBranch = sorted.filter((e) => !branchStarts.has(e.to));
   return nonBranch[0] ?? sorted[0];
@@ -93,7 +109,7 @@ export function buildRoutePolylines(connections, branchStarts = new Set()) {
       const next =
         outs.length === 1
           ? outs[0]
-          : preferMainRouteEdge(curr, outs, branchStarts);
+          : preferMainRouteEdge(curr, outs, branchStarts, outMap, used);
       used.add(edgeKey(next.from, next.to));
       path.push(next.to);
       curr = next.to;

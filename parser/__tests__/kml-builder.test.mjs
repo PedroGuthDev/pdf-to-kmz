@@ -31,6 +31,24 @@ describe('buildRoutePolylines', () => {
     assert.match(sorted, /2,4/);
   });
 
+  it('branch return at junction prefers main rejoin over tap leg', () => {
+    const connections = [
+      { from: 3, to: 4 },
+      { from: 4, to: 5 },
+      { from: 5, to: 6 },
+      { from: 5, to: 10 },
+      { from: 6, to: 7 },
+      { from: 7, to: 8 },
+      { from: 8, to: 9 },
+      { from: 10, to: 11 },
+    ];
+    const lines = buildRoutePolylines(connections);
+    assert.equal(lines.length, 2);
+    const paths = lines.map((l) => l.postNumbers.join(',')).sort();
+    assert.equal(paths[0], '3,4,5,10,11');
+    assert.equal(paths[1], '5,6,7,8,9');
+  });
+
   it('splits on gap edges', () => {
     const connections = [
       { from: 1, to: 2 },
