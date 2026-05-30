@@ -572,7 +572,7 @@ function applyDistanceLabelGpsChain(
     for (let i = startIdx + 1; i <= endIdx; i++) {
       const prev = sorted[i - 1];
       const curr = sorted[i];
-      // 28-29 skip removed in attempt 13 — chain bearing now uses gpsBearing not cable tangent.
+      // Chain bearing uses gpsBearing rather than cable tangent.
       const m = distMap.get(`${prev.number}->${curr.number}`);
       if (m == null || m <= 0 || utm[i - 1].lat == null || utm[i].lat == null) {
         lat = utm[i].lat;

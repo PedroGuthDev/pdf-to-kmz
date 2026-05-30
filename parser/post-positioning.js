@@ -56,7 +56,7 @@ export const POSTE_CABLE_ARC_FALLBACK_PT = _envNum('POSTE_CABLE_ARC_FALLBACK_PT'
 /** Post-assignment diagnostic: warn when final nearest-cable distance exceeds this (D-SYM-02). */
 export const POSTE_CABLE_FINAL_WARN_PT = 50;
 
-/** Viterbi-HMM emission Gaussian sigma in PDF points (~7 m at typical scale). D-V-03. */
+/** Viterbi-HMM emission Gaussian sigma in PDF points (20 pt ≈ 7 m at ~0.35 m/pt typical scale). D-V-03. */
 export const VITERBI_SIGMA_PT = _envNum('VITERBI_SIGMA_PT', 20);
 
 /** Viterbi-HMM transition exponential beta in meters. D-V-03. */
