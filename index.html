@@ -260,21 +260,29 @@
         margin: 4px 0;
       }
 
-      #parseNotices {
+      #parseNotices,
+      #calcNotices {
         background: #fff8e6;
         border: 1px solid #e6c200;
       }
 
-      #parseNotices ul {
+      #parseNotices ul,
+      #calcNotices ul {
         margin: var(--space-xs) 0 0;
         padding-left: 1.25rem;
       }
 
-      #parseNotices li {
+      #parseNotices li,
+      #calcNotices li {
         margin: 6px 0;
         font-size: 0.95em;
         line-height: 1.45;
         color: var(--ink);
+      }
+
+      #calcNotices {
+        background: #fff0f0;
+        border-color: #e6a0a0;
       }
 
       #warnings {
@@ -641,7 +649,7 @@
       </div>
 
       <div id="parseNotices" class="panel" style="display: none" role="note">
-        <strong>Ajustes na numeração dos postes</strong>
+        <strong>Avisos da leitura do PDF</strong>
         <ul id="parseNoticesList"></ul>
       </div>
 
@@ -680,6 +688,10 @@
           </button>
         </div>
         <div id="coordWarning"></div>
+        <div id="calcNotices" class="panel" style="display: none" role="note">
+          <strong>Precisão do cálculo (PDF vs DXF)</strong>
+          <ul id="calcNoticesList"></ul>
+        </div>
       </section>
     </div>
 

@@ -264,9 +264,9 @@ function pairLabelsToRects(labels, rects, pageHeight, maxPageNum) {
  * >}
  */
 export async function parsePdf(arrayBuffer, hooks = {}) {
-    const warnings = [];
-    const userWarnings = [];
-    const onProgress =
+  const warnings = [];
+  const userWarnings = [];
+  const onProgress =
     typeof hooks.onProgress === "function" ? hooks.onProgress : null;
 
   try {
@@ -564,6 +564,9 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         namedFlipped.length > 0 &&
         namedFlipped.every((c) => c.x < 10 && c.y > pageHeight - 10);
       if (isBadCtmPage) {
+        userWarnings.push(
+          `Página ${pageNum}: folha ignorada — marcas de poste inválidas no PDF (possível erro de exportação AutoCAD).`,
+        );
         warnings.push(
           `Page ${pageNum}: skipped — degenerate CTM positions (all circles at page origin); likely AutoCAD export bug`,
         );
@@ -617,6 +620,9 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     for (const batch of pendingOcrBatches) {
       const pageNum = batch.circles[0]?.pageNum;
       if (!calibratedPageSet.has(pageNum)) {
+        userWarnings.push(
+          `Página ${pageNum}: folha ignorada na leitura de números dos postes (não é folha de detalhe calibrada).`,
+        );
         warnings.push(
           `Page ${pageNum}: skipped post OCR — not a viewport-calibrated route detail page`,
         );
@@ -654,13 +660,19 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     }
 
     // ── Assemble posts from OCR results (D-06, D-07) ────────────────────────
-    const { posts: rawPosts, warnings: postWarnings, userWarnings: postUserWarnings } =
-      assemblePostsFromOcr(allOcrResults);
+    const {
+      posts: rawPosts,
+      warnings: postWarnings,
+      userWarnings: postUserWarnings,
+    } = assemblePostsFromOcr(allOcrResults);
     warnings.push(...postWarnings);
     userWarnings.push(...postUserWarnings);
     let posts = deduplicatePostsPreferLowerPage(rawPosts, calibratedPageNums);
 
     if (posts.length === 0 && allOcrResults.length > 0) {
+      userWarnings.push(
+        `Nenhum número de poste foi lido pelo OCR; numeração atribuída pela ordem da rota nas páginas ${calibratedPageNums.join(", ")}.`,
+      );
       warnings.push(
         "All OCR reads failed — assigning post numbers 1..N from route order on Numero_Poste circles " +
           `(viewport-calibrated pages ${calibratedPageNums.join(", ")}).`,
@@ -778,7 +790,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         perPageScale,
         overviewScale,
         warnings,
-        multiSheetRoute
+        multiSheetRoute,
       });
     } else {
       warnings.push(

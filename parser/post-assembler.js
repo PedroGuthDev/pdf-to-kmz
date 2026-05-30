@@ -52,7 +52,6 @@ function textAnchor(t) {
  * @returns {{ posts: Array<{ number: number, x: number, y: number, pageNum?: number }>, warnings: string[] }}
  */
 
-
 /**
  * One post per sequential number: keep the occurrence on the **highest page number**
  * (detail pages 3+ have accurate positions in a unified coordinate system;
@@ -509,11 +508,18 @@ function neighborContextPhrase(sorted, i, maxPost) {
  */
 export function formatUserPostRenumber(page, ocrRead, assigned, contextPhrase) {
   const readPart =
-    ocrRead == null
-      ? "sem número legível no OCR"
-      : `lido como ${ocrRead}`;
+    ocrRead == null ? "sem número legível no OCR" : `lido como ${ocrRead}`;
   const ctx = contextPhrase ? ` (${contextPhrase})` : "";
   return `Página ${page}: poste ${readPart} renumerado para ${assigned}${ctx}.`;
+}
+
+/** User-readable notice when a marker could not be assigned any post number. */
+export function formatUserPostSkipped(page, ocrRead) {
+  const readPart =
+    ocrRead == null
+      ? "OCR não leu número"
+      : `OCR leu ${ocrRead} (inválido ou inconsistente)`;
+  return `Página ${page}: poste ignorado — ${readPart}; não foi possível atribuir número na rota.`;
 }
 
 /**
@@ -675,6 +681,9 @@ export function assemblePostsFromOcr(ocrResults) {
           `(OCR read ${number ?? "null"} at page ${circle.pageNum ?? "?"})`,
       );
     } else {
+      userWarnings.push(
+        formatUserPostSkipped(circle.pageNum ?? "?", number),
+      );
       warnings.push(
         `Post at (${circle.x.toFixed(1)}, ${circle.y.toFixed(1)}) ` +
           `page ${circle.pageNum ?? "?"}: OCR failed and sequence inference unavailable — post skipped`,

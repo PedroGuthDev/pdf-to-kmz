@@ -9,6 +9,47 @@ import {
 import { pairPostsByGraphWalk } from "./graph-walker.js";
 
 /** @param {unknown} w */
+/**
+ * User-facing notices after route calculation (main UI, not developer tools).
+ *
+ * @param {{ posts?: Array<{ source?: string }>, dwgStatus?: string, dwgRegionId?: string }} result
+ * @returns {string[]}
+ */
+export function buildCalcUserWarnings(result) {
+  const notices = [];
+  const posts = result?.posts ?? [];
+  const total = posts.length;
+  if (total === 0) return notices;
+
+  const dwgCount = posts.filter((p) => p.source === "dwg").length;
+  const status = result.dwgStatus ?? null;
+  const regionHint = result.dwgRegionId
+    ? ` Região DXF: ${result.dwgRegionId}.`
+    : "";
+
+  if (status === "pdf-fallback" || dwgCount === 0) {
+    notices.push(
+      "Precisão limitada: coordenadas calculadas só pelo PDF — o pareamento DXF não concluiu." +
+        regionHint +
+        " Em projetos grandes a rota costuma ficar imprecisa; carregue a região DXF correta e calcule novamente.",
+    );
+  } else if (status === "dwg-pdf-walk") {
+    notices.push(
+      "Precisão parcial: o DXF foi usado em modo guiado pelo PDF (menos rigoroso que graph-walk)." +
+        regionHint +
+        " Revise o KMZ em trechos críticos antes de liberar o projeto.",
+    );
+  }
+
+  if (dwgCount > 0 && dwgCount < total) {
+    notices.push(
+      `Somente ${dwgCount} de ${total} postes usam coordenadas do DXF; os demais permanecem no PDF.`,
+    );
+  }
+
+  return notices;
+}
+
 export function formatDwgWarning(w) {
   if (typeof w === "string") return w;
   if (!w || typeof w !== "object") return String(w);
@@ -169,10 +210,14 @@ export async function calculateCoordinatesWithDwg(
       cableSegments,
       opts,
     );
-    return {
+    const missResult = {
       ...fallback,
       warnings: [...(fallback.warnings ?? []), ...warnings],
+      dwgStatus: "pdf-fallback",
+      dwgRegionId: regionId ?? null,
     };
+    missResult.userWarnings = buildCalcUserWarnings(missResult);
+    return missResult;
   }
 
   if (!region) {
@@ -185,10 +230,14 @@ export async function calculateCoordinatesWithDwg(
       cableSegments,
       opts,
     );
-    return {
+    const missResult = {
       ...fallback,
       warnings: [...(fallback.warnings ?? []), ...warnings],
+      dwgStatus: "pdf-fallback",
+      dwgRegionId: regionId ?? null,
     };
+    missResult.userWarnings = buildCalcUserWarnings(missResult);
+    return missResult;
   }
 
   let regionWithIndex = null;
@@ -255,12 +304,14 @@ export async function calculateCoordinatesWithDwg(
   });
 
   if (!cascade.ok) {
-    return {
+    const fallbackResult = {
       ...pdfResult,
       warnings: [...(pdfResult.warnings ?? []), ...warnings],
       dwgStatus: "pdf-fallback",
       dwgRegionId: region.id ?? region.name,
     };
+    fallbackResult.userWarnings = buildCalcUserWarnings(fallbackResult);
+    return fallbackResult;
   }
 
   const coordByPost = new Map(cascade.coords.map((c) => [c.postNumber, c]));
@@ -276,11 +327,13 @@ export async function calculateCoordinatesWithDwg(
     };
   });
 
-  return {
+  const successResult = {
     ...pdfResult,
     posts: dwgPosts,
     warnings: [...(pdfResult.warnings ?? []), ...warnings],
     dwgStatus: cascade.dwgPath,
     dwgRegionId: region.id ?? region.name,
   };
+  successResult.userWarnings = buildCalcUserWarnings(successResult);
+  return successResult;
 }

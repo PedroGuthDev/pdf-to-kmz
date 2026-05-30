@@ -9,6 +9,7 @@ import {
   CALC_PIPELINE_ID,
 } from "../parser/pdf-parser.js";
 import {
+  buildCalcUserWarnings,
   calculateCoordinatesWithDwg,
   formatDwgWarning,
 } from "../parser/dwg/coordinate-calculator-dwg.js";
@@ -144,6 +145,8 @@ const warningsEl = document.getElementById("warnings");
 const warningsList = document.getElementById("warningsList");
 const parseNoticesEl = document.getElementById("parseNotices");
 const parseNoticesList = document.getElementById("parseNoticesList");
+const calcNoticesEl = document.getElementById("calcNotices");
+const calcNoticesList = document.getElementById("calcNoticesList");
 const coordForm = document.getElementById("coordForm");
 const gpsInput = document.getElementById("gpsInput");
 const gpsInputLast = document.getElementById("gpsInputLast");
@@ -217,7 +220,10 @@ async function refreshDxfRegionSelect(preferId = null) {
 }
 
 async function updateDxfCloudBanner() {
-  if (!dxfCloudStatus || typeof regionLibrary.refreshCloudStatus !== "function") {
+  if (
+    !dxfCloudStatus ||
+    typeof regionLibrary.refreshCloudStatus !== "function"
+  ) {
     return;
   }
   const ok = await regionLibrary.refreshCloudStatus();
@@ -274,8 +280,9 @@ if (dxfFileInput) {
       await regionLibrary.addRegion(name, file);
       await refreshDxfRegionSelect(name);
       if (dxfUploadStatus) {
-        const cloud =
-          regionLibrary.cloudEnabled ? " e enviada para a nuvem" : "";
+        const cloud = regionLibrary.cloudEnabled
+          ? " e enviada para a nuvem"
+          : "";
         dxfUploadStatus.textContent = `Região "${name}" carregada${cloud}.`;
         dxfUploadStatus.style.color = "var(--success)";
       }
@@ -458,6 +465,8 @@ function resetSession() {
   warningsList.innerHTML = "";
   parseNoticesEl.style.display = "none";
   parseNoticesList.innerHTML = "";
+  calcNoticesEl.style.display = "none";
+  calcNoticesList.innerHTML = "";
   coordForm.style.display = "none";
   resultSection.style.display = "none";
   coordWarning.style.display = "none";
@@ -605,18 +614,26 @@ async function handlePdfFile(file) {
 initAppearanceControls();
 
 /** User-facing post renumber / OCR correction notices (main workflow, not dev tools). */
-function showParseNotices(notices) {
-  parseNoticesList.innerHTML = "";
+function showUserNoticeList(containerEl, listEl, notices) {
+  listEl.innerHTML = "";
   if (!notices || notices.length === 0) {
-    parseNoticesEl.style.display = "none";
+    containerEl.style.display = "none";
     return;
   }
   for (const text of notices) {
     const li = document.createElement("li");
     li.textContent = text;
-    parseNoticesList.appendChild(li);
+    listEl.appendChild(li);
   }
-  parseNoticesEl.style.display = "block";
+  containerEl.style.display = "block";
+}
+
+function showParseNotices(notices) {
+  showUserNoticeList(parseNoticesEl, parseNoticesList, notices);
+}
+
+function showCalcNotices(notices) {
+  showUserNoticeList(calcNoticesEl, calcNoticesList, notices);
 }
 
 function showWarnings(warnings) {
@@ -668,6 +685,8 @@ uploadZone.addEventListener("drop", (e) => {
 
 calcBtn.addEventListener("click", async () => {
   coordWarning.style.display = "none";
+  calcNoticesEl.style.display = "none";
+  calcNoticesList.innerHTML = "";
   resultSection.style.display = "none";
   revokeKmzObjectUrl();
   kmzStats.style.display = "none";
@@ -741,6 +760,12 @@ calcBtn.addEventListener("click", async () => {
   const { posts: calculatedPosts, connections } = result;
 
   console.log("[pdf-to-kmz] Generated connections:", connections);
+
+  const calcUserNotices =
+    Array.isArray(result.userWarnings) && result.userWarnings.length > 0
+      ? result.userWarnings
+      : buildCalcUserWarnings(result);
+  showCalcNotices(calcUserNotices);
 
   // Surface calculation warnings into #warningsList (D-ACC-08 label sanity, snap fallbacks, 2nd-anchor)
   const calcWarnings =
