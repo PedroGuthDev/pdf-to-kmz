@@ -1,6 +1,6 @@
 // parser/ocr-extractor.js
 // OCR-based post number extraction using Tesseract.js.
-// Renders each PDF route page to OffscreenCanvas at 2× scale, crops a tight window
+// Renders each PDF route page to OffscreenCanvas at 6× scale, crops a tight window
 // around each circle centroid, and runs Tesseract (digits whitelist, PSM-7).
 //
 // Worker lifecycle is managed by the caller (pdf-parser.js) — create once before
@@ -407,10 +407,11 @@ export async function ocrCircleNumbers(
           ` candidates=${ringCandidates.length}/${components.length}`,
       );
     } else {
-      cropX = Math.max(0, rawCx - 50);
-      cropY = Math.max(0, rawCy - 50);
-      cropW = Math.min(100, canvasW - cropX);
-      cropH = Math.min(100, canvasH - cropY);
+      const fallbackHalf = Math.round(25 * SCALE);
+      cropX = Math.max(0, rawCx - fallbackHalf);
+      cropY = Math.max(0, rawCy - fallbackHalf);
+      cropW = Math.min(fallbackHalf * 2, canvasW - cropX);
+      cropH = Math.min(fallbackHalf * 2, canvasH - cropY);
       console.info(
         `[ocr] page=${circle.pageNum ?? "?"} (${rawCx},${rawCy}) NO red ring found ` +
           `(components=${components.length}) — using raw-centred fallback crop`,
