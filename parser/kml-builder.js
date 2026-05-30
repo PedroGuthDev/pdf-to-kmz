@@ -168,12 +168,31 @@ export function buildKml(posts, connections, options = {}) {
   const branchStarts = new Set();
   for (const e of connections) {
     if (e.gap === true) continue;
-    const outs = connections.filter(
+    const siblings = connections.filter(
       (c) => c.from === e.from && c.gap !== true && c.to !== e.to,
     );
-    if (outs.length > 0) {
-      for (const o of outs) {
-        if (Math.abs(o.to - e.from) > 1) {
+    if (siblings.length === 0) continue;
+
+    const allOut = [e, ...siblings];
+    // The main trunk continuation is a source-tagged edge (bifurcation-main /
+    // inferred-label) when present; otherwise the consecutive from+1 edge.
+    const taggedMain = allOut.find(
+      (c) => c.source === "bifurcation-main" || c.source === "inferred-label",
+    );
+
+    if (taggedMain) {
+      // Flag every OTHER out-edge target (the taps/spurs) as a branch start so it
+      // begins its own polyline; never flag the tagged main trunk continuation.
+      for (const c of allOut) {
+        if (c.to !== taggedMain.to) branchStarts.add(c.to);
+      }
+    } else {
+      // Source-less bifurcation: the consecutive from+1 edge is the tap spur; flag
+      // it. Preserve legacy behavior for plain non-consecutive spurs (jump target
+      // with |to-from| > 1 and no source) so the already-working junctions are
+      // unchanged.
+      for (const o of siblings) {
+        if (o.to === e.from + 1 || Math.abs(o.to - e.from) > 1) {
           branchStarts.add(o.to);
         }
       }
