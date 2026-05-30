@@ -947,7 +947,7 @@ function finalizeBifurcationConnections(
   const connKey = (from, to) => `${from}->${to}`;
   const hasConn = new Set(connections.map((c) => connKey(c.from, c.to)));
 
-  const makeConn = (fromNum, toNum, metersOverride = null) => {
+  const makeConn = (fromNum, toNum, metersOverride = null, source = undefined) => {
     const from = postMap.get(fromNum);
     const to = postMap.get(toNum);
     if (!from || !to) return null;
@@ -976,6 +976,7 @@ function finalizeBifurcationConnections(
       bearing,
       gap: false,
       ...(isCrossPage ? { cross_page: true } : {}),
+      ...(source ? { source } : {}),
     };
   };
 
@@ -1001,6 +1002,7 @@ function finalizeBifurcationConnections(
       br.junction,
       br.rejoin,
       distMap.get(connKey(br.junction, br.rejoin)),
+      "inferred-label",
     );
     if (main && !hasConn.has(connKey(br.junction, br.rejoin))) {
       connections.push(main);
@@ -1019,7 +1021,7 @@ function finalizeBifurcationConnections(
       dropKeys.add(connKey(lo + 1, hi));
     }
     if (!hasConn.has(norm)) {
-      const main = makeConn(lo, hi, d.meters);
+      const main = makeConn(lo, hi, d.meters, "bifurcation-main");
       if (main) {
         connections.push(main);
         hasConn.add(norm);
