@@ -1093,9 +1093,11 @@ export function pairPostsByGraphWalk({
   // edges at junctions whose nearest INSERT sits >3m away — that fragments
   // the graph and breaks navigation. We replace the passed-in adjacencyGraph
   // for walk navigation, but leave region-pairing.js itself untouched.
-  // The original `adjacencyGraph` argument is intentionally ignored here.
-  void adjacencyGraph;
-  void buildAdjacencyGraph;
+  // The `adjacencyGraph` parameter and `buildAdjacencyGraph` import are kept
+  // for API signature parity with region-pairing.js but intentionally unused —
+  // we rebuild a richer graph locally above.
+  void adjacencyGraph; // eslint-disable-line no-unused-expressions
+  void buildAdjacencyGraph; // eslint-disable-line no-unused-expressions
   // Two-tier union: 8m captures most edges without spurious merges; 14m recovers
   // junctions whose nearest INSERT is far from the cable vertex (seen in siriu).
   const graph8 = buildRichAdjacency(regionPosts, region?.cableEdges ?? [], 8);
@@ -1262,8 +1264,6 @@ export function pairPostsByGraphWalk({
   // and resume along its single remaining unclaimed arm (the spine continuation).
   /** @type {Array<{ junctionIdx: number, unusedArmIdx?: number, entryPostNum?: number }>} */
   const branchEntryStack = [];
-  buildPostByNumber(posts); // validate; result unused in graph-walk
-
   // Step 3 — Walk N → N+1
   for (let i = 0; i < posts.length - 1; i++) {
     const curPost = posts[i];
