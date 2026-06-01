@@ -93,24 +93,68 @@ export function deriveCableTopology(posts, cableEdges, opts = {}) {
     for (const [id, c] of count) if (c === 1) { nodes[id].endpoint = true; endpointIds.push(id); }
   }
 
-  // Fuse only endpoints across polylines (within mergeTol) — joins spans at poles
-  // without merging mid-span crossings of distinct cables.
-  for (let i = 0; i < endpointIds.length; i++) {
-    const a = endpointIds[i];
-    for (let k = i + 1; k < endpointIds.length; k++) {
-      const b = endpointIds[k];
-      if (a === b) continue;
-      if (Math.hypot(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y) <= mergeTol) link(a, b);
+  // Fuse only endpoints across polylines (within mergeTol) — spatial grid avoids O(n²).
+  const epCell = mergeTol > 0 ? mergeTol : 0.3;
+  const epBuckets = new Map();
+  const epKey = (x, y) =>
+    `${Math.floor(x / epCell)}_${Math.floor(y / epCell)}`;
+  for (const a of endpointIds) {
+    const ax = nodes[a].x;
+    const ay = nodes[a].y;
+    const ck = epKey(ax, ay);
+    if (!epBuckets.has(ck)) epBuckets.set(ck, []);
+    epBuckets.get(ck).push(a);
+  }
+  for (const a of endpointIds) {
+    const ax = nodes[a].x;
+    const ay = nodes[a].y;
+    const cx = Math.floor(ax / epCell);
+    const cy = Math.floor(ay / epCell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = epBuckets.get(`${cx + dx}_${cy + dy}`);
+        if (!bucket) continue;
+        for (const b of bucket) {
+          if (b <= a) continue;
+          if (Math.hypot(ax - nodes[b].x, ay - nodes[b].y) <= mergeTol) link(a, b);
+        }
+      }
     }
   }
 
   // ── 2. ownership: each vertex → nearest post within attachR ──────────────────
   const owner = new Map();
+  const postNums = [...postUtm.keys()];
+  const postAttachCell = attachR;
+  const postBuckets = new Map();
+  const postBucketKey = (e, n) =>
+    `${Math.floor(e / postAttachCell)}_${Math.floor(n / postAttachCell)}`;
+  for (const num of postNums) {
+    const u = postUtm.get(num);
+    const k = postBucketKey(u.e, u.n);
+    if (!postBuckets.has(k)) postBuckets.set(k, []);
+    postBuckets.get(k).push(num);
+  }
   for (let i = 0; i < nodes.length; i++) {
-    let bp = null, bd = attachR;
-    for (const [num, u] of postUtm) {
-      const d = Math.hypot(nodes[i].x - u.e, nodes[i].y - u.n);
-      if (d <= bd) { bd = d; bp = num; }
+    const nx = nodes[i].x;
+    const ny = nodes[i].y;
+    let bp = null;
+    let bd = attachR;
+    const cx = Math.floor(nx / postAttachCell);
+    const cy = Math.floor(ny / postAttachCell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = postBuckets.get(`${cx + dx}_${cy + dy}`);
+        if (!bucket) continue;
+        for (const num of bucket) {
+          const u = postUtm.get(num);
+          const d = Math.hypot(nx - u.e, ny - u.n);
+          if (d <= bd) {
+            bd = d;
+            bp = num;
+          }
+        }
+      }
     }
     if (bp != null) owner.set(i, bp);
   }

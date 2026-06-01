@@ -124,9 +124,13 @@ export function createRegionLibrary(idbFactory = null) {
       if (!region) return null;
 
       const postIndex = restorePostIndexFromDump(region.rbushDump);
-      const adjacencyGraph = buildAdjacencyGraph(region.posts, region.cableEdges, {
-        postIndex,
-      });
+      // Defer full-city adjacency (O(edges) RBush queries) — coordinate-calculator-dwg
+      // crops to the route bbox and rebuilds on the small subset.
+      const LARGE_REGION_POSTS = 8000;
+      const adjacencyGraph =
+        (region.posts?.length ?? 0) <= LARGE_REGION_POSTS
+          ? buildAdjacencyGraph(region.posts, region.cableEdges, { postIndex })
+          : null;
       return { ...region, postIndex, adjacencyGraph };
     },
 

@@ -8,6 +8,7 @@ import {
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
 import { deriveCableTopology } from "./cable-topology.js";
+import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 
 /** @param {unknown} w */
 /**
@@ -127,7 +128,12 @@ function runDwgPairingCascade({
     connections,
     startLat,
     startLon,
-    region: { ...regionData, posts: regionPosts, cableEdges: regionEdges },
+    region: {
+      ...croppedRegion,
+      posts: regionPosts,
+      cableEdges: regionEdges,
+      crs: regionData.crs,
+    },
     postIndex,
     adjacencyGraph,
     warnings,
@@ -144,7 +150,12 @@ function runDwgPairingCascade({
     connections,
     startLat,
     startLon,
-    region: { ...regionData, posts: regionPosts, cableEdges: regionEdges },
+    region: {
+      ...croppedRegion,
+      posts: regionPosts,
+      cableEdges: regionEdges,
+      crs: regionData.crs,
+    },
     postIndex,
     adjacencyGraph,
     warnings,
@@ -194,7 +205,12 @@ export async function calculateCoordinatesWithDwg(
         });
       }
     } else {
-      region = await regionLibrary.lookupByGps(lat1, lon1);
+      const hit = await regionLibrary.lookupByGps(lat1, lon1);
+      if (hit?.id && typeof regionLibrary.getRegionWithIndex === "function") {
+        region = await regionLibrary.getRegionWithIndex(hit.id);
+      } else {
+        region = hit;
+      }
     }
   } catch (e) {
     warnings.push({
@@ -241,18 +257,7 @@ export async function calculateCoordinatesWithDwg(
     return missResult;
   }
 
-  let regionWithIndex = null;
-  if (typeof regionLibrary.getRegionWithIndex === "function") {
-    regionWithIndex = await regionLibrary.getRegionWithIndex(region.id);
-  }
-  const regionData = regionWithIndex ?? region;
-
-  const regionPosts = regionData.posts ?? region.posts ?? [];
-  const regionEdges = regionData.cableEdges ?? region.cableEdges ?? [];
-  const postIndex = regionData.postIndex ?? buildPostIndex(regionPosts);
-  const adjacencyGraph =
-    regionData.adjacencyGraph ??
-    buildAdjacencyGraph(regionPosts, regionEdges, { postIndex });
+  const regionData = region;
 
   // PDF path builds route connections; DWG pairing must use the same topology.
   const pdfResult = calculateCoordinates(
@@ -282,6 +287,29 @@ export async function calculateCoordinatesWithDwg(
       ? pdfResult.posts
       : posts,
   ).sort((a, b) => a.number - b.number);
+
+  const zoneExpected = regionData?.crs?.zone ?? 22;
+  const cropMarginM = opts?.dwgCropMarginM ?? 200;
+  const routeBbox = routeUtmBbox(
+    [{ lat: lat1, lon: lon1 }, ...routePosts],
+    zoneExpected,
+    cropMarginM,
+  );
+  const croppedRegion = cropRegionToBbox(regionData, routeBbox);
+  const regionPosts = croppedRegion.posts ?? [];
+  const regionEdges = croppedRegion.cableEdges ?? [];
+  const postIndex = buildPostIndex(regionPosts);
+  const adjacencyGraph = buildAdjacencyGraph(regionPosts, regionEdges, {
+    postIndex,
+  });
+  if (routeBbox && (regionData.posts?.length ?? 0) > regionPosts.length) {
+    warnings.push({
+      kind: "dwg-region-cropped",
+      full_posts: regionData.posts.length,
+      cropped_posts: regionPosts.length,
+      margin_m: cropMarginM,
+    });
+  }
 
   const gpsByPostNumber = new Map();
   for (const p of pdfResult.posts ?? []) {
@@ -334,11 +362,11 @@ export async function calculateCoordinatesWithDwg(
   // ambiguous; the cable polylines encode the real connectivity. Falls back to the
   // label-based connections when the cable can't be read (no GPS / no cable layer).
   const cableEdgesAll = [
-    ...(regionData.cableEdges ?? regionEdges ?? []),
-    ...(regionData.primaryCableEdges ?? []),
+    ...(croppedRegion.cableEdges ?? regionEdges ?? []),
+    ...(croppedRegion.primaryCableEdges ?? []),
   ];
   const cableTopo = deriveCableTopology(dwgPosts, cableEdgesAll, {
-    zone: regionData?.crs?.zone ?? region?.crs?.zone ?? 22,
+    zone: zoneExpected,
   });
   const useCable =
     cableTopo && Array.isArray(cableTopo.edges) && cableTopo.edges.length > 0;
