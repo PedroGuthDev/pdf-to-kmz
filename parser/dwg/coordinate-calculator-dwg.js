@@ -129,10 +129,9 @@ function runDwgPairingCascade({
     startLat,
     startLon,
     region: {
-      ...croppedRegion,
+      ...regionData,
       posts: regionPosts,
       cableEdges: regionEdges,
-      crs: regionData.crs,
     },
     postIndex,
     adjacencyGraph,
@@ -151,10 +150,9 @@ function runDwgPairingCascade({
     startLat,
     startLon,
     region: {
-      ...croppedRegion,
+      ...regionData,
       posts: regionPosts,
       cableEdges: regionEdges,
-      crs: regionData.crs,
     },
     postIndex,
     adjacencyGraph,
