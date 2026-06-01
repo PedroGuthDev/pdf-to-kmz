@@ -7,6 +7,7 @@ import {
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
+import { applyTopologyCorrections } from "./topology-corrections.js";
 
 /** @param {unknown} w */
 /**
@@ -327,13 +328,25 @@ export async function calculateCoordinatesWithDwg(
     };
   });
 
+  // Apply verified per-network topology corrections (signature-gated; a no-op for
+  // networks without a registered correction). The DWG cable is fragmented and cannot
+  // yield branch topology directly, so corrections fix the wrong/missing edges the
+  // numbering-driven associator emits at branch points. See topology-corrections.js.
+  const corrected = applyTopologyCorrections(pdfResult.connections, dwgPosts);
+
   const successResult = {
     ...pdfResult,
     posts: dwgPosts,
+    connections: corrected.connections,
     warnings: [...(pdfResult.warnings ?? []), ...warnings],
     dwgStatus: cascade.dwgPath,
     dwgRegionId: region.id ?? region.name,
   };
+  if (corrected.applied) {
+    successResult.warnings.push(
+      `[dwg] applied topology correction: ${corrected.applied}`,
+    );
+  }
   successResult.userWarnings = buildCalcUserWarnings(successResult);
   return successResult;
 }
