@@ -82,9 +82,10 @@ Accuracy: João Born 22/34 < 5m, max 18.97m (posts 9-11 at 15-19m); Valmor 9/11 
 | 20260519 | Web research: external techniques for GPS coordinate accuracy (HMM/Viterbi, N1 arc-length, Hungarian) | 2026-05-19 | — | [20260519-web-research-accuracy](./quick/20260519-web-research-accuracy/) |
 | 260530-day | API DXF com Vercel Blob + biblioteca híbrida nuvem/local | 2026-05-30 | 8c70054 | [260530-day-implemente-uma-api-com-liga-o-ao-blob-pa](./quick/260530-day-implemente-uma-api-com-liga-o-ao-blob-pa/) |
 | 260601-dwg | Reliable Siriu DWG-path KMZ rendering (render-boundary normalization; supersedes 260530-bif) | 2026-06-01 | b46c816 | [260601-dwg-fix-siriu-dwg-kmz-render](./quick/260601-dwg-fix-siriu-dwg-kmz-render/) |
+| 260601-k1a | Replace hardcoded post-number guards w/ generic predicates (dual-gate: Siriu + Luiz Carolino). Stage 4 seam-lock SHIPPED; Stages 2/3 (36/37/38, 73/74, 80/81) → discuss-again: no second-route exercises those paths | 2026-06-01 | c56923f | [260601-k1a-replace-hardcoded-post-number-guards-gra](./quick/260601-k1a-replace-hardcoded-post-number-guards-gra/) |
 
 ---
-Last activity: 2026-06-01 - Completed quick task 260601-dwg: reliable Siriu DWG-path KMZ rendering
+Last activity: 2026-06-01 - Quick task 260601-k1a: seam-lock anchor generalized (Stage 4 shipped); 36/37/38, 73/74, 80/81 guards remain pending a second route that exercises them (discuss-again)
 
 ---
 *Last updated: 2026-05-19 after web research on accuracy improvements*
