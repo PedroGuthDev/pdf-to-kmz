@@ -1429,7 +1429,14 @@ export function calculateCoordinates(
         } else if (nBoundary > 0) {
           /* boundary-locked at sheet breaks */
         } else {
-          const post15 = sorted.find((p) => p.number === 15);
+          // Derive boundary post and page from the 2-sheet structure:
+          // find the second (higher page-number) sheet and its first post.
+          const seamPages = [...pageTransforms.keys()].sort((a, b) => a - b);
+          const secondPage =
+            seamPages.length >= 2 ? seamPages[seamPages.length - 1] : null;
+          const boundaryPost = secondPage != null
+            ? sorted.find((p) => p.pageNum === secondPage)
+            : null;
           const sequenceFlipPages = detectSequenceFlipPages(sorted);
           if (sequenceFlipPages.size > 0) {
             warnings.push(
@@ -1440,27 +1447,30 @@ export function calculateCoordinates(
                 .join(", ")} (route vs parser order).`,
             );
           }
-          const gps15 = gpsAtPostViaLabelWalk(
-            sorted,
-            augDistMap,
-            { lat: startLat, lon: startLon },
-            15,
-            sequenceFlipPages,
-          );
+          const gpsBoundary =
+            boundaryPost != null
+              ? gpsAtPostViaLabelWalk(
+                  sorted,
+                  augDistMap,
+                  { lat: startLat, lon: startLon },
+                  boundaryPost.number,
+                  sequenceFlipPages,
+                )
+              : null;
           if (
-            post15 &&
-            gps15 &&
+            boundaryPost &&
+            gpsBoundary &&
             lockPageOriginAtGps(
               pageTransforms,
-              4,
-              post15.x,
-              post15.y,
-              gps15.lat,
-              gps15.lon,
+              secondPage,
+              boundaryPost.x,
+              boundaryPost.y,
+              gpsBoundary.lat,
+              gpsBoundary.lon,
             )
           ) {
             warnings.push(
-              "[seam-locked] page 4 origin from post-1 label walk to post 15 at sheet break.",
+              `[seam-locked] page ${secondPage} origin from post-1 label walk to post ${boundaryPost.number} at sheet break.`,
             );
           }
         }
