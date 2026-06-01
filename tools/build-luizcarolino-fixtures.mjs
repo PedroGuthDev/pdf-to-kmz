@@ -97,13 +97,13 @@ if (regionPosts.length > 500) {
   process.exit(1);
 }
 
-// Keep only cable edges fully within bbox (both endpoints inside)
+// Keep only cable edges fully within bbox (both endpoints inside).
+// dxf-loader emits edges as { a: { x, y }, b: { x, y } }.
 const regionEdges = (allEdges ?? []).filter((e) => {
-  const [x1, y1] = [e.x1 ?? e.startX, e.y1 ?? e.startY];
-  const [x2, y2] = [e.x2 ?? e.endX, e.y2 ?? e.endY];
-  if (x1 == null || y1 == null || x2 == null || y2 == null) return false;
-  return x1 >= minX && x1 <= maxX && y1 >= minY && y1 <= maxY &&
-         x2 >= minX && x2 <= maxX && y2 >= minY && y2 <= maxY;
+  const ax = e.a?.x, ay = e.a?.y, bx = e.b?.x, by = e.b?.y;
+  if (ax == null || ay == null || bx == null || by == null) return false;
+  return ax >= minX && ax <= maxX && ay >= minY && ay <= maxY &&
+         bx >= minX && bx <= maxX && by >= minY && by <= maxY;
 });
 console.log(`Cropped to ${regionEdges.length} cable edges within bbox.`);
 
