@@ -39,6 +39,93 @@ function edgeKey(from, to) {
 }
 
 /**
+ * A source-tagged trunk edge: the coordinate calculator marks the true through-route
+ * at a bifurcation as `bifurcation-main` / `inferred-label`. These are authoritative
+ * and must never be dropped or re-routed by render-boundary normalization.
+ *
+ * @param {{ source?: string }} e
+ * @returns {boolean}
+ */
+function isMainSource(e) {
+  return e.source === "bifurcation-main" || e.source === "inferred-label";
+}
+
+/**
+ * Render-boundary normalization for the DWG geometry path. With real GPS the
+ * finalized connections carry spurious edges that split tap chains or draw 2-point
+ * noise. Drop them before chaining; never touch source-tagged trunk edges.
+ *
+ *  - Transitive chord: a non-sourced jump `J→K` (K>J+1) whose target is already
+ *    reachable from `J` via OTHER non-gap edges (e.g. `14→16` alongside `14→15→16`).
+ *  - Redundant gap-bridge: a `gap` edge that skips >1 post while both endpoints are
+ *    already on the trunk (e.g. `51→54` over `51-52-53` / `54-55-56`).
+ *
+ * @param {Array<{ from: number, to: number, gap?: boolean, source?: string }>} connections
+ * @returns {Array<{ from: number, to: number, gap?: boolean, source?: string }>}
+ */
+function normalizeConnections(connections) {
+  const nonGap = connections.filter(
+    (c) => c.from != null && c.to != null && c.gap !== true,
+  );
+  const onTrunk = new Set();
+  for (const e of nonGap) {
+    onTrunk.add(e.from);
+    onTrunk.add(e.to);
+  }
+
+  // Undirected adjacency over non-gap edges, keyed for single-edge exclusion.
+  const adj = new Map();
+  const link = (a, b, key) => {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a).push({ to: b, key });
+  };
+  for (const e of nonGap) {
+    const key = edgeKey(e.from, e.to);
+    link(e.from, e.to, key);
+    link(e.to, e.from, key);
+  }
+
+  /**
+   * @param {number} from
+   * @param {number} to
+   * @param {string} skipKey
+   * @returns {boolean}
+   */
+  function reachableWithout(from, to, skipKey) {
+    const seen = new Set([from]);
+    const stack = [from];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === to) return true;
+      for (const { to: nxt, key } of adj.get(cur) ?? []) {
+        if (key === skipKey || seen.has(nxt)) continue;
+        seen.add(nxt);
+        stack.push(nxt);
+      }
+    }
+    return false;
+  }
+
+  return connections.filter((e) => {
+    if (e.from == null || e.to == null) return true;
+    if (e.gap === true) {
+      if (
+        Math.abs(e.to - e.from) > 1 &&
+        onTrunk.has(e.from) &&
+        onTrunk.has(e.to)
+      ) {
+        return false;
+      }
+      return true;
+    }
+    if (!isMainSource(e) && e.to > e.from + 1) {
+      if (reachableWithout(e.from, e.to, edgeKey(e.from, e.to))) return false;
+    }
+    return true;
+  });
+}
+
+/**
  * At a bifurcation, follow the main route. When both a consecutive tap leg and a
  * longer rejoin jump exist (branch return), prefer the jump when it continues
  * sequentially (e.g. 5→10→11). Otherwise prefer consecutive main or non-branch spur.
@@ -133,7 +220,11 @@ export function buildRoutePolylines(connections, branchStarts = new Set()) {
     return path;
   }
 
-  for (const e of chainEdges) {
+  // Seed chains from heads (lowest `from` first) so the trunk is consumed from its
+  // start and spurs attach to their junction instead of detaching by array order
+  // (e.g. `5-6-7-8-9` as one line rather than `5-6` + orphaned `6-7-8-9`).
+  const seedOrder = [...chainEdges].sort((a, b) => a.from - b.from || a.to - b.to);
+  for (const e of seedOrder) {
     const key = edgeKey(e.from, e.to);
     if (used.has(key)) continue;
     polylines.push({ postNumbers: extendForward(e.from, e.to), gap: false });
@@ -165,10 +256,15 @@ export function buildKml(posts, connections, options = {}) {
     warnings,
   };
 
+  // Render-boundary normalization: drop spurious chords / gap-bridges the DWG
+  // geometry path emits (see normalizeConnections). All downstream rendering —
+  // branchStarts, drawable edges, polylines — works from the normalized set.
+  const normConnections = normalizeConnections(connections);
+
   const branchStarts = new Set();
-  for (const e of connections) {
+  for (const e of normConnections) {
     if (e.gap === true) continue;
-    const siblings = connections.filter(
+    const siblings = normConnections.filter(
       (c) => c.from === e.from && c.gap !== true && c.to !== e.to,
     );
     if (siblings.length === 0) continue;
@@ -200,7 +296,7 @@ export function buildKml(posts, connections, options = {}) {
   }
 
   const drawableConnections = [];
-  for (const edge of connections) {
+  for (const edge of normConnections) {
     const fromPost = postByNum.get(edge.from);
     const toPost = postByNum.get(edge.to);
     if (!hasGps(fromPost) || !hasGps(toPost)) {
@@ -247,9 +343,24 @@ export function buildKml(posts, connections, options = {}) {
   }
 
   const polylines = buildRoutePolylines(drawableConnections, branchStarts);
+
+  // Suppress single-post taps: a 2-point non-gap segment that branches off a
+  // source-tagged junction (the trunk continues via the tagged main edge, so the
+  // stub is a single-post drop). The post itself still renders as a Point.
+  const sourcedJunctions = new Set();
+  for (const e of normConnections) {
+    if (isMainSource(e)) sourcedJunctions.add(e.from);
+  }
+  const renderPolylines = polylines.filter(
+    (p) =>
+      p.gap === true ||
+      p.postNumbers.length !== 2 ||
+      !sourcedJunctions.has(p.postNumbers[0]),
+  );
+
   const lineDesc = escapeXml(merged.lineDescription);
 
-  for (const { postNumbers, gap } of polylines) {
+  for (const { postNumbers, gap } of renderPolylines) {
     const coords = [];
     for (const num of postNumbers) {
       const p = postByNum.get(num);
