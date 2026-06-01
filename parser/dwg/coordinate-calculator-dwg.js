@@ -7,7 +7,7 @@ import {
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
-import { applyTopologyCorrections } from "./topology-corrections.js";
+import { deriveCableTopology } from "./cable-topology.js";
 
 /** @param {unknown} w */
 /**
@@ -328,23 +328,32 @@ export async function calculateCoordinatesWithDwg(
     };
   });
 
-  // Apply verified per-network topology corrections (signature-gated; a no-op for
-  // networks without a registered correction). The DWG cable is fragmented and cannot
-  // yield branch topology directly, so corrections fix the wrong/missing edges the
-  // numbering-driven associator emits at branch points. See topology-corrections.js.
-  const corrected = applyTopologyCorrections(pdfResult.connections, dwgPosts);
+  // Derive route topology from the cable geometry (generic — no post numbers, no
+  // per-network corrections). At branch points post numbering + distance labels are
+  // ambiguous; the cable polylines encode the real connectivity. Falls back to the
+  // label-based connections when the cable can't be read (no GPS / no cable layer).
+  const cableEdgesAll = [
+    ...(regionData.cableEdges ?? regionEdges ?? []),
+    ...(regionData.primaryCableEdges ?? []),
+  ];
+  const cableTopo = deriveCableTopology(dwgPosts, cableEdgesAll, {
+    zone: regionData?.crs?.zone ?? region?.crs?.zone ?? 22,
+  });
+  const useCable =
+    cableTopo && Array.isArray(cableTopo.edges) && cableTopo.edges.length > 0;
 
   const successResult = {
     ...pdfResult,
     posts: dwgPosts,
-    connections: corrected.connections,
+    connections: useCable ? cableTopo.edges : pdfResult.connections,
     warnings: [...(pdfResult.warnings ?? []), ...warnings],
     dwgStatus: cascade.dwgPath,
     dwgRegionId: region.id ?? region.name,
   };
-  if (corrected.applied) {
+  if (useCable) {
     successResult.warnings.push(
-      `[dwg] applied topology correction: ${corrected.applied}`,
+      `[dwg] route topology derived from cable geometry ` +
+        `(${cableTopo.edges.length} edges, ${cableTopo.components} component(s), ${cableTopo.bridges} bridge(s))`,
     );
   }
   successResult.userWarnings = buildCalcUserWarnings(successResult);

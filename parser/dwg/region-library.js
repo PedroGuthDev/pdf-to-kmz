@@ -7,7 +7,7 @@ import { utmToLatLon } from "../geo/utm-calibrator.js";
 export const DB_NAME = "pdf-to-kmz-dwg-library";
 export const DB_VERSION = 1;
 
-const PARSER_VERSION = "dxf-parser@1.1.2";
+const PARSER_VERSION = "dxf-parser@1.2.0-primarycable";
 const DEFAULT_CRS = { datum: "SIRGAS-2000", zone: 22, hemisphere: "S" };
 
 async function openRegionsDb(idbFactory) {
@@ -54,7 +54,8 @@ export function createRegionLibrary(idbFactory = null) {
       }
 
       const dxfText = await dxfBlob.text();
-      const { posts, cableEdges, extmin, extmax } = parseDxfText(dxfText);
+      const { posts, cableEdges, primaryCableEdges, extmin, extmax } =
+        parseDxfText(dxfText);
 
       const crs = { ...DEFAULT_CRS };
       const bboxUtm = { minE: extmin.x, maxE: extmax.x, minN: extmin.y, maxN: extmax.y };
@@ -75,6 +76,7 @@ export function createRegionLibrary(idbFactory = null) {
         bboxLatLon,
         posts,
         cableEdges,
+        primaryCableEdges,
         rbushDump,
         sourceDxf: dxfBlob,
         parserVersion: PARSER_VERSION,
@@ -138,6 +140,7 @@ export function createRegionLibrary(idbFactory = null) {
         bboxLatLon: manifest.bboxLatLon ?? null,
         posts: manifest.posts ?? [],
         cableEdges: manifest.cableEdges ?? [],
+        primaryCableEdges: manifest.primaryCableEdges ?? [],
         rbushDump: manifest.rbushDump ?? postIndex.toJSON(),
         sourceDxf: sourceDxf,
         parserVersion: manifest.parserVersion ?? PARSER_VERSION,
