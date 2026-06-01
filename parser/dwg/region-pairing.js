@@ -29,23 +29,42 @@ export function restorePostIndexFromDump(rbushDump) {
   return tree.fromJSON(rbushDump);
 }
 
-function nearestPostIndexWithin(posts, x, y, tol) {
+function nearestPostIndexWithTree(tree, postToIdx, x, y, tol) {
+  const candidates = tree.search({
+    minX: x - tol,
+    minY: y - tol,
+    maxX: x + tol,
+    maxY: y + tol,
+  });
   let bestIdx = -1;
   let bestD = Infinity;
-  for (let i = 0; i < posts.length; i++) {
-    const p = posts[i];
+  for (const p of candidates) {
     const d = Math.hypot(p.x - x, p.y - y);
     if (d <= tol && d < bestD) {
       bestD = d;
-      bestIdx = i;
+      const idx = postToIdx.get(p);
+      if (idx != null) bestIdx = idx;
     }
   }
   return bestIdx;
 }
 
-export function buildAdjacencyGraph(posts, cableEdges) {
+/**
+ * @param {object[]} posts
+ * @param {object[]} cableEdges
+ * @param {{ postIndex?: PostIndex, postToIdx?: Map<object, number>, snapTol?: number }} [options]
+ */
+export function buildAdjacencyGraph(posts, cableEdges, options = {}) {
   const adjacency = new Map();
   if (!Array.isArray(posts) || posts.length === 0) return adjacency;
+
+  const snapTol = options.snapTol ?? ADJACENCY_SNAP_M;
+  const tree = options.postIndex ?? buildPostIndex(posts);
+  let postToIdx = options.postToIdx;
+  if (!postToIdx) {
+    postToIdx = new Map();
+    for (let i = 0; i < posts.length; i++) postToIdx.set(posts[i], i);
+  }
 
   const ensure = (idx) => {
     let s = adjacency.get(idx);
@@ -63,8 +82,8 @@ export function buildAdjacencyGraph(posts, cableEdges) {
     if (typeof a.x !== "number" || typeof a.y !== "number") continue;
     if (typeof b.x !== "number" || typeof b.y !== "number") continue;
 
-    const iA = nearestPostIndexWithin(posts, a.x, a.y, ADJACENCY_SNAP_M);
-    const iB = nearestPostIndexWithin(posts, b.x, b.y, ADJACENCY_SNAP_M);
+    const iA = nearestPostIndexWithTree(tree, postToIdx, a.x, a.y, snapTol);
+    const iB = nearestPostIndexWithTree(tree, postToIdx, b.x, b.y, snapTol);
     if (iA < 0 || iB < 0 || iA === iB) continue;
     ensure(iA).add(iB);
     ensure(iB).add(iA);

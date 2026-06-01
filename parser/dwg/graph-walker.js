@@ -829,58 +829,6 @@ function debugBfsSpanCandidates({
   return out;
 }
 
-/**
- * Private replica of region-pairing's buildAdjacencyGraph with a tunable
- * snap tolerance. The frozen region-pairing module pins ADJACENCY_SNAP_M=3,
- * which fragments the cable graph at junctions whose nearest INSERT sits
- * more than 3m away (e.g. siriu.dxf has a 4-edge junction 6.86m off-INSERT).
- * Graph-walker needs a richer graph for navigation, so we rebuild it here
- * with a larger snap.
- */
-function nearestRegionPostWithin(posts, x, y, tol) {
-  let bestIdx = -1;
-  let bestD = Infinity;
-  for (let i = 0; i < posts.length; i++) {
-    const p = posts[i];
-    const d = Math.hypot(p.x - x, p.y - y);
-    if (d <= tol && d < bestD) {
-      bestD = d;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
-function buildRichAdjacency(regionPosts, cableEdges, snapTol) {
-  const adjacency = new Map();
-  if (!Array.isArray(regionPosts) || regionPosts.length === 0) return adjacency;
-
-  const ensure = (idx) => {
-    let s = adjacency.get(idx);
-    if (!s) {
-      s = new Set();
-      adjacency.set(idx, s);
-    }
-    return s;
-  };
-
-  for (const e of cableEdges ?? []) {
-    const a = e?.a;
-    const b = e?.b;
-    if (!a || !b) continue;
-    if (typeof a.x !== "number" || typeof a.y !== "number") continue;
-    if (typeof b.x !== "number" || typeof b.y !== "number") continue;
-
-    const iA = nearestRegionPostWithin(regionPosts, a.x, a.y, snapTol);
-    const iB = nearestRegionPostWithin(regionPosts, b.x, b.y, snapTol);
-    if (iA < 0 || iB < 0 || iA === iB) continue;
-    ensure(iA).add(iB);
-    ensure(iB).add(iA);
-  }
-
-  return adjacency;
-}
-
 function unionAdjacency(a, b) {
   /** @type {Map<number, Set<number>>} */
   const out = new Map();
@@ -1088,25 +1036,17 @@ export function pairPostsByGraphWalk({
   const regionPosts = region?.posts ?? [];
   const zoneExpected = region?.crs?.zone ?? 22;
   const tree = postIndex ?? buildPostIndex(regionPosts);
-  // Build a richer adjacency graph (snap=8m) than the frozen region-pairing
-  // default (3m). The frozen module's snap is too tight and drops cable
-  // edges at junctions whose nearest INSERT sits >3m away — that fragments
-  // the graph and breaks navigation. We replace the passed-in adjacencyGraph
-  // for walk navigation, but leave region-pairing.js itself untouched.
-  // The `adjacencyGraph` parameter and `buildAdjacencyGraph` import are kept
-  // for API signature parity with region-pairing.js but intentionally unused —
-  // we rebuild a richer graph locally above.
-  void adjacencyGraph; // eslint-disable-line no-unused-expressions
-  void buildAdjacencyGraph; // eslint-disable-line no-unused-expressions
-  // Two-tier union: 8m captures most edges without spurious merges; 14m recovers
-  // junctions whose nearest INSERT is far from the cable vertex (seen in siriu).
-  const graph8 = buildRichAdjacency(regionPosts, region?.cableEdges ?? [], 8);
-  const graph14 = buildRichAdjacency(regionPosts, region?.cableEdges ?? [], 14);
-  const graph = unionAdjacency(graph8, graph14);
-
   const postToIndex = new Map();
   for (let i = 0; i < regionPosts.length; i++)
     postToIndex.set(regionPosts[i], i);
+
+  // Richer snap than region-library's 3m graph: junctions can sit >3m off INSERT.
+  void adjacencyGraph;
+  const cableEdges = region?.cableEdges ?? [];
+  const graphOpts = { postIndex: tree, postToIdx: postToIndex };
+  const graph8 = buildAdjacencyGraph(regionPosts, cableEdges, { ...graphOpts, snapTol: 8 });
+  const graph14 = buildAdjacencyGraph(regionPosts, cableEdges, { ...graphOpts, snapTol: 14 });
+  const graph = unionAdjacency(graph8, graph14);
 
   // Step 1 — Anchor poste 1
   const anchorUtm = latLonToUtm(startLat, startLon);

@@ -251,7 +251,8 @@ export async function calculateCoordinatesWithDwg(
   const regionEdges = regionData.cableEdges ?? region.cableEdges ?? [];
   const postIndex = regionData.postIndex ?? buildPostIndex(regionPosts);
   const adjacencyGraph =
-    regionData.adjacencyGraph ?? buildAdjacencyGraph(regionPosts, regionEdges);
+    regionData.adjacencyGraph ??
+    buildAdjacencyGraph(regionPosts, regionEdges, { postIndex });
 
   // PDF path builds route connections; DWG pairing must use the same topology.
   const pdfResult = calculateCoordinates(

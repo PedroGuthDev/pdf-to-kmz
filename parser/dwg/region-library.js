@@ -124,7 +124,9 @@ export function createRegionLibrary(idbFactory = null) {
       if (!region) return null;
 
       const postIndex = restorePostIndexFromDump(region.rbushDump);
-      const adjacencyGraph = buildAdjacencyGraph(region.posts, region.cableEdges);
+      const adjacencyGraph = buildAdjacencyGraph(region.posts, region.cableEdges, {
+        postIndex,
+      });
       return { ...region, postIndex, adjacencyGraph };
     },
 
