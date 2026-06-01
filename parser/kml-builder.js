@@ -342,25 +342,14 @@ export function buildKml(posts, connections, options = {}) {
     stats.placemarkCount += 1;
   }
 
+  // Genuine single-post taps (e.g. 11→12) render as their own short line — every
+  // post belongs on the cable path. Spurious 2-point lines (transitive chords,
+  // gap-bridges) are already dropped upstream by normalizeConnections.
   const polylines = buildRoutePolylines(drawableConnections, branchStarts);
-
-  // Suppress single-post taps: a 2-point non-gap segment that branches off a
-  // source-tagged junction (the trunk continues via the tagged main edge, so the
-  // stub is a single-post drop). The post itself still renders as a Point.
-  const sourcedJunctions = new Set();
-  for (const e of normConnections) {
-    if (isMainSource(e)) sourcedJunctions.add(e.from);
-  }
-  const renderPolylines = polylines.filter(
-    (p) =>
-      p.gap === true ||
-      p.postNumbers.length !== 2 ||
-      !sourcedJunctions.has(p.postNumbers[0]),
-  );
 
   const lineDesc = escapeXml(merged.lineDescription);
 
-  for (const { postNumbers, gap } of renderPolylines) {
+  for (const { postNumbers, gap } of polylines) {
     const coords = [];
     for (const num of postNumbers) {
       const p = postByNum.get(num);

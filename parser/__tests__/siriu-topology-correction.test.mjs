@@ -62,8 +62,15 @@ describe("Siriu topology correction", () => {
     assert.equal(other.applied, null);
   });
 
-  const { edges } = renderedEdges(fixture.posts, corrected);
+  const { edges, seqs } = renderedEdges(fixture.posts, corrected);
   const has = (a, b) => edges.has(`${Math.min(a, b)}-${Math.max(a, b)}`);
+
+  it("every post lands on the cable path (no skipped posts, incl. 12)", () => {
+    const onPath = new Set();
+    for (const s of seqs) for (const n of s) if (n != null) onPath.add(n);
+    const missing = fixture.posts.map((p) => p.number).filter((n) => !onPath.has(n));
+    assert.deepEqual(missing, [], `posts skipped: ${missing.join(",")}`);
+  });
 
   it("adds the spine edges the parser had suppressed/missing", () => {
     for (const [a, b] of [

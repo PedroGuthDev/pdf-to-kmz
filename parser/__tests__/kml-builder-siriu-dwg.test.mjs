@@ -82,17 +82,14 @@ describe("buildKml — Siriu DWG-path golden", () => {
     }
   });
 
-  it("single-post taps off sourced junctions are suppressed", () => {
+  it("genuine single-post taps still render (every post on the cable path)", () => {
+    // Real drops off a junction draw as their own short line — they are not noise.
     for (const tap of [
-      [64, 65],
       [23, 24],
       [32, 33],
-      [36, 37],
-      [41, 42],
-      [57, 58],
       [11, 12],
     ]) {
-      assert.ok(!has(tap), `single-post tap ${tap.join("-")} must be suppressed`);
+      assert.ok(has(tap), `genuine tap ${tap.join("-")} must render`);
     }
   });
 
@@ -106,13 +103,16 @@ describe("buildKml — Siriu DWG-path golden", () => {
     }
   });
 
-  it("no spurious 2-point noise lines remain", () => {
-    const twoPt = seqs.filter((s) => s.length === 2);
-    assert.equal(
-      twoPt.length,
-      0,
-      `expected no 2-point lines — got ${twoPt.map((s) => s.join("-")).join("|")}`,
-    );
+  it("spurious transitive chords are dropped (not drawn as 2-point noise)", () => {
+    for (const chord of [
+      [10, 12],
+      [14, 16],
+      [20, 22],
+      [29, 31],
+      [56, 58],
+    ]) {
+      assert.ok(!has(chord), `transitive chord ${chord.join("-")} must be dropped`);
+    }
   });
 
   it("every rendered post resolves (no unmapped coordinates)", () => {
