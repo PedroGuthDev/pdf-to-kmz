@@ -6,6 +6,8 @@
       "post": 5,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [],
+      "_forbiddenNote": "Canary: must stay clean — no arm beyond its 3 GT arms (4,6,10).",
       "arms": [
         { "to": 4, "meters": 32.6, "label": "from 4", "inbound": true },
         { "to": 6, "meters": 28.5, "label": "->6" },
@@ -16,6 +18,8 @@
       "post": 14,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [],
+      "_forbiddenNote": "Canary: must stay clean — no arm beyond its 3 GT arms (13,15,18).",
       "arms": [
         { "to": 13, "meters": 40.4, "label": "from 13", "inbound": true },
         { "to": 15, "meters": 33.7, "label": "->15" },
@@ -26,6 +30,8 @@
       "post": 36,
       "degree": 4,
       "slots": 2,
+      "forbiddenArms": [39],
+      "_forbiddenNote": "Phantom 36->39=35.5 mirrors the real 36->38=35.5 (pair 1, isPhantomBifurcationHint).",
       "arms": [
         { "to": 35, "meters": 47.9, "label": "from 35", "inbound": true },
         { "to": 37, "meters": 10.5, "label": "->37" },
@@ -37,6 +43,9 @@
       "post": 48,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [51],
+      "armMetersChecks": { "49": 8.4 },
+      "_forbiddenNote": "Spurious 51->48=42.3 [inferred-label]; 48->49 must be the 8.4 tap, NOT the legacy-midpoint 22.6 (pair 2, dense-bifurcation swap).",
       "arms": [
         { "to": 47, "meters": 19.3, "label": "from 47", "inbound": true },
         { "to": 49, "meters": 8.4, "label": "->49" },
@@ -47,6 +56,8 @@
       "post": 60,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [],
+      "_forbiddenNote": "Inbound must be 65 only; no 59->60=31.7 (steals real 60->65=31.7) and no 66->60=22.0 (phantom long-span) incident (pair 1).",
       "arms": [
         { "to": 65, "meters": 31.7, "label": "from 65", "inbound": true },
         { "to": 69, "meters": 31, "label": "->69" },
@@ -57,6 +68,8 @@
       "post": 62,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [],
+      "_forbiddenNote": "Junction 62 must carry the cross-page arm ->81=40.6 (pair 3, 80/81 off-cable hack).",
       "arms": [
         { "to": 61, "meters": 34.8, "label": "from 61", "inbound": true },
         { "to": 63, "meters": 33.8, "label": "->63" },
@@ -67,6 +80,8 @@
       "post": 70,
       "degree": 3,
       "slots": 1,
+      "forbiddenArms": [],
+      "_forbiddenNote": "Junction 70 must carry arm ->74=38.7 (pair 4, 73/74 gap-reentry hack; junction detected from DWG region degree).",
       "arms": [
         { "to": 69, "meters": 23.6, "label": "from 69", "inbound": true },
         { "to": 71, "meters": 31.8, "label": "->71" },
