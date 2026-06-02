@@ -1418,6 +1418,15 @@ export function applyBifurcationJunctionLabelRehome(
   // paired tap leg) so the natural sequential edges can be refilled. Same-page
   // only — cross-sheet bifurcations live in different page coordinate systems and
   // are validated by their own detector. Zero post-number / coordinate literals.
+  //
+  // KEPT (quick task 260602-lbl, GATED decision 4): the B3 rehome pass
+  // (rehomeBranchArmLabels) now correctly places 27.7 on 36→46, but this
+  // calibrated re-validation pass independently nulls *spurious* bifurcation-main
+  // edges around posts 39–45. Disabling it (verified) regresses Siriu posts 39–45
+  // (err up to 142 m). The two mechanisms are complementary, not redundant: the
+  // rehome fixes a STOLEN arm; this pass drops a SPURIOUS pre-calibration tap
+  // edge. Re-attempt simplification only if a future change makes the spurious
+  // edge impossible upstream.
   for (const e of distances) {
     if (e.source !== "bifurcation-main" || e.meters == null) continue;
     const J = Math.min(e.from, e.to);
