@@ -1643,15 +1643,23 @@ export function pairPostsByGraphWalk({
         toNum === 74 &&
         (labelM == null || labelM >= 100)
       ) {
-        // KEPT (quick task 260602-lbl, GATED decision 3): the root-cause associator
-        // fix (rehomeBranchArmLabels) could NOT capture the 38.7 → 70→74 branch arm,
-        // because the true junction 70 has label-graph degree < 3 in the broken
-        // graph (its arm is mis-associated) and selecting the only degree-≥3
-        // neighbour (69) misroutes to 69→74 — rejected by the occlusion guard, so
-        // 38.7 stays unfixed rather than wrong. With 70→74 still missing from the
-        // label graph, removing this gap-reentry hack regresses Siriu posts 74–76
-        // (idx 8/9/10 → 13/295/16; err >140 m). Re-attempt removal once the
-        // associator detects junction 70 from DWG geometry rather than label degree.
+        // GATED-KEPT (quick tasks 260602-lbl decision 3, re-confirmed 260602-decouple
+        // pair 4): the root-cause associator fix (rehomeBranchArmLabels) could NOT
+        // capture the 38.7 → 70→74 branch arm, because the true junction 70 has
+        // label-graph degree 2 in the broken graph (its arm is mis-associated) and
+        // selecting the only degree-≥3 neighbour (69) misroutes to 69→74 — rejected
+        // by the occlusion guard, so 38.7 stays unfixed rather than wrong. Detecting
+        // junction 70 requires DWG REGION geometry (region degree ≥ 3), which the
+        // associator (parser/distance-associator.js: posts + Distância_Poste labels +
+        // cablesByPage) does NOT have access to. Same root cause as pair 3.
+        //
+        // EXACT FAILING CONDITION on removal (probed 260602-decouple, all other pairs
+        // shipped): Siriu posts 74/75/76 idx 8/9/10 → 13/295/16; err 144.98 / 218.68 /
+        // 298.02 m (ceilings 1.8 / 1.8 / 2.9 m). 6 gate failures.
+        //
+        // RE-ATTEMPT once the associator can consult DWG region adjacency to detect
+        // junction 70 by region degree and rehome 38.7 onto 70→74 (then this literal
+        // gate AND findGapOffCableReentryByNextLabel MUST be deleted).
         const gapOffIdx = findGapOffCableReentryByNextLabel(
           fromIdx,
           routeNextLabel,
