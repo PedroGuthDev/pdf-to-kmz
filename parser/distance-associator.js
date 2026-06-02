@@ -12,8 +12,93 @@
  */
 const OVERVIEW_TO_DETAIL_SCALE = 303.6 / 1191;
 
-import { isOffRouteCablePost } from "./cable-builder.js";
+import {
+  isOffRouteCablePost,
+  nearestCableHitOnPage,
+} from "./cable-builder.js";
 import { deduplicatePostsPreferLowerPage } from "./post-assembler.js";
+
+/**
+ * Hybrid discriminator (quick task 260602-lbl, locked decision 2).
+ *
+ * Distinguishes a JUNCTION BRANCH-ARM label (sits near a junction and points
+ * along the arm's cable-direction bearing toward a NON-consecutive far post)
+ * from a CONSECUTIVE-PAIR label (lies on the chord between numbered neighbours).
+ *
+ * PRIMARY signal  = cable-arm bearing geometry: the label sits near the junction
+ *   and its bearing from the junction aligns with the bearing toward the far post
+ *   (measured along the cable polyline near the junction, not just the post chord).
+ * CONFIRM / tiebreak = label-on-cable overlap: the label physically lies on a
+ *   cable segment (small perpendicular gap to the nearest Cabo Projetado path).
+ *
+ * Pure geometry — NO post-number literals. Returns a score object the caller can
+ * threshold; never decides on its own.
+ *
+ * @param {{x:number,y:number}} labelPt  label anchor (page coords)
+ * @param {number} labelPage
+ * @param {{anchorX?:number,x:number,anchorY?:number,y:number,pageNum?:number}} junction
+ * @param {{anchorX?:number,x:number,anchorY?:number,y:number,pageNum?:number}} farPost  candidate arm endpoint
+ * @param {Map<number, Array>} cablesByPage
+ * @returns {{
+ *   nearJunctionPt: number,
+ *   bearingAlignDeg: number,
+ *   onCableGapPt: number,
+ *   bearingAligned: boolean,
+ *   onCable: boolean,
+ * }}
+ */
+export function classifyBranchArmLabel(
+  labelPt,
+  labelPage,
+  junction,
+  farPost,
+  cablesByPage,
+) {
+  const jx = junction.anchorX ?? junction.x;
+  const jy = junction.anchorY ?? junction.y;
+  const fx = farPost.anchorX ?? farPost.x;
+  const fy = farPost.anchorY ?? farPost.y;
+
+  const nearJunctionPt = Math.hypot(labelPt.x - jx, labelPt.y - jy);
+
+  // Bearing the label sits at, relative to the junction.
+  const bLabel = Math.atan2(labelPt.y - jy, labelPt.x - jx);
+  // Bearing toward the far post. Prefer the cable-arm direction near the junction
+  // (nearest cable point to the far post on the junction's page) over the raw
+  // post chord, so branch arms that bend mid-street are measured correctly.
+  let tfx = fx;
+  let tfy = fy;
+  if (cablesByPage?.size && labelPage != null) {
+    const farHit = nearestCableHitOnPage(fx, fy, labelPage, cablesByPage);
+    if (farHit && Number.isFinite(farHit.d)) {
+      tfx = farHit.x;
+      tfy = farHit.y;
+    }
+  }
+  const bFar = Math.atan2(tfy - jy, tfx - jx);
+  let diff = Math.abs(bLabel - bFar);
+  if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  const bearingAlignDeg = (diff * 180) / Math.PI;
+
+  let onCableGapPt = Infinity;
+  if (cablesByPage?.size && labelPage != null) {
+    const hit = nearestCableHitOnPage(labelPt.x, labelPt.y, labelPage, cablesByPage);
+    if (hit && Number.isFinite(hit.d)) onCableGapPt = hit.d;
+  }
+
+  return {
+    nearJunctionPt,
+    bearingAlignDeg,
+    onCableGapPt,
+    bearingAligned: bearingAlignDeg <= BRANCH_ARM_BEARING_TOL_DEG,
+    onCable: onCableGapPt <= BRANCH_ARM_ON_CABLE_TOL_PT,
+  };
+}
+
+/** Bearing alignment tolerance: label bearing vs arm bearing from junction. */
+const BRANCH_ARM_BEARING_TOL_DEG = 35;
+/** On-cable overlap tolerance: label perpendicular gap to nearest cable path. */
+const BRANCH_ARM_ON_CABLE_TOL_PT = 22;
 
 /**
  * Shortest distance from point (px,py) to segment A–B (clamped).
@@ -1223,6 +1308,7 @@ export function applyBifurcationJunctionLabelRehome(
   distItems,
   distances,
   warnings,
+  cablesByPage = null,
 ) {
   if (!posts?.length || !distItems?.length || !distances?.length) return;
 

@@ -174,6 +174,7 @@ export function calibrateMultiSheetPostCoordinates(posts, {
       allDistItems,
       distances,
       warnings,
+      cablesForPass2,
     );
     assignPolesGloballyByLabels(
       posts,

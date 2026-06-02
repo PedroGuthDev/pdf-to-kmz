@@ -779,6 +779,7 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         allDistItems,
         distances,
         warnings,
+        cablesForPrefill,
       );
     }
     if (allPosteRaw.length > 0) {
