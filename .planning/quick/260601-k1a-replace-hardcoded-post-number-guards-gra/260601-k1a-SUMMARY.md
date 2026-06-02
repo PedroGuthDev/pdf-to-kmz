@@ -66,6 +66,35 @@ After these fixes, all three gates were green as the starting point for Tasks 4-
 
 ## Stage 2 (Task 4): distance-associator 36/37/38 sheet-break bifurcation
 
+**Result: SHIPPED** — commit `edc96a2` (revisited 2026-06-02 after the initial discuss-again)
+
+**What shipped:** The hardcoded `number === 36/37/38` + literal `10.5`/`35.5` block AND
+its skip in the generic sheet-break detector are removed, replaced by a structural
+re-validation pass (ZERO post numbers, ZERO coordinate literals).
+
+**Why the first attempt punted, and what unblocked it:** `applyBifurcationJunctionLabelRehome`
+runs TWICE in the pipeline — once pre-calibration (post 37 at x≈386, beside the 27.7 m
+label) and once post-calibration (x=550, far from it). Pass A spuriously creates
+`37→39 bifurcation-main` on the pre-cal coords; the hardcoded block existed only to undo
+that. The fix re-validates each same-page `bifurcation-main` edge against the CURRENT
+coordinates: if the originating label now sits **strictly closer to the tap than the
+junction**, the bifurcation is a pre-calibration artifact → revert it and its tap leg.
+
+The strict *tap-closer* test (`dT < dJ * 0.9`) is the key discriminator the initial
+candidates missed. The earlier "junction not closer" form wrongly reverted the legit
+`64→66` branch-return bifurcation, whose junction (64) and tap (65) calibrate onto the
+SAME point (jt=0, dJ==dT). A co-located junction/tap can never satisfy a strict
+tap-closer test, so legit branch-return bifurcations are preserved while the genuine
+artifact (37, jt=256, dT=103 ≪ dJ=165) is dropped.
+
+**Verification:** 11/11 distance-associator unit tests; 16/16 across
+assoc/coord-calc/graph-walker; Siriu DWG gate PASS (0 regressions); Luiz Carolino PDF +
+DWG gates PASS; literal-absence grep clean.
+
+---
+
+### (original discuss-again analysis, retained for context)
+
 **Result: DISCUSS-AGAIN**
 
 **Guard:** `parser/distance-associator.js` — special case block at L1614-1637 using literals
