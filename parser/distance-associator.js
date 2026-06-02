@@ -1820,6 +1820,237 @@ export function applyBifurcationJunctionLabelRehome(
         `${tapM} m → ${junction.number}→${tap.number}, ${mainM} m → ${junction.number}→${mainNext.number}`,
     );
   }
+
+  // ── Generic branch-arm rehome (quick task 260602-lbl, locked decisions 2-3) ──
+  // Fix the two label mis-association failure modes using the hybrid cable-arm
+  // discriminator (classifyBranchArmLabel), so the label graph encodes TRUE
+  // junctions instead of relying on downstream graph-walker post-number hacks.
+  //
+  //   (a) Same-page branch arm stolen by a consecutive pair: a label sits NEAR a
+  //       junction and points (cable bearing + on-cable overlap) toward a
+  //       NON-consecutive far post, yet was attached to a consecutive pair. Move
+  //       it to junction→far and null the stolen consecutive edge.
+  //   (b) Cross-page branch entry: the arm label is drawn on the far post's page,
+  //       far from the junction; bridge it back to junction→far.
+  //
+  // Requires cablesByPage (only callers that thread it opt in). Pure geometry —
+  // NO post-number literals; junctions/arms are discovered by degree + classifier.
+  if (cablesByPage?.size) {
+    rehomeBranchArmLabels(
+      sorted,
+      distItems,
+      distances,
+      cablesByPage,
+      { findEdge, upsertEdge, clearEdge },
+      warnings,
+    );
+  }
+}
+
+/** Strong-match thresholds for the generic branch-arm rehome. */
+const ARM_NEAR_JUNCTION_PT = 150;
+const ARM_BEARING_STRONG_DEG = 12;
+const ARM_ON_CABLE_STRONG_PT = 14;
+const ARM_MIN_FAR_GAP = 2; // far post must be ≥2 numbers from the junction (non-consecutive)
+const ARM_ON_ARM_CHORD_PT = 30; // label must lie essentially on the junction→far chord
+
+/**
+ * Re-home branch-arm distance labels onto their true junction→far-post arm.
+ *
+ * @param {Array} sorted Sorted, de-duplicated posts.
+ * @param {Array} distItems Distância_Poste text items.
+ * @param {Array} distances Mutable edge list (assoc output).
+ * @param {Map<number, Array>} cablesByPage
+ * @param {{findEdge:Function, upsertEdge:Function, clearEdge:Function}} edgeOps
+ * @param {string[]} warnings
+ */
+function rehomeBranchArmLabels(
+  sorted,
+  distItems,
+  distances,
+  cablesByPage,
+  edgeOps,
+  warnings,
+) {
+  const { findEdge, upsertEdge, clearEdge } = edgeOps;
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+
+  // Build the current label-graph degree so we only act around real junctions.
+  const degree = new Map();
+  for (const d of distances) {
+    if (d.meters == null) continue;
+    for (const [a, b] of [
+      [d.from, d.to],
+      [d.to, d.from],
+    ]) {
+      if (!degree.has(a)) degree.set(a, new Set());
+      degree.get(a).add(b);
+    }
+  }
+
+  for (const it of distItems) {
+    const meters = parseDistanceMeters(it.str);
+    if (meters == null || meters <= 0) continue;
+    const labelPage = it.pageNum ?? 1;
+    const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+    const lx = w > 0 ? it.x + w * 0.5 : it.x;
+    const ly = it.y;
+
+    // This label's meters must currently be attached to a CONSECUTIVE pair
+    // (hi === lo + 1). Otherwise it is not a "stolen by consecutive pair" case
+    // and we leave it alone. We only ever rehome an existing consecutive edge.
+    // Identify the consecutive edge (sharing this label's meters) that this label
+    // was stolen by: the one whose chord the label sits closest to AND that is
+    // adjacent to a degree-≥3 junction. The junction-adjacency restriction keeps
+    // the rehome local and prevents hijacking an ordinary same-meters main-line
+    // edge elsewhere on the route. Generic — no post-number literals.
+    let stolen = null;
+    let stolenChordGap = Infinity;
+    for (const d of distances) {
+      if (d.meters == null || Math.abs(d.meters - meters) > 0.25) continue;
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (hi !== lo + 1) continue;
+      const a = byNum.get(d.from);
+      const b = byNum.get(d.to);
+      if (!a || !b) continue;
+      let nearJunction = false;
+      for (const j of sorted) {
+        if ((degree.get(j.number)?.size ?? 0) < 3) continue;
+        if (Math.abs(j.number - lo) <= 9 || Math.abs(j.number - hi) <= 9) {
+          nearJunction = true;
+          break;
+        }
+      }
+      if (!nearJunction) continue;
+      const g = labelGapToSegment(lx, ly, a, b, false, sorted);
+      if (g < stolenChordGap) {
+        stolenChordGap = g;
+        stolen = d;
+      }
+    }
+    if (!stolen) continue;
+
+    // Find the same-page junction this label sits NEAR (label-graph degree ≥ 3).
+    let bestJ = null;
+    let bestNear = Infinity;
+    for (const j of sorted) {
+      const deg = degree.get(j.number)?.size ?? 0;
+      if (deg < 3) continue;
+      if ((j.pageNum ?? 1) !== labelPage) continue;
+      const jx = j.anchorX ?? j.x;
+      const jy = j.anchorY ?? j.y;
+      const near = Math.hypot(lx - jx, ly - jy);
+      if (near < bestNear) {
+        bestNear = near;
+        bestJ = j;
+      }
+    }
+    if (!bestJ || bestNear > ARM_NEAR_JUNCTION_PT) continue;
+
+    // The stolen consecutive pair must itself sit near this junction (its lower
+    // endpoint is the junction or an immediate main-line neighbour). This keeps
+    // the rehome local to the bifurcation, never touching distant main edges.
+    const stolenLo = Math.min(stolen.from, stolen.to);
+    const stolenHi = Math.max(stolen.from, stolen.to);
+    if (Math.abs(stolenLo - bestJ.number) > 12 && Math.abs(stolenHi - bestJ.number) > 12) {
+      continue;
+    }
+
+    // Among the junction's plausible NON-consecutive far arms, pick the one whose
+    // cable-arm bearing aligns strongly with the label and lies on a cable. The
+    // far post must be one endpoint of the stolen consecutive pair (the arm points
+    // to a post the consecutive heuristic grabbed) OR adjacent to it.
+    // The far post must be exactly one endpoint of the stolen consecutive pair:
+    // the arm points to a post that the consecutive heuristic grabbed (e.g.
+    // 70→74 stolen as 74→75 ⇒ far is 74; 60→69 stolen as 68→69 ⇒ far is 69).
+    // Restricting to the stolen endpoints prevents inventing new far posts.
+    const farCandidates = new Set([stolenLo, stolenHi]);
+    let bestFar = null;
+    let bestCls = null;
+    for (const num of farCandidates) {
+      const far = byNum.get(num);
+      if (!far || far.number === bestJ.number) continue;
+      if (Math.abs(far.number - bestJ.number) < ARM_MIN_FAR_GAP) continue;
+      const cls = classifyBranchArmLabel(
+        { x: lx, y: ly },
+        labelPage,
+        bestJ,
+        far,
+        cablesByPage,
+      );
+      if (cls.bearingAlignDeg > ARM_BEARING_STRONG_DEG) continue;
+      if (cls.onCableGapPt > ARM_ON_CABLE_STRONG_PT) continue;
+      // DECISIVE comparison: the junction→far arm must explain the label far
+      // better than the stolen consecutive pair does. Compare the label's gap to
+      // each chord; the arm must win by a clear margin, AND the label must sit
+      // closer to the junction than to the stolen pair's own midpoint. This is
+      // what separates a true branch arm from an ordinary consecutive segment
+      // that merely happens to bend near a junction.
+      const sFrom = byNum.get(stolen.from);
+      const sTo = byNum.get(stolen.to);
+      if (!sFrom || !sTo) continue;
+      const gArm = labelGapToSegment(lx, ly, bestJ, far, false, sorted);
+      const gPair = labelGapToSegment(lx, ly, sFrom, sTo, false, sorted);
+      if (!(gArm < gPair - 8)) continue;
+      // The label must lie essentially ON the junction→far arm chord (absolute
+      // gap), not merely closer to it than to the stolen pair. This rejects a
+      // label that sits near a junction but actually belongs to a consecutive
+      // segment that only loosely points toward the far post.
+      if (gArm > ARM_ON_ARM_CHORD_PT) continue;
+      // The far post must NOT be the junction's own immediate inbound/outbound
+      // consecutive neighbour reached via the stolen pair — i.e. the stolen pair
+      // must not simply be the junction's consecutive main edge. (Generic: tests
+      // adjacency between the junction and the stolen pair, no post literals.)
+      if (stolenLo === bestJ.number || stolenHi === bestJ.number) continue;
+      // Failure mode 2 is a FORWARD branch arm: the junction's arm points to a
+      // higher-numbered non-consecutive post that the consecutive pair grabbed
+      // (70→74 as 74→75, 36→46 as 45→46, 60→69 as 68→69). Inbound (lower-numbered)
+      // arms are handled by the normal sequential association, so restrict the
+      // rehome to forward arms to avoid stealing a legitimate consecutive label.
+      if (far.number <= bestJ.number) continue;
+      // The candidate junction must be the TRUE arm origin: no post numerically
+      // between the junction and the far post may sit closer to the label than the
+      // junction does. If one does (e.g. post 70 between 69 and 74 for a 38.7
+      // label that truly belongs to 70→74), then THAT post is the real junction
+      // and this candidate is wrong — skip. Generic geometry, no post literals.
+      let occluded = false;
+      for (let mid = bestJ.number + 1; mid < far.number; mid++) {
+        const mp = byNum.get(mid);
+        if (!mp || (mp.pageNum ?? 1) !== labelPage) continue;
+        const dMid = Math.hypot(lx - (mp.anchorX ?? mp.x), ly - (mp.anchorY ?? mp.y));
+        if (dMid < bestNear) {
+          occluded = true;
+          break;
+        }
+      }
+      if (occluded) continue;
+      if (!bestCls || cls.bearingAlignDeg < bestCls.bearingAlignDeg) {
+        bestCls = cls;
+        bestFar = far;
+      }
+    }
+    if (!bestFar) continue;
+    // Never rehome onto the already-correct consecutive edge.
+    if (
+      Math.min(bestJ.number, bestFar.number) === stolenLo &&
+      Math.max(bestJ.number, bestFar.number) === stolenHi
+    ) {
+      continue;
+    }
+
+    const armEdge = findEdge(bestJ.number, bestFar.number);
+    if (armEdge?.meters != null && Math.abs(armEdge.meters - meters) < 0.25) {
+      continue; // already correctly placed
+    }
+
+    stolen.meters = null;
+    stolen.source = "branch-arm-rehomed-cleared";
+    upsertEdge(bestJ.number, bestFar.number, meters, "branch-arm-rehomed");
+    warnings.push(
+      `[distance-assoc] Branch-arm rehome: ${meters} m moved ${stolen.from}→${stolen.to} ⇒ ${bestJ.number}→${bestFar.number} (bearΔ=${bestCls.bearingAlignDeg.toFixed(0)}°, onCable=${bestCls.onCableGapPt.toFixed(0)}pt)`,
+    );
+  }
 }
 
 /**
