@@ -1,9 +1,13 @@
 # Documentation (not needed at runtime)
 docs/
+.planning/
 
 # Debug scripts and debug notes
 debug*
-.planning/debug/
+
+# Dev tooling and tests
+tools/
+parser/__tests__/
 
 # Test/dev fixtures
 fixtures/
@@ -12,6 +16,8 @@ fixtures/
 # Source CAD/PDF assets (uploaded via Blob at runtime)
 *.pdf
 *.dxf
+*.dwg
+*.kmz
 
 # Scratch text output
 *.txt
