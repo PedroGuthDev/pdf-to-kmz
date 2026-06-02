@@ -173,6 +173,8 @@ const kmzStatsBody = document.getElementById("kmzStatsBody");
 const kmzStatsOmitted = document.getElementById("kmzStatsOmitted");
 const refCompareSection = document.getElementById("refCompareSection");
 const compareOutput = document.getElementById("compareOutput");
+const dxfLibrarySection = document.getElementById("dxfLibrarySection");
+const dxfLibraryToggle = document.getElementById("dxfLibraryToggle");
 const devToolsToggle = document.getElementById("devToolsToggle");
 const startOverBtn = document.getElementById("startOverBtn");
 const debugAccordions = document.querySelectorAll(".debug-accordion");
@@ -181,6 +183,7 @@ let currentParseData = null;
 let lastCalcResult = null;
 let lastKmzObjectUrl = null;
 let lastPdfFile = null;
+let dxfLibraryVisible = false;
 let devToolsVisible = false;
 
 function selectedDwgRegionId() {
@@ -480,6 +483,9 @@ function resetSession() {
   resetKmzUi();
   resetAppearanceDefaults();
   setUploadIdle();
+  dxfLibrarySection.style.display = "none";
+  dxfLibraryVisible = false;
+  dxfLibraryToggle.textContent = "Biblioteca de regiões";
   debugSection.style.display = "none";
   refCompareSection.style.display = "none";
   for (const accordion of debugAccordions) accordion.open = false;
@@ -659,6 +665,14 @@ secondAnchorToggle.addEventListener("click", () => {
   secondAnchorPanel.hidden = !open;
   secondAnchorToggle.setAttribute("aria-expanded", open ? "true" : "false");
 });
+dxfLibraryToggle.addEventListener("click", () => {
+  dxfLibraryVisible = !dxfLibraryVisible;
+  dxfLibrarySection.style.display = dxfLibraryVisible ? "block" : "none";
+  dxfLibraryToggle.textContent = dxfLibraryVisible
+    ? "Ocultar biblioteca de regiões"
+    : "Biblioteca de regiões";
+});
+
 devToolsToggle.addEventListener("click", () => {
   devToolsVisible = !devToolsVisible;
   const display = devToolsVisible ? "block" : "none";

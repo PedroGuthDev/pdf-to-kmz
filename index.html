@@ -239,7 +239,6 @@
       }
 
       #dxfLibrarySection {
-        display: block;
         margin: var(--space-xs) 0;
         padding: var(--space-md);
         border-radius: var(--radius-md);
@@ -593,6 +592,7 @@
     <section
       id="dxfLibrarySection"
       class="section-gap"
+      style="display: none"
       aria-label="Biblioteca de regiões DXF"
     >
       <h2 style="margin: 0 0 var(--space-xs); font-size: 1rem">
@@ -775,6 +775,10 @@
     <footer class="page-footer">
       <button type="button" id="startOverBtn" class="link-btn">
         Recomeçar
+      </button>
+      ·
+      <button type="button" id="dxfLibraryToggle" class="link-btn">
+        Biblioteca de regiões
       </button>
       ·
       <button type="button" id="devToolsToggle" class="link-btn">
