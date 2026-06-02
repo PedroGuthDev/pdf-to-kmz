@@ -1735,6 +1735,15 @@ export function pairPostsByGraphWalk({
         toNum === 74 &&
         (labelM == null || labelM >= 100)
       ) {
+        // KEPT (quick task 260602-lbl, GATED decision 3): the root-cause associator
+        // fix (rehomeBranchArmLabels) could NOT capture the 38.7 → 70→74 branch arm,
+        // because the true junction 70 has label-graph degree < 3 in the broken
+        // graph (its arm is mis-associated) and selecting the only degree-≥3
+        // neighbour (69) misroutes to 69→74 — rejected by the occlusion guard, so
+        // 38.7 stays unfixed rather than wrong. With 70→74 still missing from the
+        // label graph, removing this gap-reentry hack regresses Siriu posts 74–76
+        // (idx 8/9/10 → 13/295/16; err >140 m). Re-attempt removal once the
+        // associator detects junction 70 from DWG geometry rather than label degree.
         const gapOffIdx = findGapOffCableReentryByNextLabel(
           fromIdx,
           routeNextLabel,
@@ -1973,6 +1982,16 @@ export function pairPostsByGraphWalk({
                 neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
             });
           }
+          // KEPT (quick task 260602-lbl, GATED decision 3): the cross-page branch
+          // arm 40.6 → 62→81 is drawn on post 81's page, far from junction 62 on
+          // the prior page. The associator-level rehomeBranchArmLabels pass only
+          // handles SAME-PAGE stolen arms; bridging a label back across a sheet
+          // boundary to its junction was not implemented here (deeper change to
+          // the cross-page logic around labelGapToSegment). With 62→81 still
+          // missing from the label graph, removing this off-cable insert hack
+          // regresses Siriu post 81 (idx 321 → 326; err 235 m). Re-attempt removal
+          // once the associator bridges cross-page branch-entry labels to the
+          // junction on the prior page.
           if (
             hop &&
             fromNum === 80 &&
