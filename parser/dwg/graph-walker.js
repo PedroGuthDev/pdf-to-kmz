@@ -1603,71 +1603,12 @@ export function pairPostsByGraphWalk({
         }
       }
 
-      if (chosenIdx !== undefined) {
-        // Hint-based placement succeeded; skip remaining Case A selection.
-      } else if (
-        chosenIdx === undefined &&
-        labelM != null &&
-        nextOnRoute != null &&
-        (graph.get(fromIdx)?.size ?? 0) >= 3
-      ) {
-        // Dense bifurcation (e.g. Siriu post 48): legacy-midpoint can swap the
-        // consecutive labels — the short stub to `toNum` appears on `toNum→next`
-        // while the chord to `next` appears on `fromNum→toNum`. Match the stub
-        // arm by the next-hop label and defer the consecutive label to the tap.
-        const stubLabelM = getDistLabel(distMap, toNum, nextOnRoute.number);
-        const directTol = spanToleranceFor(labelM);
-        const directMatchesLabel = neighbors.some((nIdx) => {
-          const d = Math.abs(spanBetween(regionPosts, fromIdx, nIdx) - labelM);
-          return d <= directTol;
-        });
-        if (
-          stubLabelM != null &&
-          stubLabelM > 0 &&
-          stubLabelM <= 15 &&
-          !directMatchesLabel &&
-          Math.abs(labelM - stubLabelM) > Math.max(directTol, 8)
-        ) {
-          const stubTol = spanToleranceFor(stubLabelM);
-          let stubArm = -1;
-          let stubArmDelta = Infinity;
-          for (const nIdx of neighbors) {
-            const d = Math.abs(
-              spanBetween(regionPosts, fromIdx, nIdx) - stubLabelM,
-            );
-            if (d <= stubTol && d < stubArmDelta) {
-              stubArmDelta = d;
-              stubArm = nIdx;
-            }
-          }
-          const mainTol = Math.max(spanToleranceFor(labelM), 10, 0.35 * labelM);
-          let mainHopFits = false;
-          if (stubArm >= 0) {
-            for (const nn of unclaimedCableNeighbors(stubArm, graph, claimed)) {
-              if (nn === fromIdx) continue;
-              const hopSpan = spanBetween(regionPosts, stubArm, nn);
-              if (Math.abs(hopSpan - labelM) <= mainTol) {
-                mainHopFits = true;
-                break;
-              }
-            }
-          }
-          if (stubArm >= 0 && mainHopFits) {
-            chosenIdx = stubArm;
-            tapPlacedMainLabel.set(toNum, {
-              labelM,
-              juncIdx: fromIdx,
-            });
-            warn({
-              kind: "dwg-bifurcation-tap-stub",
-              at_post: toNum,
-              label_m: stubLabelM,
-              main_label_m: labelM,
-              note: "junction-swapped-labels",
-            });
-          }
-        }
-      }
+      // NOTE (quick task 260602-decouple, pair 2): the "Dense bifurcation (e.g.
+      // Siriu post 48)" swap handler was RETIRED here. It existed only to swap the
+      // 22.6/8.4 consecutive labels at walk time using DWG geometry. The associator
+      // now emits the correct topology directly (48→49=8.4 tap, 49→50=22.6) via the
+      // generic dense-junction consecutive-label swap in distance-associator.js, so
+      // the walker no longer needs to compensate.
 
       if (chosenIdx !== undefined) {
         // Tap / hint / chord placement succeeded; skip remaining Case A selection.

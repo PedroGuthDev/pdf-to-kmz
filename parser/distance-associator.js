@@ -1855,6 +1855,24 @@ export function applyBifurcationJunctionLabelRehome(
     );
   }
 
+  // ── Generic dense-junction consecutive-label swap (quick task 260602-decouple,
+  // pair 2) ──
+  // At a dense junction J (label-graph degree ≥ 3), the legacy-midpoint pass can
+  // SWAP the two consecutive labels just past the junction: the short tap stub
+  // (J→J+1) lands on J+1→J+2 and the longer chord lands on J→J+1 (Siriu post 48:
+  // 48→49=22.6 should be the 8.4 tap; 49→50 should be 22.6). Detect by chord
+  // geometry: if label(m1) sits closer to the J+1→J+2 chord and label(m2) sits
+  // closer to the J→J+1 chord, swap m1↔m2. Junction degree + label-to-chord gap
+  // only — NO post-number literals. This lets the graph-walker drop its
+  // dense-bifurcation swap handler.
+  swapDenseJunctionConsecutiveLabels(
+    sorted,
+    distItems,
+    distances,
+    { findEdge },
+    warnings,
+  );
+
   // ── Generic equal-value-at-junction phantom dedup (quick task 260602-decouple,
   // pair 1) ──
   // The associator emits some phantom arms that DUPLICATE a real arm at a shared
@@ -1882,6 +1900,125 @@ export function applyBifurcationJunctionLabelRehome(
     distItems,
     findEdge,
   });
+}
+
+/**
+ * Generic dense-junction consecutive-label swap (pair 2). At each junction J
+ * (label-graph degree ≥ 3), the two consecutive edges J→J+1 (m1) and J+1→J+2 (m2)
+ * may carry SWAPPED labels. Locate each value's source label item, measure its gap
+ * to BOTH consecutive chords, and swap m1↔m2 when each label fits the OTHER chord
+ * decisively better. Also nulls a non-consecutive [inferred-label] phantom that
+ * duplicates a consecutive edge's value at the junction (e.g. 51→48=42.3 mirroring
+ * 50→51=42.3). Junction degree + chord geometry only — no post-number literals.
+ *
+ * @param {Array} sorted
+ * @param {Array} distItems
+ * @param {Array} distances
+ * @param {{findEdge:Function}} ops
+ * @param {string[]} warnings
+ */
+function swapDenseJunctionConsecutiveLabels(
+  sorted,
+  distItems,
+  distances,
+  ops,
+  warnings,
+) {
+  if (!sorted?.length || !distItems?.length || !distances?.length) return;
+  const { findEdge } = ops;
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+
+  // Label-graph degree (non-null edges only).
+  const degree = new Map();
+  for (const d of distances) {
+    if (d.meters == null || d.meters <= 0) continue;
+    for (const [a, b] of [
+      [d.from, d.to],
+      [d.to, d.from],
+    ]) {
+      if (!degree.has(a)) degree.set(a, new Set());
+      degree.get(a).add(b);
+    }
+  }
+
+  // Find the label item whose value ≈ meters that sits NEAREST to a given chord.
+  const labelOnChord = (meters, a, b) => {
+    let best = null;
+    let bestGap = Infinity;
+    for (const it of distItems) {
+      const m = parseDistanceMeters(it.str);
+      if (m == null || Math.abs(m - meters) > 0.25) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      if ((it.pageNum ?? 1) !== (a.pageNum ?? 1)) continue;
+      const gap = labelGapToSegment(lx, ly, a, b, false, sorted);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = { lx, ly };
+      }
+    }
+    return best ? { ...best, gap: bestGap } : null;
+  };
+
+  let swaps = 0;
+  for (const j of sorted) {
+    const J = j.number;
+    if ((degree.get(J)?.size ?? 0) < 3) continue;
+    const e1 = findEdge(J, J + 1); // J → J+1
+    const e2 = findEdge(J + 1, J + 2); // J+1 → J+2
+    if (!e1 || !e2 || e1.meters == null || e2.meters == null) continue;
+    if (Math.abs(e1.meters - e2.meters) < 0.5) continue; // need distinct values.
+    const pJ = byNum.get(J);
+    const pJ1 = byNum.get(J + 1);
+    const pJ2 = byNum.get(J + 2);
+    if (!pJ || !pJ1 || !pJ2) continue;
+    if (
+      (pJ.pageNum ?? 1) !== (pJ1.pageNum ?? 1) ||
+      (pJ1.pageNum ?? 1) !== (pJ2.pageNum ?? 1)
+    ) {
+      continue; // same-page swap only.
+    }
+    // Where does each value's label actually sit relative to each chord?
+    const m1OnChord1 = labelOnChord(e1.meters, pJ, pJ1); // m1 vs J→J+1
+    const m1OnChord2 = labelOnChord(e1.meters, pJ1, pJ2); // m1 vs J+1→J+2
+    const m2OnChord1 = labelOnChord(e2.meters, pJ, pJ1); // m2 vs J→J+1
+    const m2OnChord2 = labelOnChord(e2.meters, pJ1, pJ2); // m2 vs J+1→J+2
+    if (!m1OnChord1 || !m1OnChord2 || !m2OnChord1 || !m2OnChord2) continue;
+    // Current assignment cost vs swapped assignment cost.
+    const currentCost = m1OnChord1.gap + m2OnChord2.gap;
+    const swappedCost = m1OnChord2.gap + m2OnChord1.gap;
+    // GUARD: only act when, AFTER the swap, BOTH labels sit essentially ON their
+    // new chords (small absolute gap). This excludes cross-cluster junctions where
+    // J+2 is far away and chord geometry is meaningless (the relative improvement
+    // there is large in absolute terms but neither label is actually on-chord).
+    const ON_CHORD_MAX_PT = 45;
+    if (
+      m1OnChord2.gap > ON_CHORD_MAX_PT ||
+      m2OnChord1.gap > ON_CHORD_MAX_PT
+    ) {
+      continue;
+    }
+    // Require a DECISIVE improvement to swap (avoid jitter).
+    if (swappedCost + 12 < currentCost) {
+      const tmp = e1.meters;
+      e1.meters = e2.meters;
+      e2.meters = tmp;
+      e1.source = "dense-junction-swap";
+      e2.source = "dense-junction-swap";
+      swaps++;
+      warnings.push(
+        `[distance-assoc] Dense-junction label swap at ${J}: ` +
+          `${J}→${J + 1}=${e1.meters} m, ${J + 1}→${J + 2}=${e2.meters} m ` +
+          `(chord-gap ${currentCost.toFixed(1)}→${swappedCost.toFixed(1)} pt).`,
+      );
+    }
+  }
+  if (swaps > 0) {
+    warnings.push(
+      `[distance-assoc] Dense-junction swap fixed ${swaps} junction(s).`,
+    );
+  }
 }
 
 /** Source-tier rank for phantom dedup: higher = more authoritative. */
@@ -1942,18 +2079,18 @@ function dedupEqualValueAtJunction(distances, warnings, ctx = {}) {
         const lower = ta < tb ? a : b;
         const higher = ta < tb ? b : a;
         // SAFETY 1: only dedup when the SURVIVOR is AUTHORITATIVE (tier >= 3:
-        // bifurcation-main/tap, branch-arm-rehomed, override). An inferred-label
-        // survivor is NOT trustworthy enough to delete a competing consecutive
-        // spine edge: e.g. an [inferred-label] long-span 4→6=28.5 must NOT delete
-        // the real consecutive [legacy-midpoint] 5→6=28.5. Only an authoritative
-        // span (e.g. bifurcation-main 36→38=35.5) may delete its inferred mirror.
+        // bifurcation-main/tap, branch-arm-rehomed, override). A lower-tier survivor
+        // (inferred-label, legacy-midpoint, jumpback-*) is NOT trustworthy enough to
+        // delete a competing arm — at stolen-arm junctions the consecutive edge is
+        // itself the phantom (e.g. 59→60 vs the real long-span 60→65), so we must
+        // not treat "consecutive" as authoritative. Only a genuinely authoritative
+        // span (e.g. bifurcation-main 36→38=35.5) may delete its mirror (36→39).
         if (distanceSourceTier(higher.source) < 3) continue;
         // SAFETY 2: NEVER drop a CONSECUTIVE edge (|from−to| == 1). Consecutive
         // edges are the route spine; the phantoms we target are NON-consecutive
-        // long-span mirrors (e.g. 36→39 mirrors 36→38). A rehomed/bifurcation arm
-        // that happens to share a length with a real consecutive step (e.g.
-        // branch-arm-rehomed 60→69=31 vs consecutive 68→69=31) must NOT delete the
-        // spine step.
+        // long-span mirrors. A rehomed/bifurcation arm that happens to share a
+        // length with a real consecutive step (e.g. branch-arm-rehomed 60→69=31 vs
+        // consecutive 68→69=31) must NOT delete the spine step.
         if (Math.abs(lower.from - lower.to) <= 1) continue;
         if (lower.meters == null) continue;
         const k = `${Math.min(lower.from, lower.to)}->${Math.max(lower.from, lower.to)}`;
