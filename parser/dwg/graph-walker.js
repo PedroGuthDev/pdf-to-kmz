@@ -331,7 +331,6 @@ function findHubBranchTapByHint({
   graph,
   claimed,
   regionPosts,
-  isPhantomBifurcationHint,
   tapLabelM,
   juncMainLabelM,
 }) {
@@ -344,7 +343,8 @@ function findHubBranchTapByHint({
     if (hubIdx == null || hubIdx === fromIdx) continue;
     const hintLabelM = getDistLabel(distMap, hubNum, toNum);
     if (hintLabelM == null || hintLabelM <= 0) continue;
-    if (isPhantomBifurcationHint(hubNum, toNum, hintLabelM)) continue;
+    // (260602-decouple pair 1) Phantom-hint guard retired: the associator no
+    // longer emits the duplicate-value phantom arms this used to reject.
     // Hub hint must exceed the local tap stub — the stub is a PDF artifact.
     if (
       tapLabelM != null &&
@@ -1144,39 +1144,17 @@ export function pairPostsByGraphWalk({
   const connMap = buildConnectionMap(connections);
   /** @type {Set<string>} */
   const bifurcationTapEdges = new Set();
-  // Map: "originNum:meters" -> targetNum for every bifurcation-main edge. Used to
-  // detect phantom inferred-label hints that duplicate a real bifurcation-main
-  // span (e.g. a spurious 36->39=35.5 that mirrors the real 36->38=35.5). Such a
-  // phantom would route the walker off the spine onto the wrong junction arm.
-  /** @type {Map<string, number>} */
-  const bifurcationMainByOriginMeters = new Map();
   for (const d of distances ?? []) {
     if (d?.source === "bifurcation-tap" && d.meters != null && d.meters > 0) {
       bifurcationTapEdges.add(`${d.from}->${d.to}`);
     }
-    if (
-      d?.source === "bifurcation-main" &&
-      d.meters != null &&
-      d.meters > 0 &&
-      d.from != null &&
-      d.to != null
-    ) {
-      bifurcationMainByOriginMeters.set(`${d.from}:${d.meters}`, d.to);
-    }
   }
-  /**
-   * A hint edge originNum->toNum with value meters is a phantom when a
-   * bifurcation-main edge originNum->otherPost carries the SAME meters but
-   * targets a DIFFERENT post. Genuine branch-return hints (e.g. 5->10) do not
-   * mirror a bifurcation-main span, so they pass.
-   */
-  const isPhantomBifurcationHint = (originNum, toNum, meters) => {
-    if (meters == null || meters <= 0) return false;
-    const mainTarget = bifurcationMainByOriginMeters.get(
-      `${originNum}:${meters}`,
-    );
-    return mainTarget != null && mainTarget !== toNum;
-  };
+  // NOTE (quick task 260602-decouple, pair 1): isPhantomBifurcationHint and
+  // bifurcationMainByOriginMeters were RETIRED here. They existed only to KEEP and
+  // reject phantom inferred-label arms (36→39=35.5 mirroring 36→38=35.5; the 60
+  // phantoms) that the associator now nulls AT SOURCE via the generic
+  // equal-value-at-junction dedup in distance-associator.js. bifurcationTapEdges
+  // stays — still required by the bifurcation-tap-stub handler.
   // When the bifurcation-tap-stub handler places a tap post N, it advances the
   // walker onto the spine but the consecutive label N->(N+1) was cleared
   // (bifurcation-cleared). The continuation distance for the NEXT step lives in
@@ -1310,7 +1288,6 @@ export function pairPostsByGraphWalk({
           graph,
           claimed,
           regionPosts,
-          isPhantomBifurcationHint,
           tapLabelM: labelM,
           juncMainLabelM,
         });
@@ -1605,19 +1582,9 @@ export function pairPostsByGraphWalk({
           ) {
             continue;
           }
-          // Reject phantom inferred-label hints that merely duplicate a real
-          // bifurcation-main span from the same origin (e.g. 36->39=35.5 mirrors
-          // 36->38=35.5). Following it routes the walk onto the wrong junction
-          // arm instead of the direct spine neighbor.
-          if (
-            isPhantomBifurcationHint(
-              hintOriginNumForHop,
-              toNum,
-              hintLabelForHop,
-            )
-          ) {
-            continue;
-          }
+          // (260602-decouple pair 1) Phantom-hint guard retired: the associator
+          // now nulls the duplicate-value phantom arms (e.g. 36→39=35.5 mirroring
+          // 36→38=35.5) AT SOURCE, so this hop no longer needs to reject them.
           const hintTolForHop = spanToleranceFor(hintLabelForHop);
           const hop = findMultiHopByLabel({
             fromIdx: hintOriginIdxForHop,

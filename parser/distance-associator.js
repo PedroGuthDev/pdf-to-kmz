@@ -1854,6 +1854,207 @@ export function applyBifurcationJunctionLabelRehome(
       warnings,
     );
   }
+
+  // ── Generic equal-value-at-junction phantom dedup (quick task 260602-decouple,
+  // pair 1) ──
+  // The associator emits some phantom arms that DUPLICATE a real arm at a shared
+  // junction endpoint with the SAME measured length (e.g. an [inferred-label]
+  // 36→39=35.5 mirroring the authoritative [bifurcation-main] 36→38=35.5, or a
+  // [legacy-midpoint] 59→60=31.7 stealing the value of the higher-tier 60→65=31.7).
+  // These were previously KEPT and rejected at walk time by the graph-walker
+  // (isPhantomBifurcationHint). We now null them AT SOURCE so the label graph
+  // encodes only true junction arms and the walker can be generic.
+  //
+  // Rule: at any post P, if two incident edges carry the SAME meters (within a
+  // tight tolerance) but different source tiers, drop the lower-tier edge. Tier
+  // order (authoritative > inferred-label > legacy-midpoint) reflects how
+  // trustworthy the source is. Pure source-tier + value equality — NO post-number
+  // literals. The full Siriu gate (idx locks) + the forbidden-arm oracle guard
+  // against over-removal of a real arm.
+  //
+  // When a dropped phantom was the ONLY distance hint reaching the spine post just
+  // past the junction (e.g. 36→39 was the only hint to post 39 because the real
+  // consecutive 38→39 was jumpback-suppressed), refill that consecutive step from
+  // the nearest unassociated label on its chord so the walk can proceed without the
+  // phantom. Geometry only — no post-number literals.
+  dedupEqualValueAtJunction(distances, warnings, {
+    sorted,
+    distItems,
+    findEdge,
+  });
+}
+
+/** Source-tier rank for phantom dedup: higher = more authoritative. */
+function distanceSourceTier(source) {
+  switch (source) {
+    case "override":
+      return 4;
+    case "bifurcation-main":
+    case "bifurcation-tap":
+    case "branch-arm-rehomed":
+      return 3;
+    case "inferred-label":
+      return 2;
+    case "legacy-midpoint":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Generic equal-value-at-junction phantom dedup. At each post, when two incident
+ * non-null edges share the same meters (tight tolerance) but differ in source
+ * tier, null the lower-tier duplicate. Removes phantom arms that merely mirror a
+ * real arm's length at a shared junction (e.g. 36→39=35.5 vs 36→38=35.5;
+ * 59→60=31.7 vs 60→65=31.7) without any post-number literals.
+ *
+ * @param {Array<{ from: number, to: number, meters: number|null, source?: string }>} distances
+ * @param {string[]} warnings
+ * @param {{ sorted?: Array, distItems?: Array, findEdge?: Function }} [ctx]
+ */
+function dedupEqualValueAtJunction(distances, warnings, ctx = {}) {
+  const TOL = 0.25; // meters — labels are quantized to 0.1 m, so this is exact-ish.
+  /** Posts that lost an incident phantom; used to refill an exposed spine step. */
+  const droppedFarPosts = new Set();
+  // Group incident, non-null edges by post endpoint.
+  /** @type {Map<number, Array<object>>} */
+  const incident = new Map();
+  for (const e of distances) {
+    if (e.meters == null || e.meters <= 0) continue;
+    for (const p of [e.from, e.to]) {
+      if (!incident.has(p)) incident.set(p, []);
+      incident.get(p).push(e);
+    }
+  }
+  let dropped = 0;
+  const cleared = new Set();
+  for (const [, edges] of incident) {
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        const a = edges[i];
+        const b = edges[j];
+        if (a === b || a.meters == null || b.meters == null) continue;
+        if (Math.abs(a.meters - b.meters) > TOL) continue;
+        const ta = distanceSourceTier(a.source);
+        const tb = distanceSourceTier(b.source);
+        if (ta === tb) continue; // can't decide without literals — leave both.
+        const lower = ta < tb ? a : b;
+        const higher = ta < tb ? b : a;
+        // SAFETY 1: only dedup when the SURVIVOR is AUTHORITATIVE (tier >= 3:
+        // bifurcation-main/tap, branch-arm-rehomed, override). An inferred-label
+        // survivor is NOT trustworthy enough to delete a competing consecutive
+        // spine edge: e.g. an [inferred-label] long-span 4→6=28.5 must NOT delete
+        // the real consecutive [legacy-midpoint] 5→6=28.5. Only an authoritative
+        // span (e.g. bifurcation-main 36→38=35.5) may delete its inferred mirror.
+        if (distanceSourceTier(higher.source) < 3) continue;
+        // SAFETY 2: NEVER drop a CONSECUTIVE edge (|from−to| == 1). Consecutive
+        // edges are the route spine; the phantoms we target are NON-consecutive
+        // long-span mirrors (e.g. 36→39 mirrors 36→38). A rehomed/bifurcation arm
+        // that happens to share a length with a real consecutive step (e.g.
+        // branch-arm-rehomed 60→69=31 vs consecutive 68→69=31) must NOT delete the
+        // spine step.
+        if (Math.abs(lower.from - lower.to) <= 1) continue;
+        if (lower.meters == null) continue;
+        const k = `${Math.min(lower.from, lower.to)}->${Math.max(lower.from, lower.to)}`;
+        if (cleared.has(k)) continue;
+        lower.meters = null;
+        lower.source = "phantom-dedup-cleared";
+        cleared.add(k);
+        dropped++;
+        droppedFarPosts.add(Math.max(lower.from, lower.to));
+        warnings.push(
+          `[distance-assoc] Dropped phantom arm ${lower.from}→${lower.to} ` +
+            `(${higher.meters} m duplicate of ${higher.from}→${higher.to} ` +
+            `[${higher.source}] at shared post; tier ${distanceSourceTier(lower.source)} < ${distanceSourceTier(higher.source)}).`,
+        );
+      }
+    }
+  }
+  if (dropped > 0) {
+    warnings.push(
+      `[distance-assoc] Equal-value-at-junction dedup removed ${dropped} phantom arm(s).`,
+    );
+  }
+
+  // ── Refill the spine step exposed by a phantom removal ──
+  // Dropping a non-consecutive phantom (e.g. 36→39) can leave the spine post just
+  // past the junction (39) with NO incident distance, because its real consecutive
+  // predecessor edge (38→39) was jumpback-suppressed and the phantom was the only
+  // remaining hint. The walk then dead-ends there. Recover the true consecutive
+  // distance from the nearest unassociated label sitting on the (X−1)→X chord.
+  // Generic — junction/segment geometry only, no post-number literals.
+  const { sorted, distItems, findEdge } = ctx;
+  if (!sorted?.length || !distItems?.length || typeof findEdge !== "function") {
+    return;
+  }
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  // Which meters values are already attached to a non-null edge anywhere — avoid
+  // re-using a label that genuinely belongs to another (existing) edge.
+  const usedMeters = new Map();
+  for (const d of distances) {
+    if (d.meters == null || d.meters <= 0) continue;
+    usedMeters.set(Math.round(d.meters * 10), (usedMeters.get(Math.round(d.meters * 10)) ?? 0) + 1);
+  }
+  let refilled = 0;
+  for (const X of droppedFarPosts) {
+    const prev = X - 1;
+    const a = byNum.get(prev);
+    const b = byNum.get(X);
+    if (!a || !b) continue;
+    // Only refill if the consecutive predecessor edge is currently null/missing.
+    const consec = findEdge(prev, X);
+    if (consec && consec.meters != null && consec.meters > 0) continue;
+    const samePage = (a.pageNum ?? 1) === (b.pageNum ?? 1);
+    if (!samePage) continue;
+    // Find the nearest label sitting on the (prev → X) chord whose value is NOT
+    // already consumed elsewhere on the route.
+    let best = null;
+    let bestGap = Infinity;
+    for (const it of distItems) {
+      const m = parseDistanceMeters(it.str);
+      if (m == null || m <= 0) continue;
+      const labelPage = it.pageNum ?? 1;
+      if (labelPage !== (a.pageNum ?? 1)) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      const gap = labelGapToSegment(lx, ly, a, b, false, sorted);
+      if (gap > 45) continue; // must lie essentially on the chord.
+      // Skip a value already attached to an existing edge (don't double-count).
+      if ((usedMeters.get(Math.round(m * 10)) ?? 0) > 0) continue;
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = { meters: m };
+      }
+    }
+    if (!best) continue;
+    if (consec) {
+      consec.meters = best.meters;
+      consec.source = "phantom-refill-consecutive";
+    } else {
+      distances.push({
+        from: prev,
+        to: X,
+        meters: best.meters,
+        source: "phantom-refill-consecutive",
+      });
+    }
+    usedMeters.set(
+      Math.round(best.meters * 10),
+      (usedMeters.get(Math.round(best.meters * 10)) ?? 0) + 1,
+    );
+    refilled++;
+    warnings.push(
+      `[distance-assoc] Refilled consecutive spine step ${prev}→${X} = ${best.meters} m ` +
+        `(exposed by phantom-arm removal; label on chord, gap ${bestGap.toFixed(1)} pt).`,
+    );
+  }
+  if (refilled > 0) {
+    warnings.push(
+      `[distance-assoc] Phantom-refill recovered ${refilled} consecutive spine step(s).`,
+    );
+  }
 }
 
 /** Strong-match thresholds for the generic branch-arm rehome. */
