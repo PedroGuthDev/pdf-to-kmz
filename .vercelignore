@@ -1,0 +1,17 @@
+# Documentation (not needed at runtime)
+docs/
+
+# Debug scripts and debug notes
+debug*
+.planning/debug/
+
+# Test/dev fixtures
+fixtures/
+**/fixtures/
+
+# Source CAD/PDF assets (uploaded via Blob at runtime)
+*.pdf
+*.dxf
+
+# Scratch text output
+*.txt
