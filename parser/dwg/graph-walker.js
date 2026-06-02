@@ -1890,16 +1890,24 @@ export function pairPostsByGraphWalk({
                 neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
             });
           }
-          // KEPT (quick task 260602-lbl, GATED decision 3): the cross-page branch
-          // arm 40.6 → 62→81 is drawn on post 81's page, far from junction 62 on
-          // the prior page. The associator-level rehomeBranchArmLabels pass only
-          // handles SAME-PAGE stolen arms; bridging a label back across a sheet
-          // boundary to its junction was not implemented here (deeper change to
-          // the cross-page logic around labelGapToSegment). With 62→81 still
-          // missing from the label graph, removing this off-cable insert hack
-          // regresses Siriu post 81 (idx 321 → 326; err 235 m). Re-attempt removal
-          // once the associator bridges cross-page branch-entry labels to the
-          // junction on the prior page.
+          // GATED-KEPT (quick tasks 260602-lbl decision 3, re-confirmed 260602-decouple
+          // pair 3): the cross-page branch arm 40.6 → 62→81 is drawn on post 81's
+          // page (the "40,6" label sits on page 8 at ~(460,38); post 81 is page 8 at
+          // (474,90)), while its true junction 62 is on the PRIOR page (page 7 at
+          // (449,602)). Bridging the label back across the sheet boundary to junction
+          // 62 cannot be done generically in the associator because junction 62 is
+          // label-graph degree 2 (only 61→62 + 62→63 filled) — its third (branch)
+          // arm is detectable ONLY from DWG region geometry, which the associator
+          // (parser/distance-associator.js: posts + Distância_Poste labels + cablesByPage)
+          // does NOT have access to. Same root cause as pair 4.
+          //
+          // EXACT FAILING CONDITION on removal (probed 260602-decouple, all other
+          // pairs shipped): Siriu post 81 idx 321 → 326; post-81 err 235.32 m
+          // (> 3.8 m known-broken ceiling). 2 gate failures.
+          //
+          // RE-ATTEMPT once the associator can consult DWG region adjacency to detect
+          // junction 62's degree-3 nature and bridge the cross-page branch-entry
+          // label to it (then this literal gate MUST be deleted).
           if (
             hop &&
             fromNum === 80 &&
