@@ -165,6 +165,8 @@ export async function runSiriuRegressionHarness() {
       pageDimensions: parsed.pageDimensions,
       viewportBoxes: parsed.viewportBoxes,
       utmGridPathsPerPage: parsed.utmGridPathsPerPage,
+      distanceLabelItems: parsed.distanceLabelItems ?? [],
+      cablePaths: parsed.cablePaths ?? [],
     },
     library,
   );

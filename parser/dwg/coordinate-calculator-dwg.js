@@ -1,5 +1,7 @@
 import { calculateCoordinates } from "../coordinate-calculator.js";
 import { deduplicatePostsPreferLowerPage } from "../post-assembler.js";
+import { applyTopologyBranchArmRehome } from "../distance-associator.js";
+import { buildCablesByPage } from "../cable-builder.js";
 
 import {
   buildAdjacencyGraph,
@@ -7,7 +9,7 @@ import {
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
-import { deriveCableTopology } from "./cable-topology.js";
+import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 
 /** @param {unknown} w */
@@ -313,6 +315,37 @@ export async function calculateCoordinatesWithDwg(
   for (const p of pdfResult.posts ?? []) {
     if (p?.number != null && p.lat != null && p.lon != null) {
       gpsByPostNumber.set(p.number, { lat: p.lat, lon: p.lon });
+    }
+  }
+
+  const distItems = opts?.distanceLabelItems;
+  const cablePaths = opts?.cablePaths;
+  if (Array.isArray(distItems) && distItems.length > 0) {
+    const cablesByPage =
+      Array.isArray(cablePaths) && cablePaths.length > 0
+        ? buildCablesByPage(cablePaths)
+        : null;
+    const postsForTopo = (pdfResult.posts ?? routePosts).filter(
+      (p) => p.lat != null && p.lon != null,
+    );
+    const cableEdgesForTopo = [
+      ...(croppedRegion.cableEdges ?? regionEdges ?? []),
+      ...(croppedRegion.primaryCableEdges ?? []),
+    ];
+    const { neighborsByPost } = buildCableTopologyMaps(
+      postsForTopo.length ? postsForTopo : routePosts,
+      cableEdgesForTopo,
+      { zone: zoneExpected },
+    );
+    if (neighborsByPost.size > 0) {
+      applyTopologyBranchArmRehome(
+        routePosts,
+        distItems,
+        distances,
+        warnings,
+        cablesByPage,
+        { topologyNeighborsByPost: neighborsByPost },
+      );
     }
   }
 

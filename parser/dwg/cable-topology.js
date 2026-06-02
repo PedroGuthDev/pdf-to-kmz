@@ -233,3 +233,30 @@ export function deriveCableTopology(posts, cableEdges, opts = {}) {
   }
   return { edges, components: nc, bridges };
 }
+
+/**
+ * Build per-post cable-topology degree and neighbor sets from DWG cable geometry.
+ *
+ * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} posts
+ * @param {Array<{ a: {x:number,y:number}, b: {x:number,y:number} }>} cableEdges
+ * @param {{ zone?: number }} [opts]
+ * @returns {{ degreeByPost: Map<number, number>, neighborsByPost: Map<number, Set<number>> }}
+ */
+export function buildCableTopologyMaps(posts, cableEdges, opts = {}) {
+  const topo = deriveCableTopology(posts, cableEdges, opts);
+  /** @type {Map<number, Set<number>>} */
+  const neighborsByPost = new Map();
+  if (!topo?.edges?.length) {
+    return { degreeByPost: new Map(), neighborsByPost };
+  }
+  for (const e of topo.edges) {
+    if (!neighborsByPost.has(e.from)) neighborsByPost.set(e.from, new Set());
+    if (!neighborsByPost.has(e.to)) neighborsByPost.set(e.to, new Set());
+    neighborsByPost.get(e.from).add(e.to);
+    neighborsByPost.get(e.to).add(e.from);
+  }
+  /** @type {Map<number, number>} */
+  const degreeByPost = new Map();
+  for (const [n, s] of neighborsByPost) degreeByPost.set(n, s.size);
+  return { degreeByPost, neighborsByPost };
+}
