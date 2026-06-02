@@ -83,9 +83,10 @@ Accuracy: João Born 22/34 < 5m, max 18.97m (posts 9-11 at 15-19m); Valmor 9/11 
 | 260530-day | API DXF com Vercel Blob + biblioteca híbrida nuvem/local | 2026-05-30 | 8c70054 | [260530-day-implemente-uma-api-com-liga-o-ao-blob-pa](./quick/260530-day-implemente-uma-api-com-liga-o-ao-blob-pa/) |
 | 260601-dwg | Reliable Siriu DWG-path KMZ rendering (render-boundary normalization; supersedes 260530-bif) | 2026-06-01 | b46c816 | [260601-dwg-fix-siriu-dwg-kmz-render](./quick/260601-dwg-fix-siriu-dwg-kmz-render/) |
 | 260601-k1a | Replace hardcoded post-number guards w/ generic predicates (dual-gate: Siriu + Luiz Carolino). Stage 4 seam-lock + Stage 2 (36/37/38, via calibrated re-validation) SHIPPED; Stage 3 (73/74, 80/81) → discuss-again: no second route exercises those graph-walk paths | 2026-06-02 | edc96a2 | [260601-k1a-replace-hardcoded-post-number-guards-gra](./quick/260601-k1a-replace-hardcoded-post-number-guards-gra/) |
+| 260602-lbl | Root-cause label mis-association fix. Stage A: proven generic DFS-with-slots traversal (hack-free). Stage B: hybrid cable-bearing+overlap discriminator re-homes same-page stolen arms — 27.7→36→46 and 31→60→69 fixed at source. Added Valmor gate (2.2m). GATED: 73/74 + 80/81 walk hacks and edc96a2 re-val pass all KEPT-and-documented (removal regressed Siriu). Deferred at source: 38.7→70→74 (junction 70 degree<3, needs DWG-geometry junction detection) + cross-page 40.6→62→81 (needs cross-page bridge). All 4 gates green | 2026-06-02 | 96133e1 | [260602-lbl-fix-distance-label-branch-association](./quick/260602-lbl-fix-distance-label-branch-association/) |
 
 ---
-Last activity: 2026-06-02 - Quick task 260601-k1a: generalized 36/37/38 bifurcation (Stage 2, calibrated re-validation, edc96a2); only graph-walk 73/74 + 80/81 remain (need a 2nd route exercising gap/insert paths)
+Last activity: 2026-06-02 - Quick task 260602-lbl: root-cause associator fix (hybrid cable-bearing discriminator) re-homes same-page stolen arms 27.7→36→46 + 31→60→69; proven generic DFS-with-slots traversal model; Valmor gate added. 73/74 + 80/81 hacks and edc96a2 re-val pass GATED-kept-documented. Deferred at source: 38.7→70→74 (degree<3 junction) + cross-page 40.6→62→81.
 
 ---
 *Last updated: 2026-05-19 after web research on accuracy improvements*
