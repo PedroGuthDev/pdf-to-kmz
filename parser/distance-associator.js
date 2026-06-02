@@ -1323,6 +1323,70 @@ export function applyBifurcationJunctionLabelRehome(
     return tapLegM;
   };
 
+  // Re-validate existing same-page bifurcation-main edges against the CURRENT
+  // post coordinates. The bifurcation loop below creates edges using whatever
+  // coordinates are current when it runs. The first pipeline invocation runs on
+  // pre-calibration positions, where a tap post can land spuriously beside a
+  // main-line distance label; the calibrated invocation then reveals the
+  // junction is no longer the label-closer post. Drop any such artifact (and its
+  // paired tap leg) so the natural sequential edges can be refilled. Same-page
+  // only — cross-sheet bifurcations live in different page coordinate systems and
+  // are validated by their own detector. Zero post-number / coordinate literals.
+  for (const e of distances) {
+    if (e.source !== "bifurcation-main" || e.meters == null) continue;
+    const J = Math.min(e.from, e.to);
+    const M = Math.max(e.from, e.to);
+    if (M !== J + 2) continue;
+    const junction = sorted.find((p) => p.number === J);
+    const tap = sorted.find((p) => p.number === J + 1);
+    const mainNext = sorted.find((p) => p.number === M);
+    if (!junction || !tap || !mainNext) continue;
+    const jPage = junction.pageNum ?? 1;
+    if ((tap.pageNum ?? 1) !== jPage || (mainNext.pageNum ?? 1) !== jPage) {
+      continue;
+    }
+    const jp = pos(junction);
+    const tp = pos(tap);
+    // Find the matching label most relevant to this junction/tap pair (closest to
+    // either endpoint). The bifurcation is a pre-calibration artifact iff, on the
+    // current coordinates, that label sits STRICTLY closer to the tap than to the
+    // junction — meaning the label actually belongs to the tap's own segment, not
+    // the junction→main chord. A junction and tap that calibrate onto (nearly) the
+    // same point cannot satisfy a strict tap-closer test, so legitimate
+    // branch-return bifurcations with co-located junction+tap are preserved.
+    let bestRel = Infinity;
+    let bestDJ = Infinity;
+    let bestDT = Infinity;
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== jPage) continue;
+      const m = parseDistanceMeters(it.str);
+      if (m == null || Math.abs(m - e.meters) > 0.25) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      const dJ = Math.hypot(lx - jp.x, ly - jp.y);
+      const dT = Math.hypot(lx - tp.x, ly - tp.y);
+      const rel = Math.min(dJ, dT);
+      if (rel < bestRel) {
+        bestRel = rel;
+        bestDJ = dJ;
+        bestDT = dT;
+      }
+    }
+    if (bestRel < Infinity && bestDT < bestDJ * JUNCTION_CLOSER_RATIO) {
+      e.meters = null;
+      e.source = "bifurcation-reverted";
+      const tapLeg = findEdge(J, J + 1);
+      if (tapLeg?.source === "bifurcation-tap") {
+        tapLeg.meters = null;
+        tapLeg.source = "bifurcation-reverted";
+      }
+      warnings.push(
+        `[distance-assoc] Reverted bifurcation ${J}→${M}: label sits closer to tap ${J + 1} than junction on calibrated coords (pre-calibration artifact)`,
+      );
+    }
+  }
+
   for (let i = 0; i < sorted.length - 2; i++) {
     const junction = sorted[i];
     const tap = sorted[i + 1];
@@ -1611,31 +1675,6 @@ export function applyBifurcationJunctionLabelRehome(
     clearEdge(tap.number, mainNext.number, "bifurcation-cleared");
   }
 
-  // Siriu sheet-break bifurcation at posts 36→37→38 (labels 10,5 + 35,5 m).
-  const j36 = sorted.find((p) => p.number === 36);
-  const t37 = sorted.find((p) => p.number === 37);
-  const m38 = sorted.find((p) => p.number === 38);
-  if (j36 && t37 && m38) {
-    let tapM = null;
-    let mainM = null;
-    for (const it of distItems) {
-      const m = parseDistanceMeters(it.str);
-      if (m == null) continue;
-      if (Math.abs(m - 10.5) < 0.35) tapM = m;
-      if (Math.abs(m - 35.5) < 0.35) mainM = m;
-    }
-    if (tapM != null && mainM != null) {
-      upsertEdge(36, 38, mainM, "bifurcation-main");
-      upsertEdge(36, 37, tapM, "bifurcation-tap");
-      clearEdge(37, 38, "bifurcation-cleared");
-      const wrong3739 = findEdge(37, 39);
-      if (wrong3739?.source === "bifurcation-main") {
-        wrong3739.meters = null;
-        wrong3739.source = "bifurcation-cleared";
-      }
-    }
-  }
-
   // Sheet-break bifurcation (e.g. other routes): junction and main on one sheet,
   // tap on the adjacent sheet; main label nearer junction than tap.
   for (let i = 0; i < sorted.length - 2; i++) {
@@ -1646,9 +1685,6 @@ export function applyBifurcationJunctionLabelRehome(
       tap.number !== junction.number + 1 ||
       mainNext.number !== tap.number + 1
     ) {
-      continue;
-    }
-    if (junction.number === 36 && tap.number === 37 && mainNext.number === 38) {
       continue;
     }
     const pageNum = junction.pageNum ?? 1;
