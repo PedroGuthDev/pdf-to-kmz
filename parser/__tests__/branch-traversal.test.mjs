@@ -21,6 +21,8 @@ function buildGraph(fixture) {
   const adj = new Map();
   const edgeMeters = new Map();
   const key = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  // inbound arm per junction = the edge directed armPost -> junction.
+  const inbound = {};
   for (const e of fixture.edges) {
     if (!adj.has(e.from)) adj.set(e.from, new Set());
     if (!adj.has(e.to)) adj.set(e.to, new Set());
@@ -30,6 +32,10 @@ function buildGraph(fixture) {
       meters: e.meters,
       crossPage: !!e.crossPage,
     });
+    if (e.inbound && e.junction != null) {
+      // The junction is `e.to`; its inbound neighbor is `e.from`.
+      inbound[String(e.junction)] = e.from;
+    }
   }
   const nodes = [...adj.keys()].sort((a, b) => a - b).map((n) => ({
     post: n,
@@ -40,7 +46,7 @@ function buildGraph(fixture) {
   for (const [num, j] of Object.entries(fixture.junctions)) {
     slots[num] = j.slots;
   }
-  return { nodes, edgeMeters, slots, key };
+  return { nodes, edgeMeters, slots, key, inbound };
 }
 
 test("walkBranchGraph visits every post exactly once", () => {
