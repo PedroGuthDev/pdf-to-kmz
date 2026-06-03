@@ -3,3 +3,5 @@ dist/
 *.pdf
 .env
 debug-siriu*
+.vercel
+*.dxf
