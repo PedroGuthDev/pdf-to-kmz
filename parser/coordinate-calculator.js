@@ -1798,6 +1798,34 @@ export function calculateCoordinates(
     }
   }
 
+  // ── Sheet-separated run split — GATED-PARTIAL (260603-acc Task 1), NOT WIRED ─
+  // Intent: page 4 of Luiz Carolino hosts two sheet-separated route runs (posts
+  // 4–11 and 21–31, joined across page 5: post→page sequence p4→p5→p4). RESEARCH
+  // Q3 hypothesised the single page-4 origin was a *compromise between the two
+  // runs*, injecting ~179 m into 21–31, and that a per-run origin split would
+  // recover them toward a ~10 m residual.
+  //
+  // FAILING CONDITION (empirically disproven this session, debug-lc-pageorigin-probe):
+  //   Both page-4 runs are offset the SAME ~175 m @ 303° (run-A 4–11 and run-B
+  //   21–31 agree in direction) — page 4's origin is NOT a compromise between
+  //   them, it is globally translated exactly like every other non-anchor page
+  //   (page 5 posts 12–20 are independently ~230 m @ 7° off). The only absolute
+  //   reference is post 1 (page 3, ~0 m); the ~175–235 m offsets are accumulated
+  //   label-chain drift across pages, i.e. a MULTI-PAGE ABSOLUTE-TRANSLATION
+  //   problem, not a same-page two-run problem.
+  //   Re-anchoring run-B to its seam neighbour (post 20) cannot help because
+  //   post 20 is itself ~226 m @ 7° mis-placed; doing so pushed several 21–31
+  //   posts to ~208 m @ 127° (WORSE), which would regress the LC baseline.
+  // A correct fix must improve the multi-page absolute anchor (e.g. a second
+  // trusted GPS anchor, or a global drift model) — out of scope for a pure
+  // same-page calibration split. A prototype per-run re-anchor
+  // (`refinePageOriginsBySheetSeparatedRuns`) was built and measured this session
+  // and removed because it regressed the LC PDF 21–31 ceilings; see
+  // 260603-acc-RESEARCH.md Q3 + the GATED-partial note in the task report for the
+  // reproduction (debug-lc-pageorigin-probe.mjs). Do not re-attempt a same-page
+  // origin split without first establishing a trusted absolute anchor for the
+  // downstream pages.
+
   // ── Split-region calibration (multi-sheet routes only; D-P911-07..12) ─────
   // After the global anchor refit, post 9 on João Born page 3 still sits at its
   // Procrustes floor (~12m). A split-region transform applies separate similarity
