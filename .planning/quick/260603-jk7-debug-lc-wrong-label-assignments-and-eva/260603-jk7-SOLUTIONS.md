@@ -107,3 +107,42 @@ consecutive span if the drawn cable does not traverse it.
 The user chose "incremental gated fixes, keep only if the trip is avoidable." It is not avoidable
 incrementally (post-11 geometry + phantom-eaten label). All session changes reverted; this doc is
 the hand-off for the cable-topology task that will actually land 6/7 edges.
+
+---
+
+## Session 2b — cable-adjacency attempt: DEFEATED by a deeper post-positioning pathology
+
+I implemented the cable-adjacency veto (new `postsCableAdjacent` in `cable-builder.js`, threaded
+`cablesByPage` into `inferDistanceEdgesFromLabels`). It did NOT reject the phantom 11→8. Probing the
+page-4 cable hits (`debug-lc-cable-hits.mjs`) exposed two upstream problems that defeat the whole
+cable-topology approach for LC as-is:
+
+1. **Collapsed post coordinates.** Posts 9, 10, 11, 22 all share `x,y = (305,302)` — a default — while
+   only their `anchorX/anchorY` are distinct. Cable snapping (and `isTapPoleRaw`, etc.) use `x,y`, so
+   those posts all snap to ONE cable point. (The route survives at 185 m because coordinates come from
+   the distance-edge CHAIN + label-LSQ anchoring, NOT from post `x,y` — which is also why labels matter
+   so much and why `x,y` collapse isn't catastrophic.)
+
+2. **Posts drawn out of route-order along the cable.** Using `anchorX/anchorY`, page-4 path-1 arc
+   positions (`t`) are: 7≈669, 8≈950, **11≈1320**, 9≈1327, 10≈1591. So the drawn cable runs
+   **7→8→11→9→10**, and **posts 9,10 sit OFF the main cable** (d≈33–36 pt > the 30 pt threshold) while
+   **post 11 sits ON it** (d≈7.8) between 8 and 9. Cable-adjacency therefore reports 8↔11 as *adjacent*
+   (no numbered post on the arc between them) — so it cannot reject the phantom 11→8. The drawing
+   encodes post 11 between 8 and 9 on the cable even though the route sequence is 8→9→10→11.
+
+**Conclusion:** the LC posts-1–20 cluster is not fixable by label-assignment or cable-adjacency tweaks.
+The cable + the route numbering genuinely disagree about post 11 (and the 9,10 branch), and the post
+`x,y` are partly collapsed. This is a **post-positioning / junction-topology PHASE**, matching the
+260603-acc conclusion ("LC PDF junction fix is a future PHASE, not a quick patch").
+
+### Revised recommendation (supersedes the cable-adjacency plan above)
+1. **Fix post-positioning first.** Find why posts 9,10,11,22 share `x,y=(305,302)` (post-assembler /
+   `attachMarkerAnchors` / multi-sheet calibration) and give every post a true per-sheet `x,y`. Make all
+   cable/tap logic read `anchorX/anchorY` consistently.
+2. **Then** reconstruct topology from the drawn cable (`TrechoPrimario/Secundario`) + a tap/branch model
+   that accepts posts drawn off the main cable (9,10) and posts drawn out of sequence (11). Only after
+   that can cable-adjacency veto phantom inferred edges reliably.
+3. The **Fix C** window-refine geometry guard remains valid and Siriu-safe (and gives the +20 m DWG win);
+   re-land it once posts 9–11 are correctly positioned and 10→11 can get its `34,1` label.
+
+`debug-lc-cable-hits.mjs` (untracked) reproduces the t-ordering + collapsed-coordinate evidence.
