@@ -2564,6 +2564,76 @@ function isTopologyJunctionCandidate(postNum, labelDegree, topologyNeighbors) {
   return false;
 }
 
+const TOPOLOGY_REHOME_ON_CHORD_PT = 45;
+const MIN_CROSS_PAGE_ARM_GAP = 15;
+/** Prior-sheet junction search window behind the cross-page bridge post (e.g. 80→81 ⇒ 62). */
+const CROSS_PAGE_JUNCTION_LOOKBACK = MIN_CROSS_PAGE_ARM_GAP + 3;
+
+/**
+ * Refill a consecutive spine step exposed when a branch-arm label is moved off a
+ * stolen consecutive edge. Mirrors phantom-refill but excludes the moved meters.
+ */
+function refillTopologyRehomeConsecutive(
+  sorted,
+  distItems,
+  findEdge,
+  upsertEdge,
+  lo,
+  hi,
+  excludeMeters,
+  warnings,
+) {
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  const a = byNum.get(lo);
+  const b = byNum.get(hi);
+  if (!a || !b) return false;
+  const consec = findEdge(lo, hi);
+  if (consec && consec.meters != null && consec.meters > 0) return false;
+
+  const samePage = (a.pageNum ?? 1) === (b.pageNum ?? 1);
+  const crossPage = !samePage && a.pageNum != null && b.pageNum != null;
+  let best = null;
+  let bestGap = Infinity;
+  for (const it of distItems) {
+    const m = parseDistanceMeters(it.str);
+    if (m == null || m <= 0) continue;
+    if (excludeMeters.some((x) => Math.abs(m - x) < 0.25)) continue;
+    const labelPage = it.pageNum ?? 1;
+    const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+    const lx = w > 0 ? it.x + w * 0.5 : it.x;
+    const ly = it.y;
+    let gap = Infinity;
+    if (samePage) {
+      if (labelPage !== (a.pageNum ?? 1)) continue;
+      gap = labelGapToSegment(lx, ly, a, b, false, sorted);
+    } else if (crossPage) {
+      const gapLo =
+        labelPage === (a.pageNum ?? 1)
+          ? Math.hypot(lx - (a.anchorX ?? a.x), ly - (a.anchorY ?? a.y))
+          : Infinity;
+      const gapHi =
+        labelPage === (b.pageNum ?? 1)
+          ? labelGapToSegment(lx, ly, a, b, true, sorted)
+          : Infinity;
+      gap = Math.min(gapLo, gapHi);
+    } else {
+      continue;
+    }
+    if (gap > TOPOLOGY_REHOME_ON_CHORD_PT) continue;
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = { meters: m };
+    }
+  }
+  if (!best) return false;
+  upsertEdge(lo, hi, best.meters, "topology-refill-consecutive");
+  warnings.push(
+    `[distance-assoc] Topology rehome refill: ${lo}→${hi} = ${best.meters} m ` +
+      `(exposed by branch-arm move; label gap ${bestGap.toFixed(1)} pt).`,
+  );
+  return true;
+}
+
 /**
  * DWG-only pass: re-home branch-arm labels using cable-topology from the paired
  * region. Fixes hidden junctions (label-graph degree undercounts) and cross-page
@@ -2615,6 +2685,9 @@ export function applyTopologyBranchArmRehome(
     }
   }
 
+  /** @type {Set<string>} */
+  const rehomedStolenKeys = new Set();
+
   for (const it of distItems) {
     const meters = parseDistanceMeters(it.str);
     if (meters == null || meters <= 0) continue;
@@ -2633,7 +2706,11 @@ export function applyTopologyBranchArmRehome(
       const a = byNum.get(d.from);
       const b = byNum.get(d.to);
       if (!a || !b) continue;
-      const g = labelGapToSegment(lx, ly, a, b, false, sorted);
+      const samePage = (a.pageNum ?? 1) === (b.pageNum ?? 1);
+      const crossPage = !samePage && a.pageNum != null && b.pageNum != null;
+      if (samePage && labelPage !== (a.pageNum ?? 1)) continue;
+      if (crossPage && labelPage !== (b.pageNum ?? 1)) continue;
+      const g = labelGapToSegment(lx, ly, a, b, crossPage, sorted);
       if (g < stolenChordGap) {
         stolenChordGap = g;
         stolen = d;
@@ -2642,13 +2719,50 @@ export function applyTopologyBranchArmRehome(
     if (!stolen || stolenChordGap > ARM_NEAR_JUNCTION_PT * 1.5) continue;
     const stolenLo = Math.min(stolen.from, stolen.to);
     const stolenHi = Math.max(stolen.from, stolen.to);
+    const stolenKey = `${stolenLo}->${stolenHi}`;
+    if (rehomedStolenKeys.has(stolenKey)) continue;
 
     const armEdge = findEdge(stolenLo, stolenHi);
-    if (armEdge?.source === "branch-arm-rehomed-cross-page") continue;
+    if (
+      armEdge?.source === "branch-arm-rehomed-cross-page" ||
+      armEdge?.source === "branch-arm-rehomed-topology"
+    ) {
+      continue;
+    }
+
+    // Another junction already owns this label value on a non-consecutive arm.
+    const alreadyOnArm = distances.some((d) => {
+      if (d.meters == null || Math.abs(d.meters - meters) > 0.25) return false;
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      if (hi === lo + 1) return false;
+      if (lo === stolenLo && hi === stolenHi) return false;
+      return (
+        d.source === "branch-arm-rehomed" ||
+        d.source === "branch-arm-rehomed-cross-page" ||
+        d.source === "branch-arm-rehomed-topology"
+      );
+    });
+    if (alreadyOnArm) continue;
+
+    const sFrom = byNum.get(stolen.from);
+    const sTo = byNum.get(stolen.to);
+    if (!sFrom || !sTo) continue;
+    const stolenCrossPage =
+      (sFrom.pageNum ?? 1) !== (sTo.pageNum ?? 1) &&
+      sFrom.pageNum != null &&
+      sTo.pageNum != null;
+    // Cross-page stolen labels sit on the incoming sheet near the route post (to).
+    const anchorPage = stolenCrossPage
+      ? (sTo.pageNum ?? labelPage)
+      : labelPage;
+
+    /** @type {{ j: object, farNum: number, source: string, score: number } | null} */
+    let match = null;
 
     // ── Same-page: cable topology confirms junction→far (e.g. 70→74) ──
     for (const j of sorted) {
-      if ((j.pageNum ?? 1) !== labelPage) continue;
+      if ((j.pageNum ?? 1) !== anchorPage) continue;
       if (j.number === stolenLo || j.number === stolenHi) continue;
       if (!isTopologyJunctionCandidate(j.number, labelDegree, topologyNeighbors)) {
         continue;
@@ -2669,9 +2783,6 @@ export function applyTopologyBranchArmRehome(
         );
         if (Math.min(nearJ, nearFar) > ARM_NEAR_JUNCTION_PT) continue;
 
-        const sFrom = byNum.get(stolen.from);
-        const sTo = byNum.get(stolen.to);
-        if (!sFrom || !sTo) continue;
         const gArm = labelGapToSegment(lx, ly, j, far, false, sorted);
         const gPair = labelGapToSegment(lx, ly, sFrom, sTo, false, sorted);
         if (!(gArm < gPair - 8)) continue;
@@ -2682,27 +2793,117 @@ export function applyTopologyBranchArmRehome(
           continue;
         }
 
+        let bearingAlignDeg = 0;
         if (cablesByPage?.size) {
           const cls = classifyBranchArmLabel(
             { x: lx, y: ly },
-            labelPage,
+            anchorPage,
             j,
             far,
             cablesByPage,
           );
           if (cls.bearingAlignDeg > ARM_BEARING_STRONG_DEG) continue;
           if (cls.onCableGapPt > ARM_ON_CABLE_STRONG_PT) continue;
+          bearingAlignDeg = cls.bearingAlignDeg;
         }
 
-        // Add the topology-confirmed arm without clearing the stolen consecutive
-        // edge — downstream walk still uses the consecutive hint until a dedicated
-        // refill pass exists for the exposed spine step.
-        upsertEdge(j.number, farNum, meters, "branch-arm-rehomed-topology");
-        warnings.push(
-          `[distance-assoc] Topology branch-arm rehome: ${meters} m ⇒ ${j.number}→${farNum} (stolen ${stolenLo}→${stolenHi} kept)`,
-        );
-        break;
+        const score = gArm + bearingAlignDeg;
+        if (!match || score < match.score) {
+          match = {
+            j,
+            farNum,
+            source: "branch-arm-rehomed-topology",
+            score,
+          };
+        }
       }
     }
+
+    // ── Cross-page branch entry (e.g. 40.6 beside post 81 → junction 62→81) ──
+    if (!match && stolenCrossPage) {
+      const entryPost = stolenHi;
+      const entry = byNum.get(entryPost);
+      const entryPage = entry?.pageNum ?? labelPage;
+      if (!entry || entryPage !== labelPage) continue;
+
+      const nearEntry = Math.hypot(
+        lx - (entry.anchorX ?? entry.x),
+        ly - (entry.anchorY ?? entry.y),
+      );
+      if (nearEntry > ARM_NEAR_JUNCTION_PT) continue;
+
+      const priorPage = entryPage - 1;
+      const stolenOnPrior =
+        (byNum.get(stolenLo)?.pageNum ?? 1) === priorPage;
+      if (!stolenOnPrior) continue;
+
+      const junctionLo = Math.max(1, stolenLo - CROSS_PAGE_JUNCTION_LOOKBACK);
+      let bestJ = null;
+      let bestArmGap = -1;
+      for (const j of sorted) {
+        if ((j.pageNum ?? 1) !== priorPage) continue;
+        if (j.number === stolenLo || j.number === entryPost) continue;
+        if (j.number < junctionLo || j.number >= stolenLo) continue;
+        if ((labelDegree.get(j.number)?.size ?? 0) < 2) continue;
+        const armGap = entryPost - j.number;
+        if (armGap < MIN_CROSS_PAGE_ARM_GAP) continue;
+        // Cross-page labels sit on the entry sheet near the route post; prior-sheet
+        // junction→entry arms cannot be compared via chord gap (different pages).
+        // Prefer the farthest prior-sheet junction in the bridge window (62 not 66).
+        if (!bestJ || armGap > bestArmGap) {
+          bestArmGap = armGap;
+          bestJ = j;
+        }
+      }
+      if (bestJ) {
+        const far = entry;
+        const existing = findEdge(bestJ.number, entryPost);
+        if (
+          !existing?.meters ||
+          Math.abs(existing.meters - meters) >= 0.25
+        ) {
+          match = {
+            j: bestJ,
+            farNum: entryPost,
+            source: "branch-arm-rehomed-cross-page",
+            score: nearEntry,
+          };
+        }
+      }
+    }
+
+    if (!match) continue;
+
+    if (match.source === "branch-arm-rehomed-cross-page") {
+      upsertEdge(match.j.number, match.farNum, meters, match.source);
+      labelDegree.set(match.j.number, labelDegree.get(match.j.number) ?? new Set());
+      labelDegree.get(match.j.number).add(match.farNum);
+      warnings.push(
+        `[distance-assoc] Topology cross-page branch arm: ${meters} m ⇒ ${match.j.number}→${match.farNum} ` +
+          `(stolen ${stolenLo}→${stolenHi} kept for walk)`,
+      );
+      continue;
+    }
+
+    stolen.meters = null;
+    stolen.source = "topology-rehome-cleared";
+    upsertEdge(match.j.number, match.farNum, meters, match.source);
+    refillTopologyRehomeConsecutive(
+      sorted,
+      distItems,
+      findEdge,
+      upsertEdge,
+      stolenLo,
+      stolenHi,
+      [meters],
+      warnings,
+    );
+    rehomedStolenKeys.add(stolenKey);
+    labelDegree.set(match.j.number, labelDegree.get(match.j.number) ?? new Set());
+    labelDegree.get(match.j.number).add(match.farNum);
+    warnings.push(
+      `[distance-assoc] Topology branch-arm rehome: ${meters} m ⇒ ${match.j.number}→${match.farNum} ` +
+        `(cleared stolen ${stolenLo}→${stolenHi})`,
+    );
   }
 }

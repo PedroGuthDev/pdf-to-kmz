@@ -13,8 +13,8 @@ provides:
   - Generic dense-junction consecutive-label swap at the associator (pair 2 — 48->49=8.4 / 49->50=22.6)
   - Retired walker compensations isPhantomBifurcationHint (pair 1) + dense-bifurcation swap handler (pair 2)
   - Forbidden-arm correctness oracle (forbiddenArms + armMetersChecks) for 7 Siriu junctions
-  - buildCableTopologyMaps + applyTopologyBranchArmRehome (DWG-only, non-destructive 70->74 arm add)
-  - Documented exact failing conditions for GATED-kept cross-page/region-degree pairs (3, 4)
+  - buildCableTopologyMaps + applyTopologyBranchArmRehome (DWG-only; destructive same-page + cross-page add)
+  - Generic walker predicates for topology/cross-page rehomed arms (73/74 + 80/81 literals removed)
 affects: [siriu, distance-associator, graph-walker, coordinate-calculator-dwg, future cross-page bridge]
 
 tech-stack:
@@ -35,14 +35,14 @@ key-files:
     - tools/siriu-regression-harness.mjs
 
 requirements-completed: [DECOUPLE-01, DECOUPLE-02]
-requirements-partial: [DECOUPLE-03, DECOUPLE-04]
+requirements-completed: [DECOUPLE-03, DECOUPLE-04]
 
 completed: 2026-06-02
 ---
 
-# Quick Task 260602-decouple — Summary (pairs 3+4 reattempt)
+# Quick Task 260602-decouple — Summary
 
-**Pairs 1 & 2 fully decoupled (prior session). Pairs 3 & 4 remain GATED-kept, with new DWG cable-topology infrastructure that non-destructively adds the 70->74=38.7 arm before the graph walk. Walker literal hacks (80/81, 73/74) stay until stolen-edge clearing + cross-page bridge can run safely with a refill pass.**
+**All four pairs decoupled at the graph-walker layer. Pairs 3 & 4 use DWG cable-topology rehome plus generic walker predicates (no post-number literals). Cross-page 62→81 is added non-destructively (80→81 consecutive hint kept) because clearing without a safe refill regressed the walk.**
 
 ## Per-pair outcome (full task)
 
@@ -50,23 +50,16 @@ completed: 2026-06-02
 |------|--------|---------|---------------------|
 | 1 | 36->39 phantom (+ 60 phantoms) | **DECOUPLED** | isPhantomBifurcationHint **RETIRED** |
 | 2 | post-48 swapped labels + 51->48 | **DECOUPLED** | dense-bifurcation swap **RETIRED** |
-| 3 | cross-page 40.6 -> 62->81 | **GATED-KEPT** | `fromNum===80 && toNum===81` **KEPT** |
-| 4 | 38.7 -> 70->74 | **PARTIAL + GATED** | `fromNum===73 && toNum===74` + findGapOffCableReentry **KEPT** |
+| 3 | cross-page 40.6 -> 62->81 | **DECOUPLED** (walker) | `fromNum===80 && toNum===81` **RETIRED**; `rehomedCrossPageArmTo` + off-cable insert |
+| 4 | 38.7 -> 70->74 | **DECOUPLED** | `fromNum===73 && toNum===74` **RETIRED**; topology rehome + `rehomedTopologyArmTo` gap reentry |
 
-## Pairs 3+4 reattempt (this session)
+## Pairs 3+4 (final)
 
 ### What shipped
 
-- `buildCableTopologyMaps()` in `parser/dwg/cable-topology.js` — derives per-post neighbor sets from `deriveCableTopology` on DWG cable edges + PDF GPS coords.
-- `applyTopologyBranchArmRehome()` in `parser/distance-associator.js` — DWG-only pass; uses topology + label-to-chord geometry to **add** confirmed branch arms (e.g. `70->74=38.7`) without touching the PDF associator path.
-- `coordinate-calculator-dwg.js` calls the topology pass after PDF coords exist and before `runDwgPairingCascade`, threading `distanceLabelItems` + `cablePaths` from opts.
-- `siriu-regression-harness.mjs` passes `distanceLabelItems` and `cablePaths` into the DWG calculator.
-
-### Why pairs 3 & 4 are still GATED
-
-**Pair 3 (62->81 cross-page):** A cross-page rehome prototype misfired (e.g. `11->16`, `54->69`) before guards were tightened. Safe cross-page bridging requires: (a) label-to-stolen-chord matching, (b) minimum numeric arm gap (≥15), (c) **refill of the cleared consecutive edge** after rehome. Without refill, clearing `80->81` or spurious pairs collapses the walk.
-
-**Pair 4 (70->74):** Cable topology correctly identifies `70↔74`. Non-destructive add of `70->74=38.7` keeps all gates green, but **clearing** the stolen `74->75=38.7` leaves post 75 without a consecutive hint and collapses the walk (probed: `pdf-fallback`, coords=0). Full decouple requires the same phantom-refill pattern used for pair 1 (`38->39=39.4`) applied to the exposed `74->75` spine step, then removal of the `73/74` literal gate.
+- `applyTopologyBranchArmRehome()` — same-page: clear stolen consecutive + `topology-refill-consecutive` (70→74). Cross-page: add `62→81=40.6` (`branch-arm-rehomed-cross-page`) while keeping `80→81` as walk spine hint.
+- Cross-page junction pick: prior sheet only, bridge window `[stolenLo−18, stolenLo)`, max arm gap.
+- `rehomedTopologyArmTo` / `rehomedCrossPageArmTo` in `graph-walker.js` replace literal 73/74 and 80/81 gates.
 
 ### Final gate results (all green)
 

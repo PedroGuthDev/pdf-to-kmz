@@ -632,9 +632,8 @@ function findOffCableInsertByNextLabel(
 }
 
 /**
- * Gap re-entry (Siriu 73→74): off-cable INSERT in a long-chord window whose next
- * hop matches the suppressed edge's lookahead label; GPS breaks ties when the
- * next-hop score alone would pick a parallel branch (15/16 vs spine 8).
+ * Gap re-entry: off-cable INSERT in a long-chord window whose next hop matches a
+ * topology-rehomed branch arm (e.g. 38.7 on 70→74 while the route step is 73→74).
  */
 function findGapOffCableReentryByNextLabel(
   fromIdx,
@@ -694,6 +693,38 @@ function findGapOffCableReentryByNextLabel(
 
   viable.sort((a, b) => a.nextDelta - b.nextDelta || a.chordSpan - b.chordSpan);
   return viable[0].idx;
+}
+
+/** @param {Array} distances */
+function rehomedTopologyArmTo(distances, toNum, labelM) {
+  if (labelM == null || !Number.isFinite(labelM) || labelM <= 0) return false;
+  const tol = spanToleranceFor(labelM);
+  for (const d of distances ?? []) {
+    if (d?.source !== "branch-arm-rehomed-topology") continue;
+    if (d.meters == null || Math.abs(d.meters - labelM) > tol) continue;
+    if (d.from === toNum || d.to === toNum) {
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      return hi !== lo + 1;
+    }
+  }
+  return false;
+}
+
+/** @param {Array} distances */
+function rehomedCrossPageArmTo(distances, toNum, labelM) {
+  if (labelM == null || !Number.isFinite(labelM) || labelM <= 0) return false;
+  const tol = spanToleranceFor(labelM);
+  for (const d of distances ?? []) {
+    if (d?.source !== "branch-arm-rehomed-cross-page") continue;
+    if (d.meters == null || Math.abs(d.meters - labelM) > tol) continue;
+    if (d.from === toNum || d.to === toNum) {
+      const lo = Math.min(d.from, d.to);
+      const hi = Math.max(d.from, d.to);
+      return hi !== lo + 1;
+    }
+  }
+  return false;
 }
 
 /** UTM distance from a region INSERT to a route post's PDF/GPS anchor (when provided). */
@@ -1639,27 +1670,10 @@ export function pairPostsByGraphWalk({
         chosenIdx === undefined &&
         conn.gap &&
         routeNextLabel != null &&
-        fromNum === 73 &&
-        toNum === 74 &&
+        toNum === fromNum + 1 &&
+        rehomedTopologyArmTo(distances, toNum, routeNextLabel) &&
         (labelM == null || labelM >= 100)
       ) {
-        // GATED-KEPT (quick tasks 260602-lbl decision 3, re-confirmed 260602-decouple
-        // pair 4): the root-cause associator fix (rehomeBranchArmLabels) could NOT
-        // capture the 38.7 → 70→74 branch arm, because the true junction 70 has
-        // label-graph degree 2 in the broken graph (its arm is mis-associated) and
-        // selecting the only degree-≥3 neighbour (69) misroutes to 69→74 — rejected
-        // by the occlusion guard, so 38.7 stays unfixed rather than wrong. Detecting
-        // junction 70 requires DWG REGION geometry (region degree ≥ 3), which the
-        // associator (parser/distance-associator.js: posts + Distância_Poste labels +
-        // cablesByPage) does NOT have access to. Same root cause as pair 3.
-        //
-        // EXACT FAILING CONDITION on removal (probed 260602-decouple, all other pairs
-        // shipped): Siriu posts 74/75/76 idx 8/9/10 → 13/295/16; err 144.98 / 218.68 /
-        // 298.02 m (ceilings 1.8 / 1.8 / 2.9 m). 6 gate failures.
-        //
-        // RE-ATTEMPT once the associator can consult DWG region adjacency to detect
-        // junction 70 by region degree and rehome 38.7 onto 70→74 (then this literal
-        // gate AND findGapOffCableReentryByNextLabel MUST be deleted).
         const gapOffIdx = findGapOffCableReentryByNextLabel(
           fromIdx,
           routeNextLabel,
@@ -1898,30 +1912,16 @@ export function pairPostsByGraphWalk({
                 neighbors.length <= 1 ? 6 : neighbors.length <= 2 ? 4 : 2,
             });
           }
-          // GATED-KEPT (quick tasks 260602-lbl decision 3, re-confirmed 260602-decouple
-          // pair 3): the cross-page branch arm 40.6 → 62→81 is drawn on post 81's
-          // page (the "40,6" label sits on page 8 at ~(460,38); post 81 is page 8 at
-          // (474,90)), while its true junction 62 is on the PRIOR page (page 7 at
-          // (449,602)). Bridging the label back across the sheet boundary to junction
-          // 62 cannot be done generically in the associator because junction 62 is
-          // label-graph degree 2 (only 61→62 + 62→63 filled) — its third (branch)
-          // arm is detectable ONLY from DWG region geometry, which the associator
-          // (parser/distance-associator.js: posts + Distância_Poste labels + cablesByPage)
-          // does NOT have access to. Same root cause as pair 4.
-          //
-          // EXACT FAILING CONDITION on removal (probed 260602-decouple, all other
-          // pairs shipped): Siriu post 81 idx 321 → 326; post-81 err 235.32 m
-          // (> 3.8 m known-broken ceiling). 2 gate failures.
-          //
-          // RE-ATTEMPT once the associator can consult DWG region adjacency to detect
-          // junction 62's degree-3 nature and bridge the cross-page branch-entry
-          // label to it (then this literal gate MUST be deleted).
+          const crossPageRouteStep =
+            curPost.pageNum != null &&
+            nextPost.pageNum != null &&
+            curPost.pageNum < nextPost.pageNum;
           if (
             hop &&
-            fromNum === 80 &&
-            toNum === 81 &&
+            crossPageRouteStep &&
             nextLabel != null &&
             Number.isFinite(nextLabel) &&
+            rehomedCrossPageArmTo(distances, toNum, nextLabel) &&
             neighbors.includes(hop.endpoint)
           ) {
             const hopNextDelta = bestNextSpanDeltaFor(
@@ -1958,6 +1958,7 @@ export function pairPostsByGraphWalk({
                   Number.isFinite(offNextDelta) &&
                   offNextDelta <= hopNextTol &&
                   offChordSpan > 80 &&
+                  labelM != null &&
                   Math.abs(offChordSpan - labelM) > tol
                 ) {
                   spineChordIdx = offIdx;
@@ -1967,7 +1968,6 @@ export function pairPostsByGraphWalk({
               }
             }
           }
-
           const directUsable =
             !forceJumpback &&
             directBestIdx >= 0 &&
