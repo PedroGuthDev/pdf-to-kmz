@@ -80,3 +80,40 @@ order along the drawn cable, and 9,10 are off the main cable.
 - `node debug-lc-post-fields.mjs` — the collapse table (raw + deduped).
 - `node debug-lc-cable-hits.mjs` — cable arc-`t` order + off-cable distances (anchor coords).
 - `PP_DBG=1 node debug-lc-post-fields.mjs` — N3 pass numbers (extend with per-partition filter/candidate logs).
+
+---
+
+## FIX ATTEMPT 1 — partition-number-contiguity split: REVERTED (regressed DWG + LC 4–9)
+
+Confirmed exact failure via warnings: **`N3 page 4 path 1: Viterbi assignment failed — greedy fallback`**.
+Page-4 cable path 1 carries the 7→11 run AND lone post 22 (anchor 305,302 snaps to path1 at t≈254,
+*before* post 7). Non-contiguous numbers + non-monotonic arc → Viterbi fails → greedy collapse.
+
+**Fix tried:** after building partitions, split each path-partition into route-number-contiguous runs
+(gap > 5 starts a new run), so {7,8,9,10,11,22} → {7,8,9,10,11} + {22}.
+
+**Result:** the collapse vanished — posts 9,10,11 got `x,y == anchor` (distinct, correct-looking). LC
+mean *improved* 185.63 → 177.59. **BUT:**
+- **LC posts 4–9 blew their ceilings** (~250 m vs ~187 m) — moving 9/10/11 to correct positions made the
+  global label-LSQ fit WORSE for the rest of the cluster.
+- **DWG gate HARD-REGRESSED** (was green). The split is generic — it affects every multi-sheet PDF,
+  including the DWG-derived one.
+
+Reverted. All 4 gates green at baseline again.
+
+## KEY FINDING — post-positions and the label-LSQ calibration are COUPLED
+
+The calibration was **compensating for the collapsed poles** (same "two wrongs cancel" pattern the labels
+showed in 260603-jk7: 9→10/10→11 and the bifurcation pair). Correcting the pole positions in isolation
+breaks that compensation and the whole posts-1–20 cluster (and DWG) gets worse. So the three layers —
+**(a) label assignment, (b) Poste-symbol→number placement, (c) label-LSQ multi-sheet calibration** — are
+mutually compensating on LC and CANNOT be fixed one at a time against the current baselines.
+
+### Revised verdict
+LC posts-1–20 is not a quick/point fix at ANY single layer. It needs a **coordinated rework of
+post-positioning + calibration together**, validated against corrected per-post truth, with the LC
+baseline rebuilt once at the end — a dedicated milestone/phase, not a quick task. Every isolated point
+fix attempted so far (label veto, window-refine guard, cable-adjacency, partition split) either cascades
+or regresses a sibling gate. The drawing pathology (post 11 out of route order on the cable; posts 9,10
+off the main cable; page-4 cable shared by two route segments) is the common upstream cause that all
+three layers currently absorb in mutually-offsetting ways.
