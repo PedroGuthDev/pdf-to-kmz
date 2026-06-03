@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "purpose": "Route-segment membership for LC page-4 posts. The single drawn cable on page-4 path-1 is traversed by TWO non-adjacent route segments; lumping them in one Viterbi partition makes the route order non-monotonic and collapses post placement (see 260603-n4k-ROOTCAUSE.md). Phase 2 should partition by segment, NOT by a generic number-gap split (that regressed DWG).",
+    "scope": "Reference data for the Phase-2 post-positioning rework. Not consumed by the parser yet."
+  },
+  "pageNum": 4,
+  "segments": [
+    {
+      "id": "A-main-descent",
+      "note": "Posts 4-11: the main route descending the vertical street (continues from page 3, exits to page 5 between 11 and 12).",
+      "posts": [4, 5, 6, 7, 8, 9, 10, 11]
+    },
+    {
+      "id": "B-cross-route",
+      "note": "Posts 21-31: the route re-enters page 4 (after page 5) and runs across it. Post 22's number-label anchor (305,302) snaps nearest to the same cable path as segment A — this is the outlier that polluted segment A's Viterbi partition.",
+      "posts": [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    }
+  ]
+}

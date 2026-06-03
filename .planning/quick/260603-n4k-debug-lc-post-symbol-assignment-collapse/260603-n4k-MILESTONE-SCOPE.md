@@ -63,8 +63,13 @@ per-span haversine distances; `luizcarolino-pdf-baseline.json` (per-post err cei
 > Mid-flight gating is on the **per-post position gate + Siriu + Valmor + DWG**. Only Phase 5 re-greens
 > and rebuilds the LC cumulative baseline.
 
-- **Phase 1 — Truth + measurement (no parser change).** Build the 3 artifacts in §3. Exit: position
-  gate runs and reports the per-post gap; all existing gates still green (new gate is additive).
+- **Phase 1 — Truth + measurement (no parser change). ✅ DONE 2026-06-03.** Built the 3 artifacts in §3:
+  `parser/__tests__/fixtures/luizcarolino-post-positions-truth.json` (posts 1-20, anchor-seeded),
+  `parser/__tests__/fixtures/luizcarolino-page4-segments.json` (route-segment map), and
+  `tools/run-lc-post-position-gate.mjs`. Exit met: position gate runs and reports the gap — **RED for
+  posts 9/10/11** (171/261/216 pt off; other 17 within 50 pt tol, mean 32.7 pt); all 4 existing gates
+  still green; parser source untouched. The gate is standalone (NOT in `npm run test:gate`) precisely
+  because it is expected-red until Phase 2; wire it into the green suite at Phase 5.
 - **Phase 2 — Post-positioning (layer B).** In `assignPolesGloballyByLabels`: (a) partition by route
   **segment** (not just cable pathIndex) using the §3.3 segment map / number-contiguity, (b) make
   off-cable route posts first-class (own nearest symbol via label-anchor proximity; never a shared

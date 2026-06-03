@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "purpose": "Per-post expected PDF pole-symbol position (x,y in flipped page pt) for LC posts 1-20. Enables a position gate that measures Poste-symbol placement (layer B) in isolation from the label-LSQ calibration (which currently compensates for placement errors). See .planning/quick/260603-n4k-debug-lc-post-symbol-assignment-collapse/260603-n4k-MILESTONE-SCOPE.md (Phase 1).",
+    "source": "Seeded from the parser's anchorX/anchorY (Numero_Poste label centroid), which is computed independently of the pole-symbol assignment and equals the accepted pole position for every correctly-placed post (28/31 have |xy-anchor|=0). Posts 9/10/11 currently DIVERGE (their x,y collapsed onto wrong/shared symbols) — their truth here is their CORRECT anchor, so the gate flags the collapse. Refine individual values from the detail sheets if a pole centroid is known to differ from its number label.",
+    "scope": "posts 1-20 only (the milestone target). Posts 21-31 are a separate rigid-offset issue and post 30/31 anchors are themselves collapsed (1025,416) — excluded here.",
+    "tolerancePt": 50,
+    "generatedFrom": "debug-lc-anchor-dump.mjs (pristine parse, 2026-06-03)"
+  },
+  "posts": [
+    { "number": 1, "pageNum": 3, "x": 391, "y": 513 },
+    { "number": 2, "pageNum": 3, "x": 356, "y": 624 },
+    { "number": 3, "pageNum": 3, "x": 389, "y": 662 },
+    { "number": 4, "pageNum": 4, "x": 352, "y": 62 },
+    { "number": 5, "pageNum": 4, "x": 339, "y": 155 },
+    { "number": 6, "pageNum": 4, "x": 328, "y": 239 },
+    { "number": 7, "pageNum": 4, "x": 315, "y": 338 },
+    { "number": 8, "pageNum": 4, "x": 298, "y": 419 },
+    { "number": 9, "pageNum": 4, "x": 295, "y": 509 },
+    { "number": 10, "pageNum": 4, "x": 283, "y": 562 },
+    { "number": 11, "pageNum": 4, "x": 319, "y": 518 },
+    { "number": 12, "pageNum": 5, "x": 262, "y": 63 },
+    { "number": 13, "pageNum": 5, "x": 279, "y": 200 },
+    { "number": 14, "pageNum": 5, "x": 325, "y": 276 },
+    { "number": 15, "pageNum": 5, "x": 379, "y": 354 },
+    { "number": 16, "pageNum": 5, "x": 421, "y": 406 },
+    { "number": 17, "pageNum": 5, "x": 477, "y": 506 },
+    { "number": 18, "pageNum": 5, "x": 517, "y": 563 },
+    { "number": 19, "pageNum": 5, "x": 616, "y": 627 },
+    { "number": 20, "pageNum": 5, "x": 659, "y": 639 }
+  ]
+}
