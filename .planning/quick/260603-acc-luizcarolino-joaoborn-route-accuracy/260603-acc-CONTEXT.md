@@ -136,6 +136,11 @@ value and whether it should become adaptive (derived from scale/geometry) rather
   gate. The bifurcation unlock is **DWG region-degree mapped onto PDF posts** (see
   `260603-acc-RESEARCH-cablefork.md`, RESEARCH Q6). Geometric mid-street guard for 06–07 / 22–23
   remains a separate, viable path.
+- **Label assignment inventory (2026-06-03):** live map of all **84** `Distância_Poste` items →
+  final edges documented in `260603-acc-RESEARCH-label-assignments.md`. Confirms false
+  bifurcations at posts **2/10** (cleared **3→4**, **11→12**), **6→7** = **13.8** m (not ~37.7),
+  window-refine on **9–11**, and inferred **3→1** / **9→11** / **11→8**. Reproduce:
+  `node debug-lc-label-assignments.mjs`.
 
 ### Target framing
 - **~15 m is a RATCHET target, not a hard gate this task.** Lock each improvement with the
@@ -168,6 +173,9 @@ value and whether it should become adaptive (derived from scale/geometry) rather
 - **Inspection (untracked, reusable — do NOT commit):**
   - `debug-lc-offset-vs-deform.mjs` — decomposes per-post error into rigid per-segment offset
     vs residual deformation (the script that proved the 1–20 vs 21–31 split above).
+  - `debug-lc-label-assignments.mjs` — full LC `Distância_Poste` inventory + greedy-phase trace +
+    final edge assignment (see `260603-acc-RESEARCH-label-assignments.md`).
+  - `debug-lc-truth-vs-edges.mjs` — consecutive ground-truth step vs associator edge deltas.
 - **Baseline refresh:** tighten `luizcarolino-pdf-baseline.json` per-post ceilings ONLY after a
   fix is proven to lower error (never loosen to pass).
 - Non-worktree execution required: gate scripts run live `parsePdf` over the route PDFs and need

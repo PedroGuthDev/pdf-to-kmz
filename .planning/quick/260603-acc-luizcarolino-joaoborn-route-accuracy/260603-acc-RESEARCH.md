@@ -351,6 +351,40 @@ branch-points **cannot separate genuine from false bifurcations**:
 Q6 neither proves nor refutes H2 (offset downstream of deformation). Testing H2 still requires a
 deformation fix via geometric guard and/or DWG cross-walk, then re-running `debug-lc-offset-vs-deform.mjs`.
 
+---
+
+## Q7 — LC `Distância_Poste` label → edge assignment inventory
+
+**Researched:** 2026-06-03  
+**Full report:** `260603-acc-RESEARCH-label-assignments.md`  
+**Reproduce:** `node debug-lc-label-assignments.mjs`
+
+### Verdict
+
+**Documented `[VERIFIED: live parsePdf]`** — every `Distância_Poste` item (84 total, 69 numeric)
+is traced through greedy sequential, window-refine, bifurcation, and jumpback phases to a final
+post-pair edge or `UNASSIGNED`.
+
+### Deformation-cluster failures (posts 1–20)
+
+| Failure | Final state | Mechanism |
+|---------|-------------|-----------|
+| Post **2** bifurcation | **2→4** main; **3→4** null | `applyBifurcationJunctionLabelRehome` tapMain |
+| Post **10** bifurcation | **10→12** main; **11→12** null | Same |
+| **6→7** | **13.8** m (not ~37.7) | legacy-midpoint short label wins |
+| **9–11** triple | **9→10**, **10→11**, **9→11** | window-refine + inferred |
+| Branch returns | **3→1**, **9→11**, **11→8** | `inferDistanceEdgesFromLabels` |
+| **20→21** | **29.8** m | jumpback-refill (not true sheet hop) |
+
+### Implications
+
+- **H2 strengthened:** corrupted edges above feed `refinePageOriginsByLabelLsq` on pages 3–5.
+- **Task 2 (deformation)** should fix these assignment rows; `rehomeBranchArmLabels` alone does not
+  address **6→7** (degree-2) or bifurcation nulls at **2/10**.
+- **Mid-street ratio guard** (`pdfM/meters > 1.35`) and **global tap-leg corroboration** were tried
+  and reverted / kept opt-in — see label-assignments report §Implications.
+- Full per-label row table stays in the debug script output (not duplicated in RESEARCH to avoid drift).
+
 ### Q3 supersession (Task 1 execution)
 
 The page-4 **two-run origin split** recommended in Q3 was **empirically disproven** in Task 1
@@ -487,6 +521,8 @@ label theft, so the consecutive chain is intact.
 - Live `runRoutePdfAccuracyHarness` against João Born GT (mean 27.01 m, max 45.84 m).
 - `node tools/run-route-pdf-accuracy-gate.mjs` — PASS, matched=31, mean=185.63 m (baseline confirmed green).
 - `260603-acc-RESEARCH-cablefork.md` — PDF cable-fork prove-or-kill (TP=0/12, KILLED).
+- `260603-acc-RESEARCH-label-assignments.md` — LC `Distância_Poste` → edge inventory (Q7).
+- `debug-lc-label-assignments.mjs` — live reproduce script (untracked).
 - Source reads: `parser/pdf-parser.js:751,764-784`; `parser/distance-associator.js:852-898,1306-1608,1820-1856,2197-2202,2214-2343,2554-2570,2642-2652`; `parser/coordinate-calculator.js:1340-1477`; `parser/dwg/coordinate-calculator-dwg.js:315-350`; `parser/dwg/graph-walker.js:669,749`.
 
 ### Secondary (CONTEXT-provided, corroborated)

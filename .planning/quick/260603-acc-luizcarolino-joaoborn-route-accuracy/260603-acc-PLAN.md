@@ -91,6 +91,7 @@ scripts.
 @.planning/STATE.md
 @.planning/quick/260603-acc-luizcarolino-joaoborn-route-accuracy/260603-acc-CONTEXT.md
 @.planning/quick/260603-acc-luizcarolino-joaoborn-route-accuracy/260603-acc-RESEARCH.md
+@.planning/quick/260603-acc-luizcarolino-joaoborn-route-accuracy/260603-acc-RESEARCH-label-assignments.md
 
 # DO NOT re-derive the investigation. The two-root-cause split (LC 1-20 deformation vs 21-31
 # rigid offset), the precise mechanisms, and the file:line targets are EMPIRICALLY PROVEN in
