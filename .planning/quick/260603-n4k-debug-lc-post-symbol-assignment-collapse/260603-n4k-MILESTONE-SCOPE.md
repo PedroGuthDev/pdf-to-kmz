@@ -70,13 +70,35 @@ per-span haversine distances; `luizcarolino-pdf-baseline.json` (per-post err cei
   posts 9/10/11** (171/261/216 pt off; other 17 within 50 pt tol, mean 32.7 pt); all 4 existing gates
   still green; parser source untouched. The gate is standalone (NOT in `npm run test:gate`) precisely
   because it is expected-red until Phase 2; wire it into the green suite at Phase 5.
-- **Phase 2 — Post-positioning (layer B).** In `assignPolesGloballyByLabels`: (a) partition by route
-  **segment** (not just cable pathIndex) using the §3.3 segment map / number-contiguity, (b) make
-  off-cable route posts first-class (own nearest symbol via label-anchor proximity; never a shared
-  fallback), (c) handle out-of-sequence poles (post 11) so Viterbi doesn't fail→collapse, (d) enforce
-  **no two numbers share one symbol** (audit the `usedSymbol` guard on greedy/repair paths). Exit:
-  per-post position gate GREEN for posts 1–20; **Siriu/Valmor/DWG green** (guard the partition change so
-  DWG's PDF is unaffected — segment-map-scoped, not a generic number-gap split). LC cumulative MAY be red.
+- **Phase 2 — Post-positioning (layer B). ⛔ ATTEMPTED 2026-06-03 — BLOCKED by total Siriu coupling.**
+  Target: `assignPolesGloballyByLabels` — partition by route segment, off-cable posts first-class,
+  out-of-sequence pole handling, no shared symbols. The exact failure was confirmed
+  (`N3 page 4 path 1: Viterbi assignment failed → greedy fallback`; the collapse is `repairConsecutive`
+  `LabelArcJumps` walking the out-of-route-order cable and relabeling 9/10/11 onto wrong/shared symbols
+  ~200 pt from their number anchors). **Four distinct fixes were each implemented + gated + reverted —
+  ALL regressed Siriu and/or DWG:**
+  | Fix | Position gate | Siriu | DWG |
+  |-----|---------------|-------|-----|
+  | generic number-gap partition split | fixed 9/10/11 | green | **FAIL** (+LC 4–9 worse) |
+  | realign anchor-override (>150 pt) | 9/10 fixed | **12 fail** | **FAIL** |
+  | arc-repair anchor-guard (target ≤100 pt from anchor) | 9/10 fixed, mean 5.3 pt | **89 fail** | **FAIL** |
+  | additive shared-symbol de-collapse (Siriu-safe "by construction") | 10/11 fixed, mean 10.3 pt | **24 fail** | **FAIL** |
+
+  **DECISIVE FINDING: the post-positioning subsystem cannot be modified in isolation AT ALL — not even
+  with an additive pass guarded on a degenerate signature.** Root reasons: (1) Siriu legitimately places
+  posts *away* from their number anchors (junctions), so any anchor-based correction breaks it; (2) Siriu
+  legitimately has coincident post positions, so even a "two-numbers-one-symbol" de-collapse hits real
+  Siriu cases; (3) the repair/realign/partition functions are shared and Siriu-calibrated. The position
+  gate worked perfectly — it proved every fix *succeeds* for LC placement (mean 32.7 → 5.3 pt) while
+  instantly surfacing the Siriu cost. **Implication: layer B (placement) and Siriu's expectations must be
+  re-derived TOGETHER against per-post truth — Phase 2 cannot precede a Siriu per-post position truth +
+  gate.** Parser left pristine; all 4 gates green; the position gate remains (red on 9/10/11) as the durable asset.
+
+  **Revised Phase-2 prerequisite (NEW Phase 1.5):** build a **Siriu per-post position truth + gate**
+  (mirror of the LC one). Only with BOTH routes' placement measured against truth can the shared
+  functions be reworked so a change is validated to help LC without silently breaking Siriu's (currently
+  invisible, baseline-encoded) placement expectations. Without that, every placement change is a blind
+  trade.
 - **Phase 3 — Calibration (layer C).** Update the multi-sheet label-LSQ calibration to consume the now-
   correct poles and stop compensating (the term that absorbed the collapse must be removed/retuned).
   Exit: LC cumulative error DROPS vs 185.6 m with poles correct; Siriu/Valmor/DWG green.
