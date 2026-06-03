@@ -780,6 +780,9 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
         distances,
         warnings,
         cablesForPrefill,
+        hooks?.topologyNeighborsByPost
+          ? { topologyNeighborsByPost: hooks.topologyNeighborsByPost }
+          : {},
       );
     }
     if (allPosteRaw.length > 0) {

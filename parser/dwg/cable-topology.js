@@ -23,19 +23,23 @@ import { latLonToUtm } from "../geo/utm-calibrator.js";
  *
  * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} posts
  * @param {Array<{ a: {x:number,y:number}, b: {x:number,y:number}, poly?: number }>} cableEdges
- * @param {{ mergeTol?: number, attachR?: number, zone?: number }} [opts]
+ * @param {{ mergeTol?: number, attachR?: number, zone?: number, coordsAreUtm?: boolean }} [opts]
  * @returns {{ edges: Array<{from:number,to:number}>, components: number, bridges: number } | null}
  */
 export function deriveCableTopology(posts, cableEdges, opts = {}) {
-  const { mergeTol = 0.3, attachR = 7, zone = 22 } = opts;
+  const { mergeTol = 0.3, attachR = 7, zone = 22, coordsAreUtm = false } = opts;
   if (!Array.isArray(cableEdges) || cableEdges.length === 0) return null;
 
   /** @type {Map<number, {e:number,n:number}>} */
   const postUtm = new Map();
   for (const p of posts ?? []) {
     if (p?.number != null && p.lat != null && p.lon != null) {
-      const u = latLonToUtm(p.lat, p.lon, zone);
-      postUtm.set(p.number, { e: u.easting, n: u.northing });
+      if (coordsAreUtm) {
+        postUtm.set(p.number, { e: p.lon, n: p.lat });
+      } else {
+        const u = latLonToUtm(p.lat, p.lon, zone);
+        postUtm.set(p.number, { e: u.easting, n: u.northing });
+      }
     }
   }
   if (postUtm.size === 0) return null;
@@ -239,7 +243,7 @@ export function deriveCableTopology(posts, cableEdges, opts = {}) {
  *
  * @param {Array<{ number: number, lat?: number|null, lon?: number|null }>} posts
  * @param {Array<{ a: {x:number,y:number}, b: {x:number,y:number} }>} cableEdges
- * @param {{ zone?: number }} [opts]
+ * @param {{ zone?: number, coordsAreUtm?: boolean }} [opts]
  * @returns {{ degreeByPost: Map<number, number>, neighborsByPost: Map<number, Set<number>> }}
  */
 export function buildCableTopologyMaps(posts, cableEdges, opts = {}) {

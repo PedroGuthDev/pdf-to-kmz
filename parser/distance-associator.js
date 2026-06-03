@@ -1309,12 +1309,33 @@ export function applyBifurcationJunctionLabelRehome(
   distances,
   warnings,
   cablesByPage = null,
+  bifurcationOpts = {},
 ) {
   if (!posts?.length || !distItems?.length || !distances?.length) return;
 
   const sorted = deduplicatePostsPreferLowerPage(posts).sort(
     (a, b) => a.number - b.number,
   );
+  const topologyNeighbors =
+    bifurcationOpts.topologyNeighborsByPost ?? null;
+  const requireTapLegCorroboration =
+    bifurcationOpts.requireTapLegCorroboration === true;
+  /** @type {Map<number, Set<number>>} */
+  const labelDegree = new Map();
+  for (const d of distances) {
+    if (d.meters == null) continue;
+    for (const [a, b] of [
+      [d.from, d.to],
+      [d.to, d.from],
+    ]) {
+      if (!labelDegree.has(a)) labelDegree.set(a, new Set());
+      labelDegree.get(a).add(b);
+    }
+  }
+  const bifurcationJunctionOk = (junctionNum) =>
+    !topologyNeighbors?.size ||
+    isTopologyJunctionCandidate(junctionNum, labelDegree, topologyNeighbors);
+
   const pos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
   const JUNCTION_CLOSER_RATIO = 0.9;
   const MAX_MAIN_CHORD_GAP_PT = 90;
@@ -1492,6 +1513,7 @@ export function applyBifurcationJunctionLabelRehome(
     ) {
       continue;
     }
+    if (!bifurcationJunctionOk(junction.number)) continue;
     const pageNum = junction.pageNum ?? 1;
     const tapPage = tap.pageNum ?? 1;
     const mainPage = mainNext.pageNum ?? 1;
@@ -1567,6 +1589,16 @@ export function applyBifurcationJunctionLabelRehome(
         if (gJuncMain > MAX_MAIN_CHORD_GAP_PT || gJuncMain >= gJuncTap - 1)
           continue;
 
+        const tapLegM = findTapLegMeters(
+          junction,
+          tap,
+          mainNext,
+          labelPages,
+          [meters],
+          spansSheets ? { repairTapOnly: true } : {},
+        );
+        if (requireTapLegCorroboration && tapLegM == null) continue;
+
         upsertEdge(
           junction.number,
           mainNext.number,
@@ -1590,14 +1622,6 @@ export function applyBifurcationJunctionLabelRehome(
             d.source = "bifurcation-cleared";
           }
         }
-        const tapLegM = findTapLegMeters(
-          junction,
-          tap,
-          mainNext,
-          labelPages,
-          [meters],
-          spansSheets ? { repairTapOnly: true } : {},
-        );
         if (tapLegM != null) {
           upsertEdge(junction.number, tap.number, tapLegM, "bifurcation-tap");
         }
@@ -1773,7 +1797,15 @@ export function applyBifurcationJunctionLabelRehome(
   // Sheet-break bifurcation (e.g. other routes): junction and main on one sheet,
   // tap on the adjacent sheet; main label nearer junction than tap.
   //
-  // GATED-PARTIAL FAILING-GATE NOTE (quick task 260603-acc, Task A — 2026-06-03):
+  // GATED-PARTIAL FAILING-GATE NOTE (quick task 260603-acc, Task A — 2026-06-03; updated post-cablefork):
+  // Optional mitigations wired (defaults OFF — gates unchanged): applyBifurcationJunctionLabelRehome
+  // bifurcationOpts.requireTapLegCorroboration (LC false positives have tapLegM=null) and
+  // bifurcationOpts.topologyNeighborsByPost (DWG region degree via tools/lc-pdf-dwg-topology-refine.mjs).
+  // Full re-associate + topology refine still regresses LC ceilings when enabled wholesale — needs
+  // a surgical clear of existing bifurcation-main edges before re-run. PDF cable-fork is KILLED
+  // (260603-acc-RESEARCH-cablefork.md); mid-street ratio guard in associateDistances regressed Siriu.
+  //
+  // ORIGINAL NOTE (2026-06-03):
   // This block FALSELY fires on Luiz Carolino posts 2 and 10 (junction 2/10, tap
   // 3/11, main 4/12) where there is NO real bifurcation — post 3/11 is a genuine
   // consecutive post. It picks mainM=36.7/42.1 (largest near-junction label) and
@@ -1810,6 +1842,7 @@ export function applyBifurcationJunctionLabelRehome(
     ) {
       continue;
     }
+    if (!bifurcationJunctionOk(junction.number)) continue;
     const pageNum = junction.pageNum ?? 1;
     const tapPage = tap.pageNum ?? 1;
     const mainPage = mainNext.pageNum ?? 1;
@@ -1819,11 +1852,11 @@ export function applyBifurcationJunctionLabelRehome(
       Math.min(pageNum, tapPage, mainPage);
     if (spread !== 1 || tapPage === mainPage) continue;
 
-    const jp = pos(junction);
-    const tp = pos(tap);
     const labelPages = new Set([pageNum, tapPage, mainPage]);
     /** @type {Array<{ m: number, dJunc: number }>} */
     const nearJunction = [];
+    const jp = pos(junction);
+    const tp = pos(tap);
     for (const it of distItems) {
       if (!labelPages.has(it.pageNum ?? 1)) continue;
       const m = parseDistanceMeters(it.str);

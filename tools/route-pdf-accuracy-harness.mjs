@@ -6,12 +6,18 @@
  *
  * @module route-pdf-accuracy-harness
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import "fake-indexeddb/auto";
 import { parsePdf } from "../parser/pdf-parser.js";
 import { calculateCoordinates } from "../parser/coordinate-calculator.js";
 import { haversineMeters } from "../parser/geo/utm-calibrator.js";
+import { refinePdfDistancesWithDwgTopology } from "./lc-pdf-dwg-topology-refine.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES = path.join(__dirname, "..", "parser", "__tests__", "fixtures");
 
 function objectToMap(o) {
   if (o == null) return null;
@@ -33,7 +39,11 @@ function objectToMap(o) {
  *   posts: Array<{ number: number, lat: number|null, lon: number|null }>,
  * }>}
  */
-export async function runRoutePdfAccuracyHarness({ pdfPath, groundTruthPath }) {
+export async function runRoutePdfAccuracyHarness({
+  pdfPath,
+  groundTruthPath,
+  dwgRegionPath = null,
+}) {
   const groundTruth = JSON.parse(readFileSync(groundTruthPath, "utf8"));
   const refByNum = new Map(groundTruth.map((g) => [g.number, g]));
   const start = groundTruth[0];
@@ -43,6 +53,11 @@ export async function runRoutePdfAccuracyHarness({ pdfPath, groundTruthPath }) {
     pdfBuf.buffer.slice(pdfBuf.byteOffset, pdfBuf.byteOffset + pdfBuf.byteLength),
   );
   if (parsed.error) throw new Error(`parsePdf: ${parsed.error}`);
+
+  if (dwgRegionPath && existsSync(dwgRegionPath)) {
+    const dwgRegion = JSON.parse(readFileSync(dwgRegionPath, "utf8"));
+    refinePdfDistancesWithDwgTopology(parsed, start, dwgRegion);
+  }
 
   const result = calculateCoordinates(
     parsed.posts ?? [],
@@ -54,6 +69,7 @@ export async function runRoutePdfAccuracyHarness({ pdfPath, groundTruthPath }) {
       pageDimensions: objectToMap(parsed.pageDimensions),
       viewportBoxes: parsed.viewportBoxes ?? [],
       utmGridPathsPerPage: objectToMap(parsed.utmGridPathsPerPage),
+      distanceLabelItems: parsed.distanceLabelItems ?? [],
     },
   );
 
