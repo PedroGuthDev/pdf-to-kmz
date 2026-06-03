@@ -1772,6 +1772,34 @@ export function applyBifurcationJunctionLabelRehome(
 
   // Sheet-break bifurcation (e.g. other routes): junction and main on one sheet,
   // tap on the adjacent sheet; main label nearer junction than tap.
+  //
+  // GATED-PARTIAL FAILING-GATE NOTE (quick task 260603-acc, Task A — 2026-06-03):
+  // This block FALSELY fires on Luiz Carolino posts 2 and 10 (junction 2/10, tap
+  // 3/11, main 4/12) where there is NO real bifurcation — post 3/11 is a genuine
+  // consecutive post. It picks mainM=36.7/42.1 (largest near-junction label) and
+  // tapM=12.7 (label nearest mainM*0.3), then NULLS the true consecutive 3→4 / 11→12
+  // and corrupts 2→3 / 10→11 with the 12.7 stray. The documented branch-A fix (a
+  // tap-leg corroboration guard at the `tapMain?.meters` acceptance ~L1539, which
+  // cleanly rejected the LC false positives via findTapLegMeters==null while keeping
+  // every genuine Siriu branch-A bifurcation) was implemented and verified, BUT it
+  // merely UNMASKED this looser sheet-break detector, which then re-nulls 3→4/11→12
+  // and propagates downstream — regressing the LC PDF gate (posts 4,5,24,25,27,31
+  // over ceiling, e.g. post 31 461.9 m vs 218.7 m). So branch-A alone cannot ship.
+  //
+  // This sheet-break block CANNOT be tightened safely with available geometry: the
+  // LC false positives are structurally indistinguishable from the GENUINE sheet-break
+  // bifurcations at Siriu J=11/23/32/57 and João Born J=13. Every candidate features
+  // (tap-off-chord ratio, mainM/tapM ratio, distinct-consecutive-label gap to the
+  // tap→main chord, the strict findTapLegMeters value, edge source, page layout) was
+  // diagnosed live (LC_BIF_DEBUG) and OVERLAPS between the LC false and Siriu genuine
+  // classes — e.g. consecutive-label gap LC≈34-40 pt sits between Siriu J=57 (18.7)
+  // and J=11 (56.4); chord-offset LC 0.13-0.15 between Siriu 0.064 and 0.238.
+  // Tightening this block to reject LC regresses at least Siriu J=32/57 (legacy-midpoint
+  // tap→main, same as LC) — the tight Siriu canary trips. The real prerequisite is a
+  // route-independent JUNCTION signal (DWG region degree / cable-arm bifurcation
+  // geometry, NOT a 2nd label heuristic) so a genuine sheet-break tap can be told from
+  // a consecutive post — the same unlock noted in the 260602 memory. Until then this
+  // block is KEPT (it is correct for Siriu/JB) and the LC 1-20 deformation stays GATED.
   for (let i = 0; i < sorted.length - 2; i++) {
     const junction = sorted[i];
     const tap = sorted[i + 1];
