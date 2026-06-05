@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
 status: planning
-stopped_at: Phase 05 context gathered
-last_updated: "2026-06-05T20:50:25.678Z"
-last_activity: 2026-06-05 — v1.1 roadmap created (P5 residual gate → P6 DXF ingestion → P7 solver prerequisites → P8 global solver → P9 confidence surfacing)
+stopped_at: Phase 05 planned — ready to execute
+last_updated: "2026-06-05T21:30:00.000Z"
+last_activity: 2026-06-05 — Phase 5 planned — 2 plans in 2 waves (residual-gate module + live wire + CI gate)
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -26,16 +26,16 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Status
 
 - **Milestone:** v1.1 — Generalized DXF-Driven Accuracy (**roadmap complete**; v1.0 shipped 2026-06-05)
-- **State:** Roadmap defined (5 phases: P5-P9). Research complete and converged. Requirements locked (21 reqs: ACC/DXF/SOLVE/CONF). Ready to plan Phase 5.
+- **State:** Phase 5 planned (2 plans in 2 waves). Research complete and converged. Requirements locked (21 reqs: ACC/DXF/SOLVE/CONF). Ready to execute Phase 5.
 - **Archive:** `.planning/milestones/v1.0-ROADMAP.md` · `.planning/MILESTONES.md`
 - **Next:** `/gsd:plan-phase 5` — Truth-Free Residual Gate
 
 ## Current Position
 
-Phase: Phase 5 (not yet started)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-06-05 — v1.1 roadmap created (P5 residual gate → P6 DXF ingestion → P7 solver prerequisites → P8 global solver → P9 confidence surfacing)
+Phase: Phase 5 (planned)
+Plan: 05-01 (wave 1) and 05-02 (wave 2)
+Status: Ready to execute
+Last activity: 2026-06-05 — Phase 5 planned — 2 plans in 2 waves (residual-gate module + live wire + CI gate)
 
 ## Phase History
 
@@ -52,6 +52,7 @@ Last activity: 2026-06-05 — v1.1 roadmap created (P5 residual gate → P6 DXF 
 | 2026-05-14 | Phase 1 | Plan 01-04 complete — OCR pipeline live; 845 lines dead code removed |
 | 2026-05-15 | Phase 1 | UAT passed — all 7 console checks confirmed. Phase 1 closed. |
 | 2026-06-05 | Phase 5-9 | Roadmap created for v1.1 — 5 phases (ACC/DXF/SOLVE-prereq/SOLVE/CONF) |
+| 2026-06-05 | Phase 5 | Planned — 2 plans (05-01: residual-gate module, 05-02: live wire + CI gate) in 2 waves |
 
 ## Active Decisions
 
@@ -132,4 +133,4 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 
 Last session: 2026-06-05T20:50:25.644Z
 Stopped at: Phase 05 context gathered
-Resume: Run `/gsd:plan-phase 5` to plan the truth-free residual gate
+Resume: Run `/gsd:execute-phase 5` to execute the truth-free residual gate plans

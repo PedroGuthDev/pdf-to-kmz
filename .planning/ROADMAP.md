@@ -41,9 +41,18 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   2. The LC posts 21-31 rigid-offset fixture (approx. 179 m off, approx. 9.6 m shape residual) produces a gate decision of "fail" — shape alone would pass but the absolute-anchor sub-score fails, downgrading the result.
   3. Every existing paired route (Siriu, Valmor, João Born, LC) receives a per-post confidence tier (HIGH/MED/LOW/UNRESOLVABLE) in the gate output without crashing or silently omitting posts.
   4. The CI gate runs over all validated routes as part of `npm run test:gate` with thresholds calibrated and locked against the Siriu baseline.
-**Plans**: 2 plans
+**Plans**: 2 plans in 2 waves
+
+  **Wave 1**
   - [ ] 05-01-PLAN.md — Pure residual-gate module (computeResiduals/computeAnchorGap/applyResidualGate) + unit tests
+
+  **Wave 2** *(blocked on Wave 1 completion)*
   - [ ] 05-02-PLAN.md — Live wire (dwgConfidence), LC must-fail fixture, Siriu-calibrated thresholds, CI gate in test:gate
+
+  **Cross-cutting constraints:**
+  - Gate must be a pure judge (no coord change, D-01): `coordinate-calculator-dwg.js` output bytes identical before/after
+  - Median aggregator (not mean): `computeResiduals` must sort + median, confirmed by test
+  - LC must-fail via anchor sub-score (not shape): anchor gap ≈178.7 m on PDF-path 21–31 fixture
 
 ### Phase 6: DXF Ingestion & Region Lookup
 **Goal**: Any DXF can be ingested into the region library with coordinate-system normalization, validated inside Brazil's bounding box, and indexed for GPS-based lookup — with hard fail-loud boundaries for unit mismatches, out-of-envelope coordinates, and missing regions; Palhoca.dxf (134 MB, 60k INSERTs) ingests within 5 seconds.
@@ -98,7 +107,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 5. Truth-Free Residual Gate | 0/2 | Not started | - |
+| 5. Truth-Free Residual Gate | 0/2 | Planned | - |
 | 6. DXF Ingestion & Region Lookup | 0/? | Not started | - |
 | 7. Solver Prerequisites | 0/? | Not started | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
