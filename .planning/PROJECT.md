@@ -1,5 +1,27 @@
 # PDF to KMZ Converter
 
+## Current State
+
+**Shipped:** v1.0 — Working PDF → KMZ Converter (2026-06-05). Full client-side pipeline
+delivered: INFOVIAS PDF → OCR + layout extraction → per-post GPS via UTM-grid calibration
+(plus an optional DWG/DXF region-pairing graph-walk path) → customizable KMZ for Google
+Earth. Proven end-to-end on multiple real routes (Siriu DWG 85 posts, Valmor, João Born,
+Luiz Carolino) with regression gates. See `.planning/milestones/v1.0-ROADMAP.md`.
+
+**Next milestone:** v1.1 — **Cross-PDF Compatibility.** The system today is calibrated
+against a handful of routes; the goal of v1.1 is to make it work reliably across many
+different PDFs. This explicitly reopens v1.0's "single format only" scope decision.
+
+**Next Milestone Goals (v1.1):**
+1. Generalize parsing/coordinate extraction across varied INFOVIAS (and other-ISP) PDF layouts.
+2. Robustness over per-route hand-calibration — replace brittle route-specific tuning with
+   geometry/topology predicates that hold across PDFs.
+3. Carry-forward accuracy debt where it blocks generalization (LC post-positioning rework,
+   per-sheet UTM georef offsets) — see STATE.md → Deferred Items.
+
+<details>
+<summary>v1.0 original brief (archived)</summary>
+
 ## What This Is
 
 A single-page web application that converts fiber optic infrastructure PDF project files (INFOVIAS/FTTH format) into KMZ files for Google Earth. Users upload a PDF, provide the GPS coordinates of the first post, and the tool extracts post positions, calculates remaining coordinates using inter-post distances, and generates a downloadable KMZ with customizable placemarks and connection lines.
@@ -70,6 +92,8 @@ Accurately extract post data from INFOVIAS PDF files and produce a georeferenced
 | OCR via Tesseract.js (per-page crop) | Post numbers are vector paths in Numero_Poste layer — text extraction impossible | ✓ Working — 2x canvas crop, digit whitelist, pageseg 7 |
 | Bad-CTM page filter (x<10 AND y<10) | FlipY pages produce garbage coordinates; reliable heuristic via coordinate ranges | ✓ Confirmed — correctly skips non-route pages |
 | Sequence inference for OCR misses | OCR occasionally misses a number; neighbours give reliable interpolation | ✓ Confirmed — inferred ≥ 1 guard prevents negative post numbers |
+
+</details>
 
 ## Evolution
 

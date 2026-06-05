@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Phase 02 Planned (DWG iteration)
-stopped_at: context exhaustion at 75% (2026-05-29)
-last_updated: "2026-05-29T13:02:21.003Z"
-last_activity: 2026-05-26
+milestone: v1.1
+milestone_name: Cross-PDF Compatibility
+status: v1.0 SHIPPED 2026-06-05 (closed as-is) — v1.1 not yet planned
+stopped_at: milestone v1.0 closed; awaiting /gsd:new-milestone for v1.1
+last_updated: "2026-06-05T16:45:00.000Z"
+last_activity: 2026-06-05
 progress:
-  total_phases: 4
-  completed_phases: 2
-  total_plans: 25
-  completed_plans: 20
-  percent: 50
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +25,40 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Current Status
 
-- **Phase:** 2 of 4 — Coordinate Calculator
-- **State:** Accuracy verified on Palhoça sample (Poste-symbol PDF positions + UTM projection)
-- **Milestone:** v1.0
-- **Plans:** 02-03/02-04/02-05 accuracy path complete — see `02-VERIFICATION.md`
+- **Milestone:** v1.0 ✅ SHIPPED 2026-06-05 (closed as-is) → next: **v1.1 Cross-PDF Compatibility**
+- **State:** Functional core delivered (parse → coordinates → KMZ), proven on multiple routes. v1.1 not yet planned — run `/gsd:new-milestone`.
+- **Archive:** `.planning/milestones/v1.0-ROADMAP.md` · `.planning/MILESTONES.md`
+- **Next:** define v1.1 requirements (cross-PDF generalization) via `/gsd:new-milestone`
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried forward as v1.1 candidates or backlog. (23 total)
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | cli-vs-browser-posts | root_cause_found |
+| debug | dwg-graph-walk-no-candidate | root_cause_found |
+| debug | dwg-walk-route-order | investigating |
+| debug | joao-born-coords-off | unknown |
+| debug | joao-born-under-7m | investigating |
+| debug | siriu-branch-return-labels | fixed_session_3 |
+| debug | siriu-n3-number-corruption | investigating |
+| debug | siriu-post34-cascade | diagnosed |
+| debug | siriu-post45-cascade | superseded |
+| debug | siriu-spine-57-branch-region | phase1-fixed/phase2-blocked |
+| debug | test-gate-regression-autofix | awaiting_human_verify |
+| quick_task | fix-posts-3-4-9-accuracy | missing |
+| quick_task | coord-misplacement-research | in_progress |
+| quick_task | 260601-k1a | complete (see Quick Tasks Completed) |
+| quick_task | 260602-decouple | complete (see Quick Tasks Completed) |
+| quick_task | 260602-lbl | complete (see Quick Tasks Completed) |
+| quick_task | 260603-acc | diagnosis-only |
+| quick_task | 260603-jk7 | complete (see Quick Tasks Completed) |
+| quick_task | 260603-n4k | Phase 1+1.5 done; Phase 2+ → milestone scope |
+| verification | Phase 01: 01-VERIFICATION.md | human_needed |
+| verification | Phase 03: 03-VERIFICATION.md | human_needed |
+| uat | Phase 01: 01-HUMAN-UAT.md | passed (0 pending) |
+| context | Phase 02: 02-DWG-CONTEXT.md | 3 open questions |
 
 ## Phase History
 
