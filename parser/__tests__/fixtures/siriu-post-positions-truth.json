@@ -1,0 +1,703 @@
+{
+  "_meta": {
+    "purpose": "Per-post expected PDF pole-symbol position (x,y in flipped page pt) for ALL Siriu posts. A CHARACTERIZATION/REGRESSION LOCK: a snapshot of the current correct parsed placement, used to detect when a layer-B (assignPolesGloballyByLabels) change made to help Luiz Carolino silently perturbs Siriu's positions. See .planning/quick/260603-n4k-debug-lc-post-symbol-assignment-collapse/260603-n4k-MILESTONE-SCOPE.md (Phase 1.5).",
+    "source": "Snapshot of the parser's accepted post.x/post.y from a pristine parse — NOT the number-label anchor. Unlike the LC truth (hand-known-correct anchors that the parser currently DIVERGES from), Siriu legitimately places posts off their anchors at junctions, so the accepted x,y IS the truth. Re-seed ONLY after an intended, gate-green placement change via SIRIU_POST_POS_UPDATE_BASELINE=1.",
+    "offAnchorPosts": [
+      5,
+      6,
+      7,
+      10,
+      42,
+      50,
+      66,
+      72
+    ],
+    "offAnchorNote": "These posts sit >30 pt from their number anchor by design (junctions) — proof that an anchor-based 'correction' would regress Siriu. The lock protects them.",
+    "tolerancePt": 1,
+    "postCount": 85,
+    "generatedFrom": "tools/run-siriu-post-position-gate.mjs (pristine parse)",
+    "generatedAt": "2026-06-05"
+  },
+  "posts": [
+    {
+      "number": 1,
+      "pageNum": 3,
+      "x": 882.5,
+      "y": 592.86,
+      "anchorX": 882.5,
+      "anchorY": 592.86
+    },
+    {
+      "number": 2,
+      "pageNum": 3,
+      "x": 738.08,
+      "y": 471.06,
+      "anchorX": 738.08,
+      "anchorY": 471.06
+    },
+    {
+      "number": 3,
+      "pageNum": 3,
+      "x": 649.16,
+      "y": 361.26,
+      "anchorX": 649.16,
+      "anchorY": 361.26
+    },
+    {
+      "number": 4,
+      "pageNum": 3,
+      "x": 570.98,
+      "y": 313.14,
+      "anchorX": 570.98,
+      "anchorY": 313.14
+    },
+    {
+      "number": 5,
+      "pageNum": 3,
+      "x": 490.94,
+      "y": 305.7,
+      "anchorX": 545.06,
+      "anchorY": 297.18
+    },
+    {
+      "number": 6,
+      "pageNum": 3,
+      "x": 426.32,
+      "y": 299.04,
+      "anchorX": 559.76,
+      "anchorY": 230.82
+    },
+    {
+      "number": 7,
+      "pageNum": 3,
+      "x": 312.14,
+      "y": 301.62,
+      "anchorX": 452.66,
+      "anchorY": 420.42
+    },
+    {
+      "number": 8,
+      "pageNum": 3,
+      "x": 291.26,
+      "y": 269.22,
+      "anchorX": 299.42,
+      "anchorY": 245.46
+    },
+    {
+      "number": 9,
+      "pageNum": 3,
+      "x": 426.32,
+      "y": 299.04,
+      "anchorX": 426.32,
+      "anchorY": 299.04
+    },
+    {
+      "number": 10,
+      "pageNum": 3,
+      "x": 559.76,
+      "y": 230.82,
+      "anchorX": 535.82,
+      "anchorY": 212.46
+    },
+    {
+      "number": 11,
+      "pageNum": 3,
+      "x": 571.94,
+      "y": 100.26,
+      "anchorX": 571.94,
+      "anchorY": 100.26
+    },
+    {
+      "number": 12,
+      "pageNum": 3,
+      "x": 587.78,
+      "y": 61.5,
+      "anchorX": 587.78,
+      "anchorY": 61.5
+    },
+    {
+      "number": 13,
+      "pageNum": 4,
+      "x": 353.06,
+      "y": 646.62,
+      "anchorX": 353.06,
+      "anchorY": 646.62
+    },
+    {
+      "number": 14,
+      "pageNum": 4,
+      "x": 384.38,
+      "y": 538.5,
+      "anchorX": 384.38,
+      "anchorY": 538.5
+    },
+    {
+      "number": 15,
+      "pageNum": 4,
+      "x": 262.82,
+      "y": 481.38,
+      "anchorX": 262.82,
+      "anchorY": 481.38
+    },
+    {
+      "number": 16,
+      "pageNum": 4,
+      "x": 276.26,
+      "y": 343.14,
+      "anchorX": 276.26,
+      "anchorY": 343.14
+    },
+    {
+      "number": 17,
+      "pageNum": 4,
+      "x": 200.72,
+      "y": 384.3,
+      "anchorX": 200.72,
+      "anchorY": 384.3
+    },
+    {
+      "number": 18,
+      "pageNum": 4,
+      "x": 375.74,
+      "y": 433.02,
+      "anchorX": 375.74,
+      "anchorY": 433.02
+    },
+    {
+      "number": 19,
+      "pageNum": 4,
+      "x": 487.22,
+      "y": 372.78,
+      "anchorX": 487.22,
+      "anchorY": 372.78
+    },
+    {
+      "number": 20,
+      "pageNum": 4,
+      "x": 655.58,
+      "y": 391.02,
+      "anchorX": 655.58,
+      "anchorY": 391.02
+    },
+    {
+      "number": 21,
+      "pageNum": 4,
+      "x": 746.42,
+      "y": 360.18,
+      "anchorX": 746.42,
+      "anchorY": 360.18
+    },
+    {
+      "number": 22,
+      "pageNum": 4,
+      "x": 865.1,
+      "y": 279.3,
+      "anchorX": 865.1,
+      "anchorY": 279.3
+    },
+    {
+      "number": 23,
+      "pageNum": 4,
+      "x": 865.58,
+      "y": 145.14,
+      "anchorX": 865.58,
+      "anchorY": 145.14
+    },
+    {
+      "number": 24,
+      "pageNum": 4,
+      "x": 960.02,
+      "y": 46.02,
+      "anchorX": 960.02,
+      "anchorY": 46.02
+    },
+    {
+      "number": 25,
+      "pageNum": 5,
+      "x": 474.14,
+      "y": 643.86,
+      "anchorX": 474.14,
+      "anchorY": 643.86
+    },
+    {
+      "number": 26,
+      "pageNum": 5,
+      "x": 479.06,
+      "y": 519.78,
+      "anchorX": 479.06,
+      "anchorY": 519.78
+    },
+    {
+      "number": 27,
+      "pageNum": 5,
+      "x": 581.3,
+      "y": 480.18,
+      "anchorX": 581.3,
+      "anchorY": 480.18
+    },
+    {
+      "number": 28,
+      "pageNum": 5,
+      "x": 716.78,
+      "y": 520.5,
+      "anchorX": 716.78,
+      "anchorY": 520.5
+    },
+    {
+      "number": 29,
+      "pageNum": 5,
+      "x": 826.58,
+      "y": 451.02,
+      "anchorX": 826.58,
+      "anchorY": 451.02
+    },
+    {
+      "number": 30,
+      "pageNum": 5,
+      "x": 896.9,
+      "y": 465.42,
+      "anchorX": 896.9,
+      "anchorY": 465.42
+    },
+    {
+      "number": 31,
+      "pageNum": 5,
+      "x": 981.38,
+      "y": 490.26,
+      "anchorX": 981.38,
+      "anchorY": 490.26
+    },
+    {
+      "number": 32,
+      "pageNum": 5,
+      "x": 1058.54,
+      "y": 508.86,
+      "anchorX": 1058.54,
+      "anchorY": 508.86
+    },
+    {
+      "number": 33,
+      "pageNum": 5,
+      "x": 1140.26,
+      "y": 556.5,
+      "anchorX": 1140.26,
+      "anchorY": 556.5
+    },
+    {
+      "number": 34,
+      "pageNum": 6,
+      "x": 144.86,
+      "y": 522.18,
+      "anchorX": 144.86,
+      "anchorY": 522.18
+    },
+    {
+      "number": 35,
+      "pageNum": 6,
+      "x": 165.98,
+      "y": 425.34,
+      "anchorX": 165.98,
+      "anchorY": 425.34
+    },
+    {
+      "number": 36,
+      "pageNum": 6,
+      "x": 292.1,
+      "y": 405.18,
+      "anchorX": 292.1,
+      "anchorY": 405.18
+    },
+    {
+      "number": 37,
+      "pageNum": 6,
+      "x": 550.28,
+      "y": 411.42,
+      "anchorX": 550.28,
+      "anchorY": 411.42
+    },
+    {
+      "number": 38,
+      "pageNum": 6,
+      "x": 303.14,
+      "y": 345.78,
+      "anchorX": 303.14,
+      "anchorY": 345.78
+    },
+    {
+      "number": 39,
+      "pageNum": 6,
+      "x": 352.82,
+      "y": 259.62,
+      "anchorX": 352.82,
+      "anchorY": 259.62
+    },
+    {
+      "number": 40,
+      "pageNum": 6,
+      "x": 351.98,
+      "y": 133.38,
+      "anchorX": 351.98,
+      "anchorY": 133.38
+    },
+    {
+      "number": 41,
+      "pageNum": 6,
+      "x": 205.64,
+      "y": 336.12,
+      "anchorX": 205.64,
+      "anchorY": 336.12
+    },
+    {
+      "number": 42,
+      "pageNum": 6,
+      "x": 274.64,
+      "y": 350.52,
+      "anchorX": 225.86,
+      "anchorY": 128.82
+    },
+    {
+      "number": 43,
+      "pageNum": 5,
+      "x": 1097.18,
+      "y": 58.74,
+      "anchorX": 1097.18,
+      "anchorY": 58.74
+    },
+    {
+      "number": 44,
+      "pageNum": 5,
+      "x": 1020.74,
+      "y": 41.82,
+      "anchorX": 1020.74,
+      "anchorY": 41.82
+    },
+    {
+      "number": 45,
+      "pageNum": 5,
+      "x": 1032.92,
+      "y": 70.32,
+      "anchorX": 1032.92,
+      "anchorY": 70.32
+    },
+    {
+      "number": 46,
+      "pageNum": 6,
+      "x": 404.66,
+      "y": 389.1,
+      "anchorX": 404.66,
+      "anchorY": 389.1
+    },
+    {
+      "number": 47,
+      "pageNum": 6,
+      "x": 493.7,
+      "y": 389.58,
+      "anchorX": 493.7,
+      "anchorY": 389.58
+    },
+    {
+      "number": 48,
+      "pageNum": 6,
+      "x": 572.3,
+      "y": 390.78,
+      "anchorX": 572.3,
+      "anchorY": 390.78
+    },
+    {
+      "number": 49,
+      "pageNum": 6,
+      "x": 520.22,
+      "y": 369.18,
+      "anchorX": 520.22,
+      "anchorY": 369.18
+    },
+    {
+      "number": 50,
+      "pageNum": 6,
+      "x": 552.26,
+      "y": 329.28,
+      "anchorX": 105.38,
+      "anchorY": 102.42
+    },
+    {
+      "number": 51,
+      "pageNum": 6,
+      "x": 573.26,
+      "y": 201.66,
+      "anchorX": 573.26,
+      "anchorY": 201.66
+    },
+    {
+      "number": 52,
+      "pageNum": 6,
+      "x": 642.26,
+      "y": 126.3,
+      "anchorX": 642.26,
+      "anchorY": 126.3
+    },
+    {
+      "number": 53,
+      "pageNum": 6,
+      "x": 692.54,
+      "y": 136.92,
+      "anchorX": 692.54,
+      "anchorY": 136.92
+    },
+    {
+      "number": 54,
+      "pageNum": 6,
+      "x": 640.94,
+      "y": 481.86,
+      "anchorX": 640.94,
+      "anchorY": 481.86
+    },
+    {
+      "number": 55,
+      "pageNum": 6,
+      "x": 809.3,
+      "y": 518.34,
+      "anchorX": 809.3,
+      "anchorY": 518.34
+    },
+    {
+      "number": 56,
+      "pageNum": 6,
+      "x": 890.3,
+      "y": 535.98,
+      "anchorX": 890.3,
+      "anchorY": 535.98
+    },
+    {
+      "number": 57,
+      "pageNum": 6,
+      "x": 1021.7,
+      "y": 558.9,
+      "anchorX": 1021.7,
+      "anchorY": 558.9
+    },
+    {
+      "number": 58,
+      "pageNum": 6,
+      "x": 1099.22,
+      "y": 574.5,
+      "anchorX": 1099.22,
+      "anchorY": 574.5
+    },
+    {
+      "number": 59,
+      "pageNum": 7,
+      "x": 101.66,
+      "y": 578.94,
+      "anchorX": 101.66,
+      "anchorY": 578.94
+    },
+    {
+      "number": 60,
+      "pageNum": 7,
+      "x": 267.5,
+      "y": 627.54,
+      "anchorX": 267.5,
+      "anchorY": 627.54
+    },
+    {
+      "number": 61,
+      "pageNum": 7,
+      "x": 360.14,
+      "y": 584.1,
+      "anchorX": 360.14,
+      "anchorY": 584.1
+    },
+    {
+      "number": 62,
+      "pageNum": 7,
+      "x": 449.42,
+      "y": 602.34,
+      "anchorX": 449.42,
+      "anchorY": 602.34
+    },
+    {
+      "number": 63,
+      "pageNum": 7,
+      "x": 574.46,
+      "y": 629.22,
+      "anchorX": 574.46,
+      "anchorY": 629.22
+    },
+    {
+      "number": 64,
+      "pageNum": 7,
+      "x": 636.74,
+      "y": 668.7,
+      "anchorX": 629.66,
+      "anchorY": 641.82
+    },
+    {
+      "number": 65,
+      "pageNum": 7,
+      "x": 636.74,
+      "y": 668.7,
+      "anchorX": 636.74,
+      "anchorY": 668.7
+    },
+    {
+      "number": 66,
+      "pageNum": 7,
+      "x": 190.88,
+      "y": 564.18,
+      "anchorX": 150.26,
+      "anchorY": 637.86
+    },
+    {
+      "number": 67,
+      "pageNum": 8,
+      "x": 126.14,
+      "y": 97.38,
+      "anchorX": 126.14,
+      "anchorY": 97.38
+    },
+    {
+      "number": 68,
+      "pageNum": 8,
+      "x": 152.66,
+      "y": 106.5,
+      "anchorX": 152.66,
+      "anchorY": 106.5
+    },
+    {
+      "number": 69,
+      "pageNum": 7,
+      "x": 294.26,
+      "y": 511.02,
+      "anchorX": 294.26,
+      "anchorY": 511.02
+    },
+    {
+      "number": 70,
+      "pageNum": 7,
+      "x": 330.86,
+      "y": 466.86,
+      "anchorX": 330.86,
+      "anchorY": 466.86
+    },
+    {
+      "number": 71,
+      "pageNum": 7,
+      "x": 296.06,
+      "y": 377.58,
+      "anchorX": 296.06,
+      "anchorY": 377.58
+    },
+    {
+      "number": 72,
+      "pageNum": 7,
+      "x": 180.38,
+      "y": 354.96,
+      "anchorX": 190.88,
+      "anchorY": 564.18
+    },
+    {
+      "number": 73,
+      "pageNum": 7,
+      "x": 180.38,
+      "y": 354.96,
+      "anchorX": 180.38,
+      "anchorY": 354.96
+    },
+    {
+      "number": 74,
+      "pageNum": 7,
+      "x": 454.34,
+      "y": 421.5,
+      "anchorX": 454.34,
+      "anchorY": 421.5
+    },
+    {
+      "number": 75,
+      "pageNum": 7,
+      "x": 534.98,
+      "y": 467.1,
+      "anchorX": 534.98,
+      "anchorY": 467.1
+    },
+    {
+      "number": 76,
+      "pageNum": 7,
+      "x": 677.3,
+      "y": 412.62,
+      "anchorX": 677.3,
+      "anchorY": 412.62
+    },
+    {
+      "number": 77,
+      "pageNum": 7,
+      "x": 802.34,
+      "y": 435.3,
+      "anchorX": 802.34,
+      "anchorY": 435.3
+    },
+    {
+      "number": 78,
+      "pageNum": 7,
+      "x": 905.18,
+      "y": 464.34,
+      "anchorX": 905.18,
+      "anchorY": 464.34
+    },
+    {
+      "number": 79,
+      "pageNum": 7,
+      "x": 996.74,
+      "y": 474.9,
+      "anchorX": 996.74,
+      "anchorY": 474.9
+    },
+    {
+      "number": 80,
+      "pageNum": 7,
+      "x": 975.98,
+      "y": 501.18,
+      "anchorX": 975.98,
+      "anchorY": 501.18
+    },
+    {
+      "number": 81,
+      "pageNum": 8,
+      "x": 474.02,
+      "y": 89.58,
+      "anchorX": 474.02,
+      "anchorY": 89.58
+    },
+    {
+      "number": 82,
+      "pageNum": 8,
+      "x": 468.26,
+      "y": 222.06,
+      "anchorX": 468.26,
+      "anchorY": 222.06
+    },
+    {
+      "number": 83,
+      "pageNum": 8,
+      "x": 466.1,
+      "y": 350.46,
+      "anchorX": 466.1,
+      "anchorY": 350.46
+    },
+    {
+      "number": 84,
+      "pageNum": 8,
+      "x": 463.46,
+      "y": 448.26,
+      "anchorX": 463.46,
+      "anchorY": 448.26
+    },
+    {
+      "number": 85,
+      "pageNum": 8,
+      "x": 374.78,
+      "y": 522.42,
+      "anchorX": 374.78,
+      "anchorY": 522.42
+    }
+  ]
+}

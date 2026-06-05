@@ -70,7 +70,22 @@ per-span haversine distances; `luizcarolino-pdf-baseline.json` (per-post err cei
   posts 9/10/11** (171/261/216 pt off; other 17 within 50 pt tol, mean 32.7 pt); all 4 existing gates
   still green; parser source untouched. The gate is standalone (NOT in `npm run test:gate`) precisely
   because it is expected-red until Phase 2; wire it into the green suite at Phase 5.
-- **Phase 2 — Post-positioning (layer B). ⛔ ATTEMPTED 2026-06-03 — BLOCKED by total Siriu coupling.**
+- **Phase 1.5 — Siriu per-post position truth + gate. ✅ DONE 2026-06-05.** Built the mirror of the LC
+  measurement asset so layer-B can be re-derived against BOTH routes' truth instead of blind-trading
+  Siriu. Artifacts: `parser/__tests__/fixtures/siriu-post-positions-truth.json` (85 posts) and
+  `tools/run-siriu-post-position-gate.mjs` (self-seeding via `SIRIU_POST_POS_UPDATE_BASELINE=1`).
+  **Critical design difference from the LC truth:** Siriu's truth is a **characterization/regression
+  LOCK** — a snapshot of the current *accepted* `post.x,post.y`, NOT the number anchor — because Siriu
+  legitimately places **8 posts >30 pt off-anchor at junctions** (post 50 is **501 pt** off-anchor, 42
+  ≈227 pt, 7 ≈184 pt). That off-anchor evidence is the smoking gun for why every reverted Phase-2 fix
+  (all anchor-based) regressed Siriu *invisibly*: the DWG-walk cumulative gate could not name which posts
+  moved. This gate can, per post. Exit met: gate GREEN at baseline (85/85, mean/max 0.00 pt, tol 1 pt);
+  failure path verified (exit 1 under impossible tol); `npm run test:gate` still green; **parser
+  untouched** (git scope = the 2 new files only), so LC/Valmor/DWG gates are deterministically
+  unaffected. Standalone (NOT in `npm run test:gate`) — a development instrument for Phase 2; the pair of
+  position gates (LC red, Siriu green) now bracket the layer-B rework.
+- **Phase 2 — Post-positioning (layer B). ⛔ ATTEMPTED 2026-06-03 — BLOCKED by total Siriu coupling.
+  Prerequisite Phase 1.5 now SHIPPED (2026-06-05) — unblocked to re-attempt against dual position truth.**
   Target: `assignPolesGloballyByLabels` — partition by route segment, off-cable posts first-class,
   out-of-sequence pole handling, no shared symbols. The exact failure was confirmed
   (`N3 page 4 path 1: Viterbi assignment failed → greedy fallback`; the collapse is `repairConsecutive`
@@ -114,13 +129,14 @@ cross-sheet 381 m span.)
 
 ## 5. Gate strategy (summary)
 
-| Checkpoint | Per-post position gate | Siriu | Valmor | DWG | LC cumulative |
-|------------|------------------------|-------|--------|-----|---------------|
-| Phase 1 exit | runs (red = the gap) | green | green | green | green (unchanged) |
-| Phase 2 exit | **green (1–20)** | green | green | **green** | may be red |
-| Phase 3 exit | green | green | green | green | improving |
-| Phase 4 exit | green | green | green | green | improving |
-| Phase 5 exit | green | green | green | green | **green (rebuilt)** |
+| Checkpoint | LC position gate | Siriu position gate | Siriu | Valmor | DWG | LC cumulative |
+|------------|------------------|---------------------|-------|--------|-----|---------------|
+| Phase 1 exit | runs (red = the gap) | — | green | green | green | green (unchanged) |
+| Phase 1.5 exit ✅ | red (9/10/11) | **green (lock, 85/85)** | green | green | green | green (unchanged) |
+| Phase 2 exit | **green (1–20)** | **green (no Siriu drift)** | green | green | **green** | may be red |
+| Phase 3 exit | green | green | green | green | green | improving |
+| Phase 4 exit | green | green | green | green | green | improving |
+| Phase 5 exit | green | green | green | green | green | **green (rebuilt)** |
 
 **DWG protection:** Phase 2's partitioning change must be scoped (route-segment-aware, not the generic
 number-gap split that regressed DWG) OR DWG must get its own per-post truth so the change is validated
