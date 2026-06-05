@@ -8,16 +8,37 @@ delivered: INFOVIAS PDF → OCR + layout extraction → per-post GPS via UTM-gri
 Earth. Proven end-to-end on multiple real routes (Siriu DWG 85 posts, Valmor, João Born,
 Luiz Carolino) with regression gates. See `.planning/milestones/v1.0-ROADMAP.md`.
 
-**Next milestone:** v1.1 — **Cross-PDF Compatibility.** The system today is calibrated
-against a handful of routes; the goal of v1.1 is to make it work reliably across many
-different PDFs. This explicitly reopens v1.0's "single format only" scope decision.
+## Current Milestone: v1.1 — Generalized DXF-Driven Accuracy
 
-**Next Milestone Goals (v1.1):**
-1. Generalize parsing/coordinate extraction across varied INFOVIAS (and other-ISP) PDF layouts.
-2. Robustness over per-route hand-calibration — replace brittle route-specific tuning with
-   geometry/topology predicates that hold across PDFs.
-3. Carry-forward accuracy debt where it blocks generalization (LC post-positioning rework,
-   per-sheet UTM georef offsets) — see STATE.md → Deferred Items.
+**Goal:** Make the converter work across many different drawings/regions by anchoring
+accuracy to the **DXF** (not per-route PDF calibration); the PDF supplies post numbering,
+route topology, and printed distances, the DXF supplies absolute geometry, and a truth-free
+residual gate decides trust. No matching DXF → **fail loud, never wrong**.
+
+**The pivot (why):** PDF-only coordinate extraction is proven too brittle/inaccurate to
+generalize. v1.1 demotes the PDF-only path to acceptable-failure and concentrates accuracy
+on the DXF region-pairing path, generalized beyond the Siriu-tuned graph-walker.
+
+**Target features:**
+- Truth-free accuracy/confidence metric (no GPS ground truth needed for new drawings).
+- DXF ingestion + GPS-based region lookup (corpus of many regions).
+- A generalized PDF↔DXF post-pairing engine (global graph match) that isn't route-tuned.
+- Diagnostic failure + per-post confidence surfacing (partial output, never silent-wrong).
+
+**Locked decisions (v1.1):**
+
+| Decision | Rationale |
+|----------|-----------|
+| DXF is the accuracy authority; PDF-only demoted to acceptable-failure | PDF-only proven too risky/inaccurate to generalize; if no DXF, PDF-only would fail anyway |
+| Truth-free **internal-consistency residual** (printed distance vs haversine + region reprojection) = confidence score, CI gate, AND failure detector | New drawings have no GPS ground truth; per-route fixtures don't scale |
+| Post-pairing = **global constraint solve** (align PDF numbered route-graph ⟷ DXF cable-graph; distances arbitrate topology disputes) | Replaces the sequential greedy walk whose hub/branch failures are structural |
+| **Strangler-fig**: new global solver = level-0; keep the 2,723-line graph-walker as fallback | Generalize without losing Siriu's proven ~6m; per-post position gates guard it |
+| DXF **ingestion + region lookup in scope** (normalize, SIRGAS-2000 zone-22S, GPS bbox index, no-region boundary) | "Many PDFs" can't resolve to their DXF without a populated, indexed corpus |
+| **Diagnostic failure + partial output** with per-post confidence flags | "OK to fail" means fail with a clear reason, never emit silently-wrong coords |
+
+**Candidate phases** (numbering continues from Phase 5; roadmapper formalizes):
+P5 truth-free residual gate · P6 DXF ingestion + region lookup · P7 global PDF↔DXF graph
+solver (walker as fallback) · P8 diagnostic failure + confidence surfacing.
 
 <details>
 <summary>v1.0 original brief (archived)</summary>

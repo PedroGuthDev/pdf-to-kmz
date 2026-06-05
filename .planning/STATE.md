@@ -1,10 +1,9 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: Cross-PDF Compatibility
-status: v1.0 SHIPPED 2026-06-05 (closed as-is) — v1.1 not yet planned
-stopped_at: milestone v1.0 closed; awaiting /gsd:new-milestone for v1.1
-last_updated: "2026-06-05T16:45:00.000Z"
+milestone_name: Generalized DXF-Driven Accuracy
+status: planning
+last_updated: "2026-06-05T17:03:50.199Z"
 last_activity: 2026-06-05
 progress:
   total_phases: 0
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** Accurately extract post data from INFOVIAS PDF files and produce a georeferenced KMZ file
-**Current focus:** Phase 04 — web-ui-integration
+**Current focus:** v1.1 — Generalized DXF-Driven Accuracy (planning)
 
 ## Current Status
 
-- **Milestone:** v1.0 ✅ SHIPPED 2026-06-05 (closed as-is) → next: **v1.1 Cross-PDF Compatibility**
-- **State:** Functional core delivered (parse → coordinates → KMZ), proven on multiple routes. v1.1 not yet planned — run `/gsd:new-milestone`.
+- **Milestone:** v1.1 — Generalized DXF-Driven Accuracy (**planning**; v1.0 shipped 2026-06-05)
+- **State:** Design locked (DXF-first; global PDF↔DXF graph solve; truth-free residual gate; diagnostic fail). Research pass running → requirements → roadmap. Candidate phases P5–P8.
 - **Archive:** `.planning/milestones/v1.0-ROADMAP.md` · `.planning/MILESTONES.md`
-- **Next:** define v1.1 requirements (cross-PDF generalization) via `/gsd:new-milestone`
+- **Next:** define v1.1 requirements after research synthesis, then spawn roadmapper
 
 ## Deferred Items
 
@@ -124,3 +123,10 @@ Last activity: 2026-06-05 - Quick task 260603-n4k Phase 1.5: shipped the Siriu p
 
 ---
 *Last updated: 2026-05-19 after web research on accuracy improvements*
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-05 — Milestone v1.1 started
