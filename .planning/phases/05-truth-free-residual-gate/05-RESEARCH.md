@@ -405,21 +405,13 @@ quantity the anchor sub-score measures.
 | A4 | Per-post `shapeScore = max(incident relErrors)` (worst edge) is the right per-post rule | Pattern 3 | LOW — fail-loud is consistent with project lock; planner may choose mean-of-incident if too noisy |
 | A5 | The gate reads `distances` at cascade time (post-augmentation) consistently with `cascade.coords` | Pitfall 4 | LOW — both are the same snapshot inside `calculateCoordinatesWithDwg` |
 
-## Open Questions
+## Open Questions (RESOLVED — all closed in plans 05-01/05-02)
 
-1. **Which coordinate set is the locked LC must-fail fixture (D-06)?**
-   - What we know: PDF-path 21–31 = clean 6.1 m shape / 178.7 m anchor (the textbook case). DWG-cascade LC = scrambled, fails shape AND anchor.
-   - What's unclear: CONTEXT/ROADMAP phrasing ("real captured LC output, the actual rigid-offset result") could mean either.
-   - Recommendation: Capture BOTH into the fixture file, mark the **PDF-path 21–31** as the primary "shape-pass/anchor-fail" assertion. The DWG-cascade output is a secondary "fails for any reason" assertion. Confirm with user in discuss/plan.
+1. **Which coordinate set is the locked LC must-fail fixture (D-06)?** RESOLVED: PDF-path 21–31 is the primary "shape-pass/anchor-fail" fixture (6.1 m shape, 178.7 m anchor). Locked in 05-02 T2(a). The DWG-cascade output is an optional secondary "fails for any reason" assertion.
 
-2. **Anchor sub-score thresholds — Siriu/Valmor/João Born anchor gaps not yet measured.**
-   - What we know: LC anchor gap = 202 m (must fail). Post 1 ~0 everywhere.
-   - What's unclear: the gaps for the known-good routes (must pass). A threshold must sit above those and below 202 m.
-   - Recommendation: First plan task measures `computeAnchorGap` on all four routes, then sets `ANCHOR_TRUST_M` from the known-good ceiling + slack (the existing `slackM` pattern). Lock as named constant.
+2. **Anchor sub-score thresholds — Siriu/Valmor/João Born anchor gaps not yet measured.** RESOLVED: 05-02 T2(c) measures `computeAnchorGap` on all four routes first, then sets `ANCHOR_TRUST_M` from the known-good ceiling + slack before locking as a named constant.
 
-3. **Trimmed-mean vs median for the route score.**
-   - What we know: median cleanest; trim-80% also works on Siriu/Valmor but is 21.7% on João Born.
-   - Recommendation: median for the decision; keep both in the gate output for diagnostics during calibration, then drop the unused one.
+3. **Trimmed-mean vs median for the route score.** RESOLVED: Median is locked as the route-level aggregator in 05-01 T1. Trimmed-mean is dropped.
 
 ## Environment Availability
 
