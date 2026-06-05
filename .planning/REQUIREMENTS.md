@@ -7,7 +7,7 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 
 ## v1.1 Requirements
 
-### Accuracy Gate — truth-free residual (ACC) → P5
+### Accuracy Gate — truth-free residual (ACC) → Phase 5
 
 - [ ] **ACC-01**: System computes a **shape-fidelity** residual per labelled edge (`|haversine(A,B) − printed_distance|`) and aggregates it per route — no GPS ground truth required.
 - [ ] **ACC-02**: System computes an **absolute-anchor** residual (first-post computed GPS vs the known reference anchor).
@@ -15,7 +15,7 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 - [ ] **ACC-04**: The residual gate runs as a CI gate over the existing validated routes, with thresholds calibrated against the Siriu baseline before they are locked.
 - [ ] **ACC-05**: A per-post confidence **tier** (HIGH/MED/LOW/UNRESOLVABLE) is derived from the residuals (consumed by CONF-*).
 
-### DXF Ingestion & Region Lookup (DXF) → P6
+### DXF Ingestion & Region Lookup (DXF) → Phase 6
 
 - [ ] **DXF-01**: User can ingest a DXF into the region library; the system resolves its coordinate system (UTM zone-22S / SIRGAS-2000) at ingest time.
 - [ ] **DXF-02**: Ingestion validates units (mm→m retry) and **fails loud** on out-of-envelope drawings ("DXF unit mismatch suspected").
@@ -25,15 +25,18 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 - [ ] **DXF-06**: Large DXFs (e.g. Palhoça ~60k INSERTs) ingest within an acceptable budget (~5 s target) via spatial indexing.
 - [ ] **DXF-07**: User can list the ingested regions in the library.
 
-### Global PDF↔DXF Solver (SOLVE) → P7
+### Solver Prerequisites (SOLVE-05) → Phase 7
+
+- [ ] **SOLVE-05**: Solver prerequisites are satisfied and gated: per-post position fixtures green for Siriu, LC, **João Born, and Valmor**; junction ground-truth green; and every existing gate audited and classified fence-vs-accuracy.
+
+### Global PDF↔DXF Solver (SOLVE) → Phase 8
 
 - [ ] **SOLVE-01**: System aligns the PDF's numbered, distance-labeled route graph to the DXF cable graph via a **global bipartite assignment** (Hungarian), with no per-route tuning.
 - [ ] **SOLVE-02**: The solver runs as cascade **level-0**; when its residual confidence is low it falls back to the existing graph-walker (strangler-fig).
 - [ ] **SOLVE-03**: The solver enforces anchor as a hard constraint, arc-order monotonicity, and hub-degree matching, with thresholds adaptive to each drawing's scale.
 - [ ] **SOLVE-04**: The solver re-clears Siriu (85-post regression + per-post position gate) and the LC per-post position gate with **zero regression**.
-- [ ] **SOLVE-05**: Solver prerequisites are satisfied and gated: per-post position fixtures green for Siriu, LC, **João Born, and Valmor**; junction ground-truth green; and every existing gate audited and classified fence-vs-accuracy.
 
-### Diagnostic Failure & Confidence Surfacing (CONF) → P8
+### Diagnostic Failure & Confidence Surfacing (CONF) → Phase 9
 
 - [ ] **CONF-01**: Failures surface a clear, actionable reason (no region / unit mismatch / "diverged at post N, residual X m") in the UI, consistent with the existing Portuguese warning taxonomy.
 - [ ] **CONF-02**: The generated KMZ encodes per-post confidence **tier** via placemark color + ExtendedData.
@@ -59,15 +62,33 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 
 ## Traceability
 
-| Requirement | Phase (candidate) | Status |
-|-------------|-------------------|--------|
-| ACC-01..05 | P5 | Pending |
-| DXF-01..07 | P6 | Pending |
-| SOLVE-01..05 | P7 | Pending |
-| CONF-01..04 | P8 | Pending |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ACC-01 | Phase 5 | Pending |
+| ACC-02 | Phase 5 | Pending |
+| ACC-03 | Phase 5 | Pending |
+| ACC-04 | Phase 5 | Pending |
+| ACC-05 | Phase 5 | Pending |
+| DXF-01 | Phase 6 | Pending |
+| DXF-02 | Phase 6 | Pending |
+| DXF-03 | Phase 6 | Pending |
+| DXF-04 | Phase 6 | Pending |
+| DXF-05 | Phase 6 | Pending |
+| DXF-06 | Phase 6 | Pending |
+| DXF-07 | Phase 6 | Pending |
+| SOLVE-05 | Phase 7 | Pending |
+| SOLVE-01 | Phase 8 | Pending |
+| SOLVE-02 | Phase 8 | Pending |
+| SOLVE-03 | Phase 8 | Pending |
+| SOLVE-04 | Phase 8 | Pending |
+| CONF-01 | Phase 9 | Pending |
+| CONF-02 | Phase 9 | Pending |
+| CONF-03 | Phase 9 | Pending |
+| CONF-04 | Phase 9 | Pending |
 
-**Coverage:** 21 v1.1 requirements across 4 categories → 4 candidate phases (P5–P8). Roadmapper formalizes phase mapping + success criteria.
+**Coverage:** 21/21 v1.1 requirements mapped across 5 phases (P5–P9). No orphans.
 
 ---
 
 _Requirements defined 2026-06-05 from converged v1.1 research (see `.planning/research/SUMMARY.md`)._
+_Traceability finalized 2026-06-05 by roadmapper (SOLVE-05 extracted to Phase 7 prerequisites; SOLVE-01..04 in Phase 8)._
