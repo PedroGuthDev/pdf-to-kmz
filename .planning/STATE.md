@@ -1,10 +1,11 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: Generalized DXF-Driven Accuracy
+milestone_name: — Generalized DXF-Driven Accuracy
 status: planning
-last_updated: "2026-06-05T00:00:00.000Z"
-last_activity: 2026-06-05
+stopped_at: Phase 05 context gathered
+last_updated: "2026-06-05T20:50:25.678Z"
+last_activity: 2026-06-05 — v1.1 roadmap created (P5 residual gate → P6 DXF ingestion → P7 solver prerequisites → P8 global solver → P9 confidence surfacing)
 progress:
   total_phases: 5
   completed_phases: 0
@@ -129,6 +130,6 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 
 ## Session Continuity
 
-Last session: 2026-06-05
-Stopped at: v1.1 roadmap creation (5 phases P5-P9 defined, requirements mapped, files written)
+Last session: 2026-06-05T20:50:25.644Z
+Stopped at: Phase 05 context gathered
 Resume: Run `/gsd:plan-phase 5` to plan the truth-free residual gate
