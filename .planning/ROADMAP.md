@@ -73,7 +73,17 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   4. Palhoca.dxf (134 MB, 60k INSERTs) ingests and indexes in under 5 seconds in a browser environment, verified by a timed integration test.
   5. The user can list all ingested regions in the region library UI (region names and their GPS bounding boxes).
 
-**Plans**: TBD
+**Plans**: 3 plans in 2 waves
+
+  **Wave 1**
+
+  - [ ] 06-01-PLAN.md — Fail-loud ingestion validation (unit-mismatch + Brazil-bbox + crs.confidence) + Siriu golden-bbox test
+  - [ ] 06-02-PLAN.md — NO_REGION structured error at cascade caller + region-bbox listing UI
+
+  **Wave 2** *(blocked on 06-01 — shared region-library.js)*
+
+  - [ ] 06-03-PLAN.md — Web Worker off-thread parse/index + Palhoca 5s timing gate
+
 **UI hint**: yes
 
 ### Phase 7: Solver Prerequisites
@@ -126,7 +136,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
-| 6. DXF Ingestion & Region Lookup | 0/? | Not started | - |
+| 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
 | 7. Solver Prerequisites | 0/? | Not started | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
