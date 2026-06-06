@@ -22,7 +22,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
 ## Phases
 
-- [ ] **Phase 5: Truth-Free Residual Gate** — Two-sub-score gate (shape-fidelity + absolute-anchor) wraps the cascade; LC 179 m rigid-offset must fail it.
+- [x] **Phase 5: Truth-Free Residual Gate** — Two-sub-score gate (shape-fidelity + absolute-anchor) wraps the cascade; LC 179 m rigid-offset must fail it. (completed 2026-06-06)
 - [ ] **Phase 6: DXF Ingestion & Region Lookup** — Ingest DXFs with CRS normalization, spatial indexing, and fail-loud boundaries; GPS-based region lookup.
 - [ ] **Phase 7: Solver Prerequisites** — Lock per-post position fixtures for all four named routes, audit all gates (fence vs. accuracy), and confirm junction ground-truth is clean; green gate for solver entry.
 - [ ] **Phase 8: Global PDF-DXF Solver** — Hungarian bipartite solver as cascade level-0; strangler-fig fallback; re-clears Siriu 85-post gate and LC per-post position gate with zero regression.
@@ -52,7 +52,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 2** *(blocked on Wave 1 completion)*
 
-  - [ ] 05-02-PLAN.md — Live wire (dwgConfidence), LC must-fail fixture, Siriu-calibrated thresholds, CI gate in test:gate
+  - [x] 05-02-PLAN.md — Live wire (dwgConfidence), LC must-fail fixture, Siriu-calibrated thresholds, CI gate in test:gate
 
   **Cross-cutting constraints:**
 
@@ -125,7 +125,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 5. Truth-Free Residual Gate | 1/2 | In Progress|  |
+| 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/? | Not started | - |
 | 7. Solver Prerequisites | 0/? | Not started | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |

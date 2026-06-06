@@ -10,9 +10,9 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 ### Accuracy Gate — truth-free residual (ACC) → Phase 5
 
 - [ ] **ACC-01**: System computes a **shape-fidelity** residual per labelled edge (`|haversine(A,B) − printed_distance|`) and aggregates it per route — no GPS ground truth required.
-- [ ] **ACC-02**: System computes an **absolute-anchor** residual (first-post computed GPS vs the known reference anchor).
-- [ ] **ACC-03**: A route is rated HIGH only when **both** sub-scores pass; either failing alone downgrades or fails it. The LC posts-21–31 rigid-offset (≈179 m off, ~9.6 m shape residual) is a regression fixture that **must fail** the gate.
-- [ ] **ACC-04**: The residual gate runs as a CI gate over the existing validated routes, with thresholds calibrated against the Siriu baseline before they are locked.
+- [x] **ACC-02**: System computes an **absolute-anchor** residual (first-post computed GPS vs the known reference anchor).
+- [x] **ACC-03**: A route is rated HIGH only when **both** sub-scores pass; either failing alone downgrades or fails it. The LC posts-21–31 rigid-offset (≈179 m off, ~9.6 m shape residual) is a regression fixture that **must fail** the gate.
+- [x] **ACC-04**: The residual gate runs as a CI gate over the existing validated routes, with thresholds calibrated against the Siriu baseline before they are locked.
 - [ ] **ACC-05**: A per-post confidence **tier** (HIGH/MED/LOW/UNRESOLVABLE) is derived from the residuals (consumed by CONF-*).
 
 ### DXF Ingestion & Region Lookup (DXF) → Phase 6
@@ -65,9 +65,9 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | ACC-01 | Phase 5 | Pending |
-| ACC-02 | Phase 5 | Pending |
-| ACC-03 | Phase 5 | Pending |
-| ACC-04 | Phase 5 | Pending |
+| ACC-02 | Phase 5 | Complete |
+| ACC-03 | Phase 5 | Complete |
+| ACC-04 | Phase 5 | Complete |
 | ACC-05 | Phase 5 | Pending |
 | DXF-01 | Phase 6 | Pending |
 | DXF-02 | Phase 6 | Pending |
