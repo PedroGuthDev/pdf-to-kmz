@@ -189,6 +189,7 @@ export async function runRouteDwgAccuracyHarness({
   return {
     dwgStatus: result.dwgStatus ?? "unknown",
     posts: result.posts ?? [],
+    dwgConfidence: result.dwgConfidence ?? null,
     errorsByPost,
     idxByPost,
     walkOk: Boolean(walk.ok),

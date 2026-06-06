@@ -11,6 +11,7 @@ import {
 import { pairPostsByGraphWalk } from "./graph-walker.js";
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
+import { computeResiduals, computeAnchorGap, applyResidualGate } from "./residual-gate.js";
 
 /** @param {unknown} w */
 /**
@@ -416,6 +417,13 @@ export async function calculateCoordinatesWithDwg(
         `(${cableTopo.edges.length} edges, ${cableTopo.components} component(s), ${cableTopo.bridges} bridge(s))`,
     );
   }
+  // Truth-free residual gate (D-01, pure judge): rate the assembled route with
+  // two independent sub-scores and attach a confidence verdict. This NEVER
+  // mutates posts/connections/coordinates — it only measures.
+  const shape = computeResiduals(cascade.coords, distances);
+  const anchor = computeAnchorGap(cascade.coords, gpsByPostNumber);
+  successResult.dwgConfidence = applyResidualGate(shape, anchor);
+
   successResult.userWarnings = buildCalcUserWarnings(successResult);
   return successResult;
 }
