@@ -105,7 +105,32 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   3. Every active gate is explicitly classified as "regression fence" or "accuracy assertion" in a written audit document, with fence gates annotated "expected red mid-flight" during Phase 8 development.
   4. A baseline run of the full cascade on all four routes can complete with the gate from Phase 5 active and without any solver code present — confirming the measurement baseline is stable before any solver changes touch shared code.
 
-**Plans**: TBD
+**Plans**: 7 plans in 4 waves
+
+  **Wave 1** *(truth foundation — blocks everything)*
+
+  - [ ] 07-01-PLAN.md — txt→JSON ground-truth import + JB post-35 anomaly fix + Siriu position/junction regression net in test:gate
+
+  **Wave 2** *(parallel additive fixtures; blocked on 07-01)*
+
+  - [ ] 07-02-PLAN.md — João Born PDF per-post position fixture + gate (hand-known anchors, all 34 posts)
+  - [ ] 07-03-PLAN.md — Valmor PDF per-post position fixture + gate (parse-viability gated, all 11 posts)
+  - [ ] 07-04-PLAN.md — Junction ground-truth fixtures + DFS-oracle tests for LC/JB(linear)/Valmor
+  - [ ] 07-05-PLAN.md — Per-route txt GPS accuracy gates with four-tier classifier (zero-bad-tier)
+
+  **Wave 3** *(LC layer-B fix under all-green discipline; blocked on 07-01..07-05)*
+
+  - [ ] 07-06-PLAN.md — LC layer-B placement fix (additive predicate; Siriu 1.0-pt gate stays green)
+
+  **Wave 4** *(phase exit; blocked on 07-06)*
+
+  - [ ] 07-07-PLAN.md — 07-GATE-AUDIT.md (fence vs accuracy) + full test:gate wiring + 4-route baseline cascade
+
+  **Cross-cutting constraints:**
+
+  - All-green checkpoint discipline (D-11): every commit during the LC fix keeps the full gate suite green; no intentional RED mid-flight
+  - Additive predicates only — never edit Siriu-calibrated constants; never re-seed the Siriu baseline to mask a regression (Pitfall 2)
+  - No new external dependencies (munkres-js is added only at Phase 8)
 
 ### Phase 8: Global PDF-DXF Solver
 
@@ -144,7 +169,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 |-------|----------------|--------|-----------|
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
-| 7. Solver Prerequisites | 0/? | Not started | - |
+| 7. Solver Prerequisites | 0/7 | Planned | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
