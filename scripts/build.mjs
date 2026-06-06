@@ -38,13 +38,28 @@ const buildOpts = {
   external: browserExternals,
 };
 
+const workerBuildOpts = {
+  entryPoints: ["parser/dwg/dxf-parse.worker.js"],
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  outfile: "dist/dxf-parse.worker.js",
+  minify: prod,
+  sourcemap: !prod,
+  logLevel: "info",
+  external: browserExternals,
+};
+
 if (watch) {
   const ctx = await esbuild.context(buildOpts);
+  const workerCtx = await esbuild.context(workerBuildOpts);
   await ctx.watch();
+  await workerCtx.watch();
   writeDistHtml();
-  console.log("Watching browser/main.js → dist/app.js");
+  console.log("Watching browser/main.js → dist/app.js, dxf-parse.worker.js");
 } else {
   await esbuild.build(buildOpts);
+  await esbuild.build(workerBuildOpts);
   writeDistHtml();
   console.log(`Build complete (${prod ? "production" : "development"}) → dist/`);
 }

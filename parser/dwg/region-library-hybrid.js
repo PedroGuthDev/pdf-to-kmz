@@ -111,6 +111,8 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
 
     async lookupByGps(lat, lon) {
       const local = await localLibrary.lookupByGps(lat, lon);
+      // NO_REGION is synthesized at the cascade caller (coordinate-calculator-dwg.js),
+      // never here — a truthy object would skip the cloud fallback (Pitfall 5).
       if (local) return local;
 
       if (!(await ensureCloud())) return null;

@@ -5,3 +5,4 @@ dist/
 debug-siriu*
 .vercel
 *.dxf
+!parser/__tests__/fixtures/*.dxf

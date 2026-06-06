@@ -212,7 +212,14 @@ async function refreshDxfRegionSelect(preferId = null) {
     const when = r.uploadedAt
       ? new Date(r.uploadedAt).toLocaleDateString("pt-BR")
       : "";
-    opt.textContent = when ? `${r.name} (${when})` : r.name;
+    let label = when ? `${r.name} (${when})` : r.name;
+    const b = r.bboxLatLon;
+    if (b) {
+      label +=
+        ` [lat ${b.minLat.toFixed(4)}..${b.maxLat.toFixed(4)}, ` +
+        `lon ${b.minLon.toFixed(4)}..${b.maxLon.toFixed(4)}]`;
+    }
+    opt.textContent = label;
     dxfRegionSelect.appendChild(opt);
   }
   if (prev && [...dxfRegionSelect.options].some((o) => o.value === prev)) {

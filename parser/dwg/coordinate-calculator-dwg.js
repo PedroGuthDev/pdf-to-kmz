@@ -12,6 +12,27 @@ import { pairPostsByGraphWalk } from "./graph-walker.js";
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate } from "./residual-gate.js";
+import { haversineMeters } from "../geo/utm-calibrator.js";
+
+/** @param {number} lat @param {number} lon @param {Array<{ name?: string, bboxLatLon?: { minLat: number, maxLat: number, minLon: number, maxLon: number } }>} regions */
+export function noRegionError(lat, lon, regions) {
+  let best = null;
+  let bestDistKm = Infinity;
+
+  for (const r of regions ?? []) {
+    const b = r?.bboxLatLon;
+    if (!b) continue;
+    const cLat = (b.minLat + b.maxLat) / 2;
+    const cLon = (b.minLon + b.maxLon) / 2;
+    const distKm = haversineMeters(lat, lon, cLat, cLon) / 1000;
+    if (distKm < bestDistKm) {
+      bestDistKm = distKm;
+      best = { name: r.name ?? r.id ?? "unknown", distanceKm: distKm };
+    }
+  }
+
+  return { code: "NO_REGION", nearest: best };
+}
 
 /** @param {unknown} w */
 /**
@@ -240,6 +261,11 @@ export async function calculateCoordinatesWithDwg(
 
   if (!region) {
     warnings.push({ kind: "dwg-region-miss", lat: lat1, lon: lon1 });
+    const regions =
+      typeof regionLibrary.listRegions === "function"
+        ? await regionLibrary.listRegions()
+        : [];
+    const dwgNoRegion = noRegionError(lat1, lon1, regions);
     const fallback = calculateCoordinates(
       posts,
       distances,
@@ -253,6 +279,7 @@ export async function calculateCoordinatesWithDwg(
       warnings: [...(fallback.warnings ?? []), ...warnings],
       dwgStatus: "pdf-fallback",
       dwgRegionId: regionId ?? null,
+      dwgNoRegion,
     };
     missResult.userWarnings = buildCalcUserWarnings(missResult);
     return missResult;
