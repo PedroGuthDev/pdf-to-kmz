@@ -109,7 +109,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 1** *(truth foundation — blocks everything)*
 
-  - [ ] 07-01-PLAN.md — txt→JSON ground-truth import + JB post-35 anomaly fix + Siriu position/junction regression net in test:gate
+  - [x] 07-01-PLAN.md — txt→JSON ground-truth import + JB post-35 anomaly fix + Siriu position/junction regression net in test:gate
 
   **Wave 2** *(parallel additive fixtures; blocked on 07-01)*
 
