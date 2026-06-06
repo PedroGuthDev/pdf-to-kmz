@@ -1,0 +1,44 @@
+{
+  "_comment": "Real captured Luiz Carolino DWG-paired posts 21-31 (D-06). The DWG-paired route geometry (lc-21-31-pdfpath) is rigidly offset ~185 m mean / ~417 m p95 from the user-anchored PDF positions (gpsByPostNumber). The shape sub-score reproduces the printed distance labels acceptably, but the absolute anchor gap is far above ANCHOR_FAIL_M=20 m, so the gate MUST decide 'fail' on the anchor sub-score. Captured 2026-06-06 from the live calculateCoordinatesWithDwg pipeline.",
+  "lc-21-31-pdfpath": [
+    { "postNumber": 21, "lat": -27.57062650222663, "lon": -48.69227003749818 },
+    { "postNumber": 22, "lat": -27.570679160193325, "lon": -48.69197937211941 },
+    { "postNumber": 23, "lat": -27.570521418777187, "lon": -48.69211676254581 },
+    { "postNumber": 24, "lat": -27.570354678956893, "lon": -48.69209010774211 },
+    { "postNumber": 25, "lat": -27.57015425680437, "lon": -48.69219011480906 },
+    { "postNumber": 26, "lat": -27.570196375284695, "lon": -48.691860382581595 },
+    { "postNumber": 27, "lat": -27.570278678190043, "lon": -48.69155850577363 },
+    { "postNumber": 28, "lat": -27.570512078281045, "lon": -48.691824124629456 },
+    { "postNumber": 29, "lat": -27.569473841947882, "lon": -48.68976876652344 },
+    { "postNumber": 30, "lat": -27.569516475246047, "lon": -48.689482242244125 },
+    { "postNumber": 31, "lat": -27.569429291108882, "lon": -48.690133158300235 }
+  ],
+  "distances": [
+    { "from": 21, "to": 22, "meters": 29.8, "source": "legacy-midpoint" },
+    { "from": 22, "to": 23, "meters": 25.5, "source": "legacy-midpoint" },
+    { "from": 23, "to": 24, "meters": 22.9, "source": "legacy-midpoint" },
+    { "from": 24, "to": 25, "meters": 23.4, "source": "legacy-midpoint" },
+    { "from": 25, "to": 26, "meters": 36.7, "source": "legacy-midpoint" },
+    { "from": 26, "to": 27, "meters": 35.7, "source": "legacy-midpoint" },
+    { "from": 27, "to": 28, "meters": 35.9, "source": "legacy-midpoint" },
+    { "from": 28, "to": 29, "meters": 36.3, "source": "legacy-midpoint" },
+    { "from": 29, "to": 30, "meters": 28.7, "source": "legacy-midpoint" },
+    { "from": 30, "to": 31, "meters": 42.8, "source": "legacy-midpoint" },
+    { "from": 31, "to": 29, "meters": 28.7, "source": "inferred-label" }
+  ],
+  "gpsByPostNumber": {
+    "21": { "lat": -27.568312080409115, "lon": -48.693853972630066 },
+    "22": { "lat": -27.568355285471686, "lon": -48.69346530374191 },
+    "23": { "lat": -27.568386934440923, "lon": -48.69318244457416 },
+    "24": { "lat": -27.568415355956372, "lon": -48.69292842584791 },
+    "25": { "lat": -27.56845612238264, "lon": -48.69267809037206 },
+    "26": { "lat": -27.56849395472614, "lon": -48.692319311018196 },
+    "27": { "lat": -27.568530755310743, "lon": -48.691970307499965 },
+    "28": { "lat": -27.56857599597321, "lon": -48.6916137069452 },
+    "29": { "lat": -27.568583547578726, "lon": -48.69123934095833 },
+    "30": { "lat": -27.56858594393858, "lon": -48.69112053246455 },
+    "31": { "lat": -27.568589517414566, "lon": -48.69094335464608 }
+  },
+  "expectedDecision": "fail",
+  "expectedFailSubScore": "anchor"
+}

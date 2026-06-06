@@ -6,16 +6,13 @@ import { haversineMeters } from "../geo/utm-calibrator.js";
 // route ("trust"), >= SHAPE_FALLBACK is a failed shape. Seeds are the research
 // estimates (5% trust / 15% fallback) and are considered final for shape.
 //
-// Anchor bands are p95/per-post gap in metres. The seed values below are
-// PLACEHOLDERS — LOCKED in Plan 02 against real Siriu/Valmor/João Born output.
-// The hard constraint is ANCHOR_FAIL_M < 202 m (the Luiz Carolino mean anchor
-// gap, ~179 m on posts 21–31) so the LC rigid offset MUST fail while known-good
-// routes pass. Do NOT treat these as calibrated until Plan 02 replaces them.
+// Anchor bands are p95/per-post gap in metres.
 const SHAPE_TRUST = 0.05;       // median relError < 5% → shape passes (trust)
 const SHAPE_FALLBACK = 0.15;    // median relError >= 15% → shape fails
-const ANCHOR_TRUST_M = 50;      // placeholder — LOCKED in Plan 02
-const ANCHOR_FALLBACK_M = 100;  // placeholder — LOCKED in Plan 02
-const ANCHOR_FAIL_M = 150;      // placeholder — LOCKED in Plan 02; must stay < 202m (LC anchor gap)
+// LOCKED 2026-06-06, calibrated: TRUST<10m, FAIL>20m (user-specified strict accuracy threshold; measured p95: Valmor 16.6m→fallback, Siriu 188m→fail, João Born 909m→fail, LC 417m→fail)
+const ANCHOR_TRUST_M = 10;      // < 10m = route is trustworthy
+const ANCHOR_FALLBACK_M = 15;   // 10–20m = fallback zone
+const ANCHOR_FAIL_M = 20;       // > 20m = fail (strict accuracy requirement)
 
 /**
  * Truth-free residual gate — a pure-math quality judge for paired-coordinate
