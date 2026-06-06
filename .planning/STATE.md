@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
-status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-06T11:59:32.909Z"
-last_activity: 2026-06-05 — Phase 5 planned — 2 plans in 2 waves (residual-gate module + live wire + CI gate)
+status: ready
+stopped_at: Phase 6 planned — ready to execute
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06 — Phase 6 planned — 3 plans in 2 waves (fail-loud validation + NO_REGION + Web Worker)
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
+  total_plans: 5
   completed_plans: 2
   percent: 20
 ---
@@ -26,16 +26,16 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Status
 
 - **Milestone:** v1.1 — Generalized DXF-Driven Accuracy (**roadmap complete**; v1.0 shipped 2026-06-05)
-- **State:** Phase 5 planned (2 plans in 2 waves). Research complete and converged. Requirements locked (21 reqs: ACC/DXF/SOLVE/CONF). Ready to execute Phase 5.
+- **State:** Phase 5 complete. Phase 6 planned (3 plans in 2 waves). Requirements locked (21 reqs: ACC/DXF/SOLVE/CONF). Ready to execute Phase 6.
 - **Archive:** `.planning/milestones/v1.0-ROADMAP.md` · `.planning/MILESTONES.md`
-- **Next:** `/gsd:plan-phase 5` — Truth-Free Residual Gate
+- **Next:** `/gsd:execute-phase 6` — DXF Ingestion & Region Lookup
 
 ## Current Position
 
-Phase: Phase 5 (planned)
-Plan: 05-01 (wave 1) and 05-02 (wave 2)
+Phase: Phase 6 (planned)
+Plan: 06-01 + 06-02 (wave 1, parallel) → 06-03 (wave 2)
 Status: Ready to execute
-Last activity: 2026-06-05 — Phase 5 planned — 2 plans in 2 waves (residual-gate module + live wire + CI gate)
+Last activity: 2026-06-06 — Phase 6 planned — 3 plans in 2 waves (fail-loud validation + NO_REGION + Web Worker)
 
 ## Phase History
 

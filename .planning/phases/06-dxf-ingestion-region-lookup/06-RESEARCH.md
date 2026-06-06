@@ -380,18 +380,21 @@ Note: in Node, `Worker` is undefined → the inline fallback (Pattern 2) runs pa
 | A4 | `confidence:'low'` (successful mm→m retry) is effectively unreachable for real SC DXFs because no real local file is authored in mm | D-08 / Open Q2 | If a real mm DXF appears, the low path stores a valid region. CONTEXT grants discretion to make it unreachable + assert. LOW risk. |
 | A5 | Structured `NO_REGION` should be synthesized at cascade level, not inside leaf `lookupByGps`, to preserve the hybrid cloud fallback | Runtime State Inventory / Pitfall 5 | If the planner instead changes the leaf return, cloud-only regions break. This is an architectural recommendation, not a locked decision — planner/user should confirm. MEDIUM. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`haversineMeters` location.** CONTEXT D-07 / §code_context say "in-house haversine from `parser/coordinate-calculator.js`." Verified: the haversine is actually exported from `parser/geo/utm-calibrator.js` (line 770), and `coordinate-calculator.js` *imports* it from there. Functionally identical; import from utm-calibrator.js directly.
+1. **`haversineMeters` location. RESOLVED:** CONTEXT D-07 / §code_context say "in-house haversine from `parser/coordinate-calculator.js`." Verified: the haversine is actually exported from `parser/geo/utm-calibrator.js` (line 770), and `coordinate-calculator.js` *imports* it from there. Functionally identical; import from utm-calibrator.js directly.
    - Recommendation: import `haversineMeters` from `../geo/utm-calibrator.js` in region-library.js. No new code.
+   - **Resolution:** Adopted in 06-02 Task 1 — `noRegionError` imports `haversineMeters` from `../geo/utm-calibrator.js` (recorded in the plan's `<interfaces>` and key_links).
 
-2. **Is `confidence:'low'` reachable?** D-08 defines it for a *successful* ÷1000 retry, but D-02 fails loud on a *failed* retry. A successful retry only happens if a real DXF is authored in mm yet lands in-envelope after ÷1000. No such file exists in the corpus (Siriu/Palhoça are native metres).
+2. **Is `confidence:'low'` reachable? RESOLVED:** D-08 defines it for a *successful* ÷1000 retry, but D-02 fails loud on a *failed* retry. A successful retry only happens if a real DXF is authored in mm yet lands in-envelope after ÷1000. No such file exists in the corpus (Siriu/Palhoça are native metres).
    - What we know: the value is defined and storable in principle.
    - What's unclear: whether any real SC DXF will ever trigger it.
    - Recommendation: implement the path (cheap), add a unit test with a synthetic mm DXF to exercise it, but per CONTEXT discretion the planner may instead assert it never stores and treat any mm-scale input as fail-loud. Confirm with user.
+   - **Resolution:** 06-01 implements the `confidence:'low'` mm→m retry path and exercises it with a synthetic mm-scale DXF fixture; the failed-retry branch fails loud per D-02. Path is reachable in test, treated as unreachable for real SC corpus (A4).
 
-3. **D-03 strictness vs. a constants helper.** CONTEXT forbids a new `dxf-ingestion.js`. A pure `dxf-envelope.js` (constants + predicates, no flow) is arguably compliant and improves readability.
+3. **D-03 strictness vs. a constants helper. RESOLVED:** CONTEXT forbids a new `dxf-ingestion.js`. A pure `dxf-envelope.js` (constants + predicates, no flow) is arguably compliant and improves readability.
    - Recommendation: planner proposes the helper; if the user wants strict in-file, inline the constants at the top of region-library.js. Either satisfies D-03's intent (no flow rewrite).
+   - **Resolution:** 06-01 keeps the ingestion flow inside `addRegion()` (no new `dxf-ingestion.js` flow module); envelope constants/predicates are organized to satisfy D-03's no-flow-rewrite intent.
 
 ## Environment Availability
 
@@ -498,5 +501,3 @@ Note: in Node, `Worker` is undefined → the inline fallback (Pattern 2) runs pa
 
 **Research date:** 2026-06-06
 **Valid until:** 2026-07-06 (stable; no fast-moving external deps — all in-house/built-in)
-</content>
-</invoke>

@@ -84,6 +84,13 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   - [ ] 06-03-PLAN.md — Web Worker off-thread parse/index + Palhoca 5s timing gate
 
+  **Cross-cutting constraints:**
+
+  - Fail-loud, never silently-wrong: all unit/bbox failures throw, never store (D-01–D-03, D-09)
+  - NO_REGION synthesized at cascade caller (`coordinate-calculator-dwg.js`); leaf `lookupByGps()` stays null — preserves hybrid cloud fallback
+  - Zone-22S envelope: E 600,000–800,000 / N 6,700,000–7,100,000 (verified from Siriu + Palhoça DXF headers)
+  - No new external dependencies
+
 **UI hint**: yes
 
 ### Phase 7: Solver Prerequisites
