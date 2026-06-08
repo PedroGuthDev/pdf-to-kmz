@@ -152,7 +152,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 2** *(blocked on 08-00)*
 
-  - [ ] 08-01-PLAN.md — munkres@2.0.3 install + Hungarian core (anchor, rbush prune k≤30, D-02 cost, munkres assign, coords mapping, 2s timer)
+  - [x] 08-01-PLAN.md — munkres@2.0.3 install + Hungarian core (anchor, rbush prune k≤30, D-02 cost, munkres assign, coords mapping, 2s timer)
 
   **Wave 3** *(blocked on 08-01)*
 
@@ -194,7 +194,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
 | 7. Solver Prerequisites | 7/7 | Complete | 2026-06-08 |
-| 8. Global PDF-DXF Solver | 0/4 | Planned | - |
+| 8. Global PDF-DXF Solver | 1/4 | In Progress|  |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
 ---

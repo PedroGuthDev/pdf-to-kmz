@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
 status: executing
-stopped_at: Completed 08-00-PLAN.md
-last_updated: "2026-06-08T18:21:09.907Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-06-08T19:31:56.037Z"
 last_activity: 2026-06-08
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 16
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Position
 
 Phase: 08 (global-pdf-dxf-solver) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-08
 
@@ -131,6 +131,6 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 
 ## Session Continuity
 
-Last session: 2026-06-08T18:21:09.900Z
-Stopped at: Completed 08-00-PLAN.md
+Last session: 2026-06-08T19:31:56.012Z
+Stopped at: Completed 08-01-PLAN.md
 Resume: Execute Phase 7 Wave 3 (07-06 LC layer-B fix under all-green discipline)
