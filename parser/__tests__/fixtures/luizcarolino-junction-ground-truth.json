@@ -1,34 +1,34 @@
 {
-  "_description": "DRAFT Luiz Carolino junction ground-truth graph (D-12/D-13). User must approve the junction post list + arm topology before locking. Source of phantom forbiddenArms: .planning/quick/260602-decouple-graph-walker-phantom-edges/260602-decouple-SUMMARY.md (LC phantom pairs 3->1, 11->8, 9->11).",
-  "_authoritative": "DRAFT — LC has a real branch around posts 9-11 and the 21-31 spur. Drafted with post 9 as the branch junction where the 21-31 spur leaves the main line. USER must confirm the authoritative LC junction posts + arms (D-13).",
-  "_draftStatus": "PENDING USER APPROVAL — junction posts/arms drafted from 260602-decouple phantom pairs + the known 9-11 / 21-31 branch.",
+  "_description": "Authoritative Luiz Carolino junction ground-truth graph (D-12/D-13). USER-APPROVED 2026-06-08: the real LC bifurcation is at post 7 (NOT post 9). The 21-31 spur branches off between posts 6 and 7 on the drawing; post 21 is the spur head, connecting westward before post 22. There is exactly ONE real junction in LC.",
+  "_authoritative": "LOCKED per user approval 2026-06-08. Junction post 7 (degree 3): inbound from post 6, main route continues to post 8, spur arm heads to post 21 (first post of the 21-31 spur). Corrected from the prior post-9 DRAFT.",
+  "_correctionNote": "Prior DRAFT placed the junction at post 9 with arms 8(inbound)/10/21. User corrected: the junction is at post 7 — the spur leaves the main line between posts 6 and 7, not at post 9. Main chain is now a single 1->2->...->20 spine with post 7 as the branch point; the spur is 7->21->...->31.",
   "junctions": {
-    "9": {
-      "post": 9,
+    "7": {
+      "post": 7,
       "degree": 3,
       "slots": 1,
-      "forbiddenArms": [11],
-      "_forbiddenNote": "DRAFT. Phantom 9->11 (260602-decouple) must stay absent; 9 connects to consecutive 8 (inbound), 10 (spine), and the 21 spur head. The non-consecutive 9->11 phantom must NOT be incident.",
+      "forbiddenArms": [],
+      "_forbiddenNote": "Post 7 is the LC bifurcation: inbound from 6, main route to 8, spur head to 21. No phantom target is incident to post 7 under the corrected topology. The 260602-decouple phantoms (3->1, 11->8, 9->11) were inferred for the WRONG post-9 junction and do not touch post 7 — see _phantomNote (they are asserted absent from the whole graph, not pinned on post 7).",
       "arms": [
-        { "to": 8, "meters": 0.0, "label": "from 8", "inbound": true },
-        { "to": 10, "meters": 0.0, "label": "->10" },
+        { "to": 6, "meters": 0.0, "label": "from 6", "inbound": true },
+        { "to": 8, "meters": 0.0, "label": "->8" },
         { "to": 21, "meters": 0.0, "label": "->21" }
       ]
     }
   },
   "_edgeDirection": "Inbound arms are directed armPost -> junction (upstream into the junction); outbound arms are directed junction -> armPost. DFS-with-slots derives inbound from edge direction (no post-number literals).",
-  "_phantomNote": "260602-decouple phantom pairs for LC: 3->1, 11->8, 9->11. These are inferred-label phantoms that must NEVER be incident to any junction. 3->1 and 11->8 are asserted absent via the inferred-only edges NOT being present in the GT graph; 9->11 is pinned in junction 9 forbiddenArms.",
+  "_phantomNote": "260602-decouple inferred-label phantom pairs for LC: 3->1, 11->8, 9->11. These are inferred-label phantoms that must NEVER be incident to any junction. Under the corrected post-7 topology none are incident to the real junction; they are asserted absent because no such edge exists in the all-declared GT graph (the D-15.2 inferred-only subgraph is empty).",
   "edges": [
     { "from": 1, "to": 2, "meters": 0.0, "source": "declared" },
     { "from": 2, "to": 3, "meters": 0.0, "source": "declared" },
     { "from": 3, "to": 4, "meters": 0.0, "source": "declared" },
     { "from": 4, "to": 5, "meters": 0.0, "source": "declared" },
     { "from": 5, "to": 6, "meters": 0.0, "source": "declared" },
-    { "from": 6, "to": 7, "meters": 0.0, "source": "declared" },
-    { "from": 7, "to": 8, "meters": 0.0, "source": "declared" },
-    { "from": 8, "to": 9, "meters": 0.0, "arm": true, "junction": 9, "inbound": true, "source": "declared" },
-    { "from": 9, "to": 10, "meters": 0.0, "arm": true, "junction": 9, "source": "declared" },
-    { "from": 9, "to": 21, "meters": 0.0, "arm": true, "junction": 9, "source": "declared" },
+    { "from": 6, "to": 7, "meters": 0.0, "arm": true, "junction": 7, "inbound": true, "source": "declared" },
+    { "from": 7, "to": 8, "meters": 0.0, "arm": true, "junction": 7, "source": "declared" },
+    { "from": 7, "to": 21, "meters": 0.0, "arm": true, "junction": 7, "source": "declared" },
+    { "from": 8, "to": 9, "meters": 0.0, "source": "declared" },
+    { "from": 9, "to": 10, "meters": 0.0, "source": "declared" },
     { "from": 10, "to": 11, "meters": 0.0, "source": "declared" },
     { "from": 11, "to": 12, "meters": 0.0, "source": "declared" },
     { "from": 12, "to": 13, "meters": 0.0, "source": "declared" },
