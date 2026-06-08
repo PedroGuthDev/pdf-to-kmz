@@ -98,6 +98,24 @@ const BETWEEN_NEIGHBOR_SEG_MAX = 0.88;
 const ANCHOR_POLE_SPLIT_REALIGN_PT = 18;
 
 /**
+ * Shared-symbol collapse restore (07-06, D-09/D-10).
+ *
+ * When the Viterbi assignment fails for a page partition and the greedy fallback
+ * packs several posts onto wrong/shared pole symbols (the documented LC posts
+ * 9/10/11 collapse), the affected posts end up FAR from their own independently
+ * computed Numero_Poste label anchor — and clustered together on a degenerate
+ * symbol. These constants tune the generic geometric predicate that detects and
+ * undoes that collapse. They are NOT Siriu-calibrated assignment thresholds and
+ * must never be confused with the Viterbi / cable / arc constants above.
+ */
+/** Assigned (x,y) must diverge from the post's own label anchor by more than this to be a collapse candidate. */
+const COLLAPSE_ANCHOR_DIVERGENCE_PT = 60;
+/** The post's label anchor is considered FREE only if no other post's final (x,y) lies within this radius. */
+const COLLAPSE_ANCHOR_FREE_PT = 30;
+/** Two collapse candidates within this distance of each other's assigned (x,y) form a degenerate cluster. */
+const COLLAPSE_CLUSTER_PT = 60;
+
+/**
  * @param {{ x: number, y: number, anchorX?: number, anchorY?: number }} p
  */
 function anchorOf(p) {
@@ -117,6 +135,90 @@ export function attachMarkerAnchors(posts) {
     if (p.anchorX == null) p.anchorX = p.x;
     if (p.anchorY == null) p.anchorY = p.y;
   }
+}
+
+/**
+ * Restore posts whose pole-symbol assignment COLLAPSED onto a wrong/shared symbol
+ * back to their own free label anchor (07-06, D-09/D-10 — the LC layer-B fix).
+ *
+ * Additive, generic-geometry predicate (no literal post-number guard, per the
+ * 260601-k1a pattern). A post `P` is treated as a shared-symbol collapse iff:
+ *   (a) its final (x,y) diverges from its OWN Numero_Poste label anchor by more
+ *       than COLLAPSE_ANCHOR_DIVERGENCE_PT, AND
+ *   (b) that label anchor is FREE — no other post's final (x,y) sits within
+ *       COLLAPSE_ANCHOR_FREE_PT of it (so we never steal a real placement), AND
+ *   (c) it sits in a degenerate CLUSTER — another post on the same page that also
+ *       satisfies (a)+(b) lies within COLLAPSE_CLUSTER_PT of P's assigned (x,y).
+ *
+ * Conditions (b)+(c) are precisely what distinguish the LC greedy-fallback
+ * collapse (posts 9/10/11 packed together onto shared symbols, their correct
+ * anchors left empty) from Siriu's LEGITIMATE off-anchor placements (junction
+ * posts that sit on a real distinct pole, whose anchor is occupied or which are
+ * lone). Verified: this predicate selects exactly LC {9,10,11} and ZERO Siriu /
+ * João Born / Valmor posts, so it cannot regress the 1.0-pt Siriu position gate.
+ *
+ * @param {Array<{ number: number, x: number, y: number, pageNum?: number, anchorX?: number, anchorY?: number }>} posts
+ * @param {string[]} [warnings]
+ * @returns {Set<number>} indices (into `posts`) of posts that were restored to their anchor.
+ */
+export function restoreSharedSymbolCollapsedPosts(posts, warnings = []) {
+  const restored = new Set();
+  if (!Array.isArray(posts) || posts.length < 2) return restored;
+
+  const page = p => p.pageNum ?? 1;
+  const divergence = p => {
+    const a = anchorOf(p);
+    return Math.hypot(p.x - a.x, p.y - a.y);
+  };
+  const anchorIsFree = p => {
+    const a = anchorOf(p);
+    return !posts.some(
+      q =>
+        q !== p &&
+        page(q) === page(p) &&
+        Math.hypot(q.x - a.x, q.y - a.y) <= COLLAPSE_ANCHOR_FREE_PT
+    );
+  };
+  // A candidate diverges far from its OWN free anchor (conditions a + b).
+  const isCandidate = p =>
+    p.anchorX != null &&
+    p.anchorY != null &&
+    divergence(p) > COLLAPSE_ANCHOR_DIVERGENCE_PT &&
+    anchorIsFree(p);
+
+  // Evaluate the predicate against the ORIGINAL positions before mutating any post —
+  // restoring one collapsed post must not retroactively dissolve the cluster that
+  // qualified its neighbours (posts 9/10/11 all share one degenerate symbol, so
+  // moving the first two would otherwise strand the third). Snapshot the assigned
+  // (x,y) of every candidate up front and run both predicate stages against it.
+  const candidates = [];
+  for (let i = 0; i < posts.length; i++) {
+    if (isCandidate(posts[i])) {
+      candidates.push({ idx: i, x: posts[i].x, y: posts[i].y });
+    }
+  }
+
+  for (const c of candidates) {
+    const p = posts[c.idx];
+    // Condition (c): another candidate clusters onto the same degenerate symbol,
+    // measured against the snapshot so prior restores cannot dissolve the cluster.
+    const clustered = candidates.some(
+      o =>
+        o.idx !== c.idx &&
+        page(posts[o.idx]) === page(p) &&
+        Math.hypot(o.x - c.x, o.y - c.y) <= COLLAPSE_CLUSTER_PT
+    );
+    if (!clustered) continue;
+    const a = anchorOf(p);
+    warnings.push(
+      `[post-positioning] post ${p.number}: shared-symbol collapse detected ` +
+        `(${divergence(p).toFixed(0)} pt from free label anchor) — restored to anchor (${Math.round(a.x)},${Math.round(a.y)}).`
+    );
+    p.x = a.x;
+    p.y = a.y;
+    restored.add(c.idx);
+  }
+  return restored;
 }
 
 /**
@@ -1938,6 +2040,12 @@ export function assignPolesGloballyByLabels(
   );
 
   warnPostsFarFromCable(posts, cablesByPage, postByNum, warnings);
+
+  // D-09/D-10: undo any shared-symbol collapse left by the greedy/Viterbi fallback
+  // (LC posts 9/10/11) by restoring affected posts to their own free label anchor.
+  // Generic geometry — proven a no-op on Siriu/JB/Valmor (no Pitfall-2 regression).
+  const restoredCollapse = restoreSharedSymbolCollapsedPosts(posts, warnings);
+  for (const pi of restoredCollapse) snappedPosts.add(pi);
 
   return snappedPosts;
 }
