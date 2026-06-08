@@ -65,5 +65,6 @@
       "meters": 0,
       "source": "declared"
     }
-  ]
+  ],
+  "_metersNote": "arm meters not yet surveyed — assertions are vacuous 0===0 (WR-02: real meter values need field measurement to make distance assertions non-trivial)"
 }

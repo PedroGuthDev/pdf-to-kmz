@@ -10,44 +10,215 @@
       "forbiddenArms": [],
       "_forbiddenNote": "Post 7 is the LC bifurcation: inbound from 6, main route to 8, spur head to 21. No phantom target is incident to post 7 under the corrected topology. The 260602-decouple phantoms (3->1, 11->8, 9->11) were inferred for the WRONG post-9 junction and do not touch post 7 — see _phantomNote (they are asserted absent from the whole graph, not pinned on post 7).",
       "arms": [
-        { "to": 6, "meters": 0.0, "label": "from 6", "inbound": true },
-        { "to": 8, "meters": 0.0, "label": "->8" },
-        { "to": 21, "meters": 0.0, "label": "->21" }
+        {
+          "to": 6,
+          "meters": 0,
+          "label": "from 6",
+          "inbound": true
+        },
+        {
+          "to": 8,
+          "meters": 0,
+          "label": "->8"
+        },
+        {
+          "to": 21,
+          "meters": 0,
+          "label": "->21"
+        }
       ]
     }
   },
   "_edgeDirection": "Inbound arms are directed armPost -> junction (upstream into the junction); outbound arms are directed junction -> armPost. DFS-with-slots derives inbound from edge direction (no post-number literals).",
   "_phantomNote": "260602-decouple inferred-label phantom pairs for LC: 3->1, 11->8, 9->11. These are inferred-label phantoms that must NEVER be incident to any junction. Under the corrected post-7 topology none are incident to the real junction; they are asserted absent because no such edge exists in the all-declared GT graph (the D-15.2 inferred-only subgraph is empty).",
   "edges": [
-    { "from": 1, "to": 2, "meters": 0.0, "source": "declared" },
-    { "from": 2, "to": 3, "meters": 0.0, "source": "declared" },
-    { "from": 3, "to": 4, "meters": 0.0, "source": "declared" },
-    { "from": 4, "to": 5, "meters": 0.0, "source": "declared" },
-    { "from": 5, "to": 6, "meters": 0.0, "source": "declared" },
-    { "from": 6, "to": 7, "meters": 0.0, "arm": true, "junction": 7, "inbound": true, "source": "declared" },
-    { "from": 7, "to": 8, "meters": 0.0, "arm": true, "junction": 7, "source": "declared" },
-    { "from": 7, "to": 21, "meters": 0.0, "arm": true, "junction": 7, "source": "declared" },
-    { "from": 8, "to": 9, "meters": 0.0, "source": "declared" },
-    { "from": 9, "to": 10, "meters": 0.0, "source": "declared" },
-    { "from": 10, "to": 11, "meters": 0.0, "source": "declared" },
-    { "from": 11, "to": 12, "meters": 0.0, "source": "declared" },
-    { "from": 12, "to": 13, "meters": 0.0, "source": "declared" },
-    { "from": 13, "to": 14, "meters": 0.0, "source": "declared" },
-    { "from": 14, "to": 15, "meters": 0.0, "source": "declared" },
-    { "from": 15, "to": 16, "meters": 0.0, "source": "declared" },
-    { "from": 16, "to": 17, "meters": 0.0, "source": "declared" },
-    { "from": 17, "to": 18, "meters": 0.0, "source": "declared" },
-    { "from": 18, "to": 19, "meters": 0.0, "source": "declared" },
-    { "from": 19, "to": 20, "meters": 0.0, "source": "declared" },
-    { "from": 21, "to": 22, "meters": 0.0, "source": "declared" },
-    { "from": 22, "to": 23, "meters": 0.0, "source": "declared" },
-    { "from": 23, "to": 24, "meters": 0.0, "source": "declared" },
-    { "from": 24, "to": 25, "meters": 0.0, "source": "declared" },
-    { "from": 25, "to": 26, "meters": 0.0, "source": "declared" },
-    { "from": 26, "to": 27, "meters": 0.0, "source": "declared" },
-    { "from": 27, "to": 28, "meters": 0.0, "source": "declared" },
-    { "from": 28, "to": 29, "meters": 0.0, "source": "declared" },
-    { "from": 29, "to": 30, "meters": 0.0, "source": "declared" },
-    { "from": 30, "to": 31, "meters": 0.0, "source": "declared" }
-  ]
+    {
+      "from": 1,
+      "to": 2,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 2,
+      "to": 3,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 4,
+      "to": 5,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 6,
+      "to": 7,
+      "meters": 0,
+      "arm": true,
+      "junction": 7,
+      "inbound": true,
+      "source": "declared"
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "meters": 0,
+      "arm": true,
+      "junction": 7,
+      "source": "declared"
+    },
+    {
+      "from": 7,
+      "to": 21,
+      "meters": 0,
+      "arm": true,
+      "junction": 7,
+      "source": "declared"
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 9,
+      "to": 10,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 10,
+      "to": 11,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 11,
+      "to": 12,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 13,
+      "to": 14,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 14,
+      "to": 15,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 15,
+      "to": 16,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 16,
+      "to": 17,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 17,
+      "to": 18,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 18,
+      "to": 19,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 19,
+      "to": 20,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 21,
+      "to": 22,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 22,
+      "to": 23,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 23,
+      "to": 24,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 24,
+      "to": 25,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 25,
+      "to": 26,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 26,
+      "to": 27,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 27,
+      "to": 28,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 28,
+      "to": 29,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 29,
+      "to": 30,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 30,
+      "to": 31,
+      "meters": 0,
+      "source": "declared"
+    }
+  ],
+  "_metersNote": "arm meters not yet surveyed — assertions are vacuous 0===0 (WR-02: real meter values need field measurement to make distance assertions non-trivial)"
 }
