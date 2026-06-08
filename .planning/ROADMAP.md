@@ -120,7 +120,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 3** *(LC layer-B fix under all-green discipline; blocked on 07-01..07-05)*
 
-  - [ ] 07-06-PLAN.md — LC layer-B placement fix (additive predicate; Siriu 1.0-pt gate stays green)
+  - [x] 07-06-PLAN.md — LC layer-B placement fix (additive predicate; Siriu 1.0-pt gate stays green)
 
   **Wave 4** *(phase exit; blocked on 07-06)*
 
@@ -169,7 +169,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 |-------|----------------|--------|-----------|
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
-| 7. Solver Prerequisites | 5/7 | Executing (Wave 2 done) | - |
+| 7. Solver Prerequisites | 6/7 | Executing (Wave 3 done) | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
