@@ -61,7 +61,7 @@ function median(values) {
 function parseTxtLines(text) {
   const out = [];
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/poste\s+(\d+)\s*;\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
+    const m = line.match(/poste\s+(\d+)\s*;\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
     if (!m) continue;
     out.push({ number: +m[1], lat: +m[2], lon: +m[3] });
   }
@@ -97,6 +97,12 @@ function importRoute(route, outlierKm) {
   }
   const text = readFileSync(route.txt, "utf8");
   const parsed = parseTxtLines(text);
+  // Warn when parsed count is less than non-blank Poste-prefixed lines (dropped lines invisible otherwise)
+  const posteLineCount = text.split(/\r?\n/).filter(l => /^\s*poste\s+\d+/i.test(l)).length;
+  if (parsed.length < posteLineCount) {
+    console.warn(`[warn] ${route.name}: parsed ${parsed.length} posts but found ${posteLineCount} Poste-prefixed lines ` +
+      `— ${posteLineCount - parsed.length} line(s) dropped (malformed or non-decimal coordinates?)`);
+  }
   const { kept, excluded } = excludeOutliers(parsed, outlierKm);
   writeFileSync(route.out, JSON.stringify(kept, null, 2) + "\n", "utf8");
   console.log(`${route.name}: wrote ${kept.length} posts (excluded ${excluded})`);
