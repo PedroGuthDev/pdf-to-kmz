@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
-status: verifying
-stopped_at: Completed 07-06-PLAN.md (LC layer-B fix green; Siriu 1.0-pt gate byte-identical)
-last_updated: "2026-06-08T18:00:00.000Z"
+status: complete
+stopped_at: Completed 07-07-PLAN.md (gate audit + test:gate + baseline cascade — Phase 7 exit)
+last_updated: "2026-06-08T20:00:00.000Z"
 last_activity: 2026-06-08
 progress:
   total_phases: 5
@@ -33,8 +33,8 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Position
 
 Phase: 07 (solver-prerequisites) — EXECUTING
-Plan: 07-01 through 07-06 complete (Wave 3 DONE — next Wave 4 07-07 gate audit + test:gate wiring)
-Status: LC layer-B fix (07-06) green — restoreSharedSymbolCollapsedPosts predicate fixes posts 9/10/11 (mean 32.7pt→0.4pt). Siriu 1.0-pt gate BYTE-IDENTICAL (0.00pt max). Decision: layerb-only (posts 21-31 deferred to Phase 8 solver).
+Plan: ALL 7 plans complete (07-01 through 07-07) — Phase 7 DONE
+Status: Gate audit complete (17 gates classified FENCE/ASSERTION with D-18 policy). npm run test:gate exits 0 (all Phase 7 gates green). 4-route pre-solver baseline recorded. Phase 8 is authorized.
 Last activity: 2026-06-08
 
 ## Phase History

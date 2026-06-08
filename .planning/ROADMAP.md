@@ -24,7 +24,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
 - [x] **Phase 5: Truth-Free Residual Gate** — Two-sub-score gate (shape-fidelity + absolute-anchor) wraps the cascade; LC 179 m rigid-offset must fail it. (completed 2026-06-06)
 - [ ] **Phase 6: DXF Ingestion & Region Lookup** — Ingest DXFs with CRS normalization, spatial indexing, and fail-loud boundaries; GPS-based region lookup.
-- [ ] **Phase 7: Solver Prerequisites** — Lock per-post position fixtures for all four named routes, audit all gates (fence vs. accuracy), and confirm junction ground-truth is clean; green gate for solver entry.
+- [x] **Phase 7: Solver Prerequisites** — Lock per-post position fixtures for all four named routes, audit all gates (fence vs. accuracy), and confirm junction ground-truth is clean; green gate for solver entry. (completed 2026-06-08)
 - [ ] **Phase 8: Global PDF-DXF Solver** — Hungarian bipartite solver as cascade level-0; strangler-fig fallback; re-clears Siriu 85-post gate and LC per-post position gate with zero regression.
 - [ ] **Phase 9: Diagnostic Failure & Confidence Surfacing** — Per-post TIER labels in KMZ/UI; Portuguese failure messages; partial output on low confidence; no numeric percentage seals.
 
@@ -124,7 +124,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 4** *(phase exit; blocked on 07-06)*
 
-  - [ ] 07-07-PLAN.md — 07-GATE-AUDIT.md (fence vs accuracy) + full test:gate wiring + 4-route baseline cascade
+  - [x] 07-07-PLAN.md — 07-GATE-AUDIT.md (fence vs accuracy) + full test:gate wiring + 4-route baseline cascade
 
   **Cross-cutting constraints:**
 
@@ -169,7 +169,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 |-------|----------------|--------|-----------|
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
-| 7. Solver Prerequisites | 6/7 | Executing (Wave 3 done) | - |
+| 7. Solver Prerequisites | 7/7 | Complete | 2026-06-08 |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
