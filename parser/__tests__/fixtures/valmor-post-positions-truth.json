@@ -1,0 +1,79 @@
+{
+  "_meta": {
+    "purpose": "Per-post expected PDF pole-symbol position (x,y in flipped page pt) for ALL Valmor posts. Enables a position gate that measures Poste-symbol placement (layer B) in isolation from the label-LSQ calibration (which can compensate for placement errors). One of the four SOLVE-05 position gates feeding the Phase 8 solver. D-06 forbids exempting Valmor: this is captured from a real PDF parse, not a DWG-only stand-in. See .planning/phases/07-solver-prerequisites/07-03-PLAN.md (D-06).",
+    "source": "hand-known anchors, Valmor v1",
+    "scope": "all posts",
+    "tolerancePt": 50,
+    "postCount": 11,
+    "generatedFrom": "tools/run-valmor-post-position-gate.mjs (pristine parse, candidate)",
+    "generatedAt": "2026-06-08"
+  },
+  "posts": [
+    {
+      "number": 1,
+      "pageNum": 3,
+      "x": 669,
+      "y": 499
+    },
+    {
+      "number": 2,
+      "pageNum": 3,
+      "x": 568,
+      "y": 486
+    },
+    {
+      "number": 3,
+      "pageNum": 3,
+      "x": 478,
+      "y": 472
+    },
+    {
+      "number": 4,
+      "pageNum": 3,
+      "x": 376,
+      "y": 460
+    },
+    {
+      "number": 5,
+      "pageNum": 3,
+      "x": 246,
+      "y": 442
+    },
+    {
+      "number": 6,
+      "pageNum": 3,
+      "x": 170,
+      "y": 429
+    },
+    {
+      "number": 7,
+      "pageNum": 4,
+      "x": 1139,
+      "y": 414
+    },
+    {
+      "number": 8,
+      "pageNum": 4,
+      "x": 1037,
+      "y": 397
+    },
+    {
+      "number": 9,
+      "pageNum": 4,
+      "x": 945,
+      "y": 383
+    },
+    {
+      "number": 10,
+      "pageNum": 4,
+      "x": 812,
+      "y": 369
+    },
+    {
+      "number": 11,
+      "pageNum": 4,
+      "x": 721,
+      "y": 357
+    }
+  ]
+}
