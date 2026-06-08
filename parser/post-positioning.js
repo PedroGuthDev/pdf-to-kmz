@@ -1161,9 +1161,11 @@ export function repairConsecutiveLabelArcJumps(
       Math.min(totalLen, assignment[i].t + dir * (m / scale))
     );
     const pt = pointAtArcLength(routeOps, targetT);
+    const prevSi = assignment[i + 1].si;
     let bestSi = -1;
     let bestD = Infinity;
     for (let si = 0; si < symbols.length; si++) {
+      if (si !== prevSi && usedSymbol.has(si)) continue;  // don't steal another post's pole
       const sym = symbols[si];
       const d = Math.hypot(sym.x - pt.x, sym.y - pt.y);
       if (d < bestD) {
@@ -1172,8 +1174,10 @@ export function repairConsecutiveLabelArcJumps(
       }
     }
     if (bestSi < 0 || bestD > POSTE_CABLE_ARC_FALLBACK_PT) continue;
+    // Only commit the move when bestSi is genuinely free (or equals the post's own prior si),
+    // mirroring the siSeen conflict guard used for the Viterbi result.
+    if (bestSi !== prevSi && usedSymbol.has(bestSi)) continue;
 
-    const prevSi = assignment[i + 1].si;
     if (prevSi !== bestSi) {
       if (prevSi >= 0) usedSymbol.delete(prevSi);
       usedSymbol.add(bestSi);
