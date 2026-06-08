@@ -115,7 +115,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   - [x] 07-02-PLAN.md — João Born PDF per-post position fixture + gate (hand-known anchors, all 34 posts)
   - [x] 07-03-PLAN.md — Valmor PDF per-post position fixture + gate (parse-viability gated, all 11 posts)
-  - [ ] 07-04-PLAN.md — Junction ground-truth fixtures + DFS-oracle tests for LC/JB(linear)/Valmor
+  - [x] 07-04-PLAN.md — Junction ground-truth fixtures + DFS-oracle tests for LC/JB(linear)/Valmor
   - [x] 07-05-PLAN.md — Per-route txt GPS accuracy gates with four-tier classifier (Siriu/Valmor hard; LC/JB soft fence — deferred to Phase 8)
 
   **Wave 3** *(LC layer-B fix under all-green discipline; blocked on 07-01..07-05)*
@@ -169,7 +169,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 |-------|----------------|--------|-----------|
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
-| 7. Solver Prerequisites | 2/7 | Executing (Wave 2 done) | - |
+| 7. Solver Prerequisites | 5/7 | Executing (Wave 2 done) | - |
 | 8. Global PDF-DXF Solver | 0/? | Not started | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
