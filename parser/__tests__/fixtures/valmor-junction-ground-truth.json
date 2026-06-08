@@ -1,0 +1,69 @@
+{
+  "_description": "DRAFT Valmor junction ground-truth graph (D-12/D-13). User must confirm topology before locking.",
+  "_authoritative": "Valmor is an 11-post near-linear DWG route; coordinates are monotone along one street. DRAFTED as linear (junctions: {}, consecutive chain 1->...->11). USER must confirm whether any real junctions exist.",
+  "_draftStatus": "PENDING USER APPROVAL — drafted near-linear per RESEARCH §4.",
+  "junctions": {},
+  "_edgeDirection": "All edges are consecutive spine steps from->to (i -> i+1). No arms, no junctions, no inbound (draft).",
+  "edges": [
+    {
+      "from": 1,
+      "to": 2,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 2,
+      "to": 3,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 4,
+      "to": 5,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 6,
+      "to": 7,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 9,
+      "to": 10,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 10,
+      "to": 11,
+      "meters": 0,
+      "source": "declared"
+    }
+  ]
+}

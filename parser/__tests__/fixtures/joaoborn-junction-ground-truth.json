@@ -1,0 +1,206 @@
+{
+  "_description": "Authoritative João Born junction ground-truth graph. GROUND-TRUTH DATA per D-12/D-14 — NOT computed at runtime, used only by parser/__tests__/branch-traversal-joaoborn.test.mjs.",
+  "_authoritative": "João Born is LINEAR — zero bifurcations (D-14 LOCKED). 34 posts, consecutive chain 1->2->...->34 only. Overrides the prior post-13 bifurcation research note.",
+  "junctions": {},
+  "_edgeDirection": "All edges are consecutive spine steps from->to (i -> i+1). No arms, no junctions, no inbound.",
+  "edges": [
+    {
+      "from": 1,
+      "to": 2,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 2,
+      "to": 3,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 4,
+      "to": 5,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 6,
+      "to": 7,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 9,
+      "to": 10,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 10,
+      "to": 11,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 11,
+      "to": 12,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 13,
+      "to": 14,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 14,
+      "to": 15,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 15,
+      "to": 16,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 16,
+      "to": 17,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 17,
+      "to": 18,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 18,
+      "to": 19,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 19,
+      "to": 20,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 20,
+      "to": 21,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 21,
+      "to": 22,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 22,
+      "to": 23,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 23,
+      "to": 24,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 24,
+      "to": 25,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 25,
+      "to": 26,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 26,
+      "to": 27,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 27,
+      "to": 28,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 28,
+      "to": 29,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 29,
+      "to": 30,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 30,
+      "to": 31,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 31,
+      "to": 32,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 32,
+      "to": 33,
+      "meters": 0,
+      "source": "declared"
+    },
+    {
+      "from": 33,
+      "to": 34,
+      "meters": 0,
+      "source": "declared"
+    }
+  ]
+}

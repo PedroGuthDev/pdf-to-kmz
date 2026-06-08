@@ -1,0 +1,53 @@
+{
+  "_description": "DRAFT Luiz Carolino junction ground-truth graph (D-12/D-13). User must approve the junction post list + arm topology before locking. Source of phantom forbiddenArms: .planning/quick/260602-decouple-graph-walker-phantom-edges/260602-decouple-SUMMARY.md (LC phantom pairs 3->1, 11->8, 9->11).",
+  "_authoritative": "DRAFT — LC has a real branch around posts 9-11 and the 21-31 spur. Drafted with post 9 as the branch junction where the 21-31 spur leaves the main line. USER must confirm the authoritative LC junction posts + arms (D-13).",
+  "_draftStatus": "PENDING USER APPROVAL — junction posts/arms drafted from 260602-decouple phantom pairs + the known 9-11 / 21-31 branch.",
+  "junctions": {
+    "9": {
+      "post": 9,
+      "degree": 3,
+      "slots": 1,
+      "forbiddenArms": [11],
+      "_forbiddenNote": "DRAFT. Phantom 9->11 (260602-decouple) must stay absent; 9 connects to consecutive 8 (inbound), 10 (spine), and the 21 spur head. The non-consecutive 9->11 phantom must NOT be incident.",
+      "arms": [
+        { "to": 8, "meters": 0.0, "label": "from 8", "inbound": true },
+        { "to": 10, "meters": 0.0, "label": "->10" },
+        { "to": 21, "meters": 0.0, "label": "->21" }
+      ]
+    }
+  },
+  "_edgeDirection": "Inbound arms are directed armPost -> junction (upstream into the junction); outbound arms are directed junction -> armPost. DFS-with-slots derives inbound from edge direction (no post-number literals).",
+  "_phantomNote": "260602-decouple phantom pairs for LC: 3->1, 11->8, 9->11. These are inferred-label phantoms that must NEVER be incident to any junction. 3->1 and 11->8 are asserted absent via the inferred-only edges NOT being present in the GT graph; 9->11 is pinned in junction 9 forbiddenArms.",
+  "edges": [
+    { "from": 1, "to": 2, "meters": 0.0, "source": "declared" },
+    { "from": 2, "to": 3, "meters": 0.0, "source": "declared" },
+    { "from": 3, "to": 4, "meters": 0.0, "source": "declared" },
+    { "from": 4, "to": 5, "meters": 0.0, "source": "declared" },
+    { "from": 5, "to": 6, "meters": 0.0, "source": "declared" },
+    { "from": 6, "to": 7, "meters": 0.0, "source": "declared" },
+    { "from": 7, "to": 8, "meters": 0.0, "source": "declared" },
+    { "from": 8, "to": 9, "meters": 0.0, "arm": true, "junction": 9, "inbound": true, "source": "declared" },
+    { "from": 9, "to": 10, "meters": 0.0, "arm": true, "junction": 9, "source": "declared" },
+    { "from": 9, "to": 21, "meters": 0.0, "arm": true, "junction": 9, "source": "declared" },
+    { "from": 10, "to": 11, "meters": 0.0, "source": "declared" },
+    { "from": 11, "to": 12, "meters": 0.0, "source": "declared" },
+    { "from": 12, "to": 13, "meters": 0.0, "source": "declared" },
+    { "from": 13, "to": 14, "meters": 0.0, "source": "declared" },
+    { "from": 14, "to": 15, "meters": 0.0, "source": "declared" },
+    { "from": 15, "to": 16, "meters": 0.0, "source": "declared" },
+    { "from": 16, "to": 17, "meters": 0.0, "source": "declared" },
+    { "from": 17, "to": 18, "meters": 0.0, "source": "declared" },
+    { "from": 18, "to": 19, "meters": 0.0, "source": "declared" },
+    { "from": 19, "to": 20, "meters": 0.0, "source": "declared" },
+    { "from": 21, "to": 22, "meters": 0.0, "source": "declared" },
+    { "from": 22, "to": 23, "meters": 0.0, "source": "declared" },
+    { "from": 23, "to": 24, "meters": 0.0, "source": "declared" },
+    { "from": 24, "to": 25, "meters": 0.0, "source": "declared" },
+    { "from": 25, "to": 26, "meters": 0.0, "source": "declared" },
+    { "from": 26, "to": 27, "meters": 0.0, "source": "declared" },
+    { "from": 27, "to": 28, "meters": 0.0, "source": "declared" },
+    { "from": 28, "to": 29, "meters": 0.0, "source": "declared" },
+    { "from": 29, "to": 30, "meters": 0.0, "source": "declared" },
+    { "from": 30, "to": 31, "meters": 0.0, "source": "declared" }
+  ]
+}
