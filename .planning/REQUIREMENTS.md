@@ -33,7 +33,7 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 
 - [x] **SOLVE-01**: System aligns the PDF's numbered, distance-labeled route graph to the DXF cable graph via a **global bipartite assignment** (Hungarian), with no per-route tuning.
 - [ ] **SOLVE-02**: The solver runs as cascade **level-0**; when its residual confidence is low it falls back to the existing graph-walker (strangler-fig).
-- [ ] **SOLVE-03**: The solver enforces anchor as a hard constraint, arc-order monotonicity, and hub-degree matching, with thresholds adaptive to each drawing's scale.
+- [x] **SOLVE-03**: The solver enforces anchor as a hard constraint, arc-order monotonicity, and hub-degree matching, with thresholds adaptive to each drawing's scale.
 - [ ] **SOLVE-04**: The solver re-clears Siriu (85-post regression + per-post position gate) and the LC per-post position gate with **zero regression**.
 
 ### Diagnostic Failure & Confidence Surfacing (CONF) → Phase 9
@@ -79,7 +79,7 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 | SOLVE-05 | Phase 7 | Pending |
 | SOLVE-01 | Phase 8 | Complete |
 | SOLVE-02 | Phase 8 | Pending |
-| SOLVE-03 | Phase 8 | Pending |
+| SOLVE-03 | Phase 8 | Complete |
 | SOLVE-04 | Phase 8 | Pending |
 | CONF-01 | Phase 9 | Pending |
 | CONF-02 | Phase 9 | Pending |
