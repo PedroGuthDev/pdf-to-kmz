@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
-status: complete
-stopped_at: Completed 07-07-PLAN.md (gate audit + test:gate + baseline cascade — Phase 7 exit)
-last_updated: "2026-06-08T20:00:00.000Z"
+status: completed
+stopped_at: Phase 08 context gathered
+last_updated: "2026-06-08T17:24:22.233Z"
 last_activity: 2026-06-08
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 10
-  percent: 40
+  completed_plans: 12
+  percent: 60
 ---
 
 # Project State
@@ -132,6 +132,6 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 
 ## Session Continuity
 
-Last session: 2026-06-08T00:00:00.000Z
-Stopped at: Completed 07-04-PLAN.md (junction oracle green for LC/JB/Valmor; LC junction user-corrected to post 7)
+Last session: 2026-06-08T17:24:22.208Z
+Stopped at: Phase 08 context gathered
 Resume: Execute Phase 7 Wave 3 (07-06 LC layer-B fix under all-green discipline)
