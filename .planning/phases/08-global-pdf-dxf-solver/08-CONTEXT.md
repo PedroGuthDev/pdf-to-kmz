@@ -17,7 +17,7 @@ a 2-second budget on all named routes.
 **In scope (SOLVE-01..04 + ROADMAP SC-1..4):**
 1. `parser/dwg/global-solver.js` — `solveGlobalGraphAlignment()` returning the
    existing `{ ok, coords[] }` shape; never modifies level-1/level-2 code.
-2. Hungarian global assignment (`munkres-js`, the one pre-authorized new dep) +
+2. Hungarian global assignment (`munkres`, the one pre-authorized new dep) +
    post-hoc topology gate (arc-order monotonicity + hub-degree).
 3. Level-0 integration into `runDwgPairingCascade()` with strict cascade +
    gate-based demotion and observable fallback.
@@ -38,7 +38,7 @@ only post 1).
 
 ### Solver algorithm contract
 - **D-01:** **Hybrid algorithm — Hungarian + post-hoc topology gate.** Hungarian
-  (`munkres-js`) computes the global cost-minimal post→DXF-node assignment; then
+  (`munkres`) computes the global cost-minimal post→DXF-node assignment; then
   arc-order monotonicity and hub-degree are verified as post-hoc constraints. Any
   topology violation **rejects** the assignment and escalates to the walker. This
   reconciles SOLVE-01 (Hungarian) with SOLVE-03 (topology) — neither alone is
@@ -141,10 +141,10 @@ only post 1).
 - **Phantom-edge filtering (07 D-15):** only source-tagged authoritative edges
   seed the route-graph fed to the solver; no degree≥3 junction from inferred-label
   edges alone (Pitfall 10).
-- **`munkres-js`** is the ONLY new external dependency permitted (REQUIREMENTS).
+- **`munkres`** (`munkres@2.0.3`, havelessbemore) is the ONLY new external dependency permitted (REQUIREMENTS).
 
 ### Claude's Discretion
-- `munkres-js` rectangular-matrix / sentinel-cost handling when |PDF posts| ≠
+- `munkres` rectangular-matrix / sentinel-cost handling when |PDF posts| ≠
   |DXF candidate nodes|, and treatment of posts with no viable candidate.
 - Anchor-tolerance failure handling when no DXF INSERT is near post 1 (reason
   `"no-anchor"` demotion vs. tolerance relaxation).
@@ -163,7 +163,7 @@ only post 1).
 ### Requirements & roadmap
 - `.planning/REQUIREMENTS.md` §SOLVE-01..04 — solver requirements (Hungarian,
   level-0 strangler-fig, anchor/monotonicity/hub-degree, zero-regression). Note
-  the "new deps beyond munkres-js" out-of-scope row.
+  the "new deps beyond munkres" out-of-scope row.
 - `.planning/ROADMAP.md` §"Phase 8: Global PDF-DXF Solver" — goal + SC-1..4.
 
 ### v1.1 research (MANDATORY — design + pitfalls)

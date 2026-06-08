@@ -70,7 +70,7 @@ Last activity: 2026-06-08
 | Strangler-fig: global solver = level-0; graph-walker = fallback | v1.1 lock | Generalize without losing Siriu's proven ~6m; zero regression contract |
 | Zone-22S hardcoded; out-of-zone = fail loud | v1.1 lock | Known v1.1 limitation; MZONE-01 deferred |
 | Confidence = TIER labels only, never numeric % | v1.1 lock | HIGH/MED/LOW/UNRESOLVABLE; numeric % is an explicit anti-feature |
-| Single new dependency: munkres-js@2.0.3 | v1.1 lock | Added only at Phase 8; everything else reuses in-house modules |
+| Single new dependency: munkres@2.0.3 (havelessbemore) | v1.1 lock | Added only at Phase 8; everything else reuses in-house modules |
 | P7 prerequisites phase inserted as Phase 7 | v1.1 roadmap | João Born + Valmor fixtures + gate audit separated from solver to prevent compensated-error blocking |
 | LC junction is at post 7 (single junction; spur head post 21) | Phase 7 (07-04) | USER-APPROVED 2026-06-08; draft post-9 junction was wrong. JB+Valmor confirmed linear (junctions: {}) |
 

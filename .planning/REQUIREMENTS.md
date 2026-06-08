@@ -58,7 +58,7 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 | Multi-zone CRS auto-detection | v1.1 targets zone-22S (southern SC); out-of-zone is handled by fail-loud, not silent guessing |
 | Fuzzy / nearest-region auto-match | A GPS outside every region bbox almost certainly means the wrong DXF — matching it would be confidently wrong |
 | Server-side processing | Stays client-side (Vercel Blob API is DXF storage only) |
-| New external deps beyond `munkres-js` | Reuse in-house Snyder TM, rbush, pure-math residuals (see research) |
+| New external deps beyond `munkres` | Reuse in-house Snyder TM, rbush, pure-math residuals (see research) |
 
 ## Traceability
 

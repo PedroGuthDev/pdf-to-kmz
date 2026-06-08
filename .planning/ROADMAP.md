@@ -130,7 +130,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   - All-green checkpoint discipline (D-11): every commit during the LC fix keeps the full gate suite green; no intentional RED mid-flight
   - Additive predicates only — never edit Siriu-calibrated constants; never re-seed the Siriu baseline to mask a regression (Pitfall 2)
-  - No new external dependencies (munkres-js is added only at Phase 8)
+  - No new external dependencies (munkres@2.0.3 is added only at Phase 8)
 
 ### Phase 8: Global PDF-DXF Solver
 
@@ -150,9 +150,9 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   - [ ] 08-00-PLAN.md — Attest Phase-6 ingestion gates green (DXF-01..07) + new D-08 median cross-validation scale/unit guard
 
-  **Wave 2** *(blocked on 08-00; munkres install gated)*
+  **Wave 2** *(blocked on 08-00)*
 
-  - [ ] 08-01-PLAN.md — [BLOCKING] munkres package-name checkpoint + Hungarian core (anchor, rbush prune k≤30, D-02 cost, munkres assign, coords mapping, 2s timer)
+  - [ ] 08-01-PLAN.md — munkres@2.0.3 install + Hungarian core (anchor, rbush prune k≤30, D-02 cost, munkres assign, coords mapping, 2s timer)
 
   **Wave 3** *(blocked on 08-01)*
 
@@ -168,7 +168,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   - Hard red-lines green at EVERY checkpoint: four per-post position gates + Siriu regression gate + four junction oracles (07-GATE-AUDIT §3)
   - Soft fences (residual LC-must-fail, LC/JB txt-accuracy zero-bad-tier) may flip RED on a correct fix — re-baseline deliberately per 07-GATE-AUDIT §5
   - All tolerances scale-derived from D-08 medians; only fractions/factors are constants (Pitfall 9)
-  - munkres is the ONLY new external dependency (install behind a blocking human-verify checkpoint)
+  - munkres@2.0.3 (havelessbemore) is the ONLY new external dependency
 
 ### Phase 9: Diagnostic Failure & Confidence Surfacing
 
