@@ -2,14 +2,19 @@
  * Global PDF→DXF bipartite alignment (Phase 8 level-0).
  *
  * Anchor post 1 (D-07), rbush candidate prune k≤30 (D-03), D-02 cost matrix,
- * Hungarian assignment via munkres (SOLVE-01). Wave 1 core only — no topology
- * gate or cascade wiring yet.
+ * Hungarian assignment via munkres (SOLVE-01), topology gate (D-10/D-11), and
+ * D-05 accept bar (residual trust + topology + 2s budget).
  *
  * Pure module: never mutates inputs (pristine walker fallback on demotion).
  */
 
 import { munkres } from "munkres";
 import { medianCrossValidate } from "./median-crossval.js";
+import {
+  applyResidualGate,
+  computeAnchorGap,
+  computeResiduals,
+} from "./residual-gate.js";
 import {
   DEFAULT_TOLERANCE_M,
   buildAdjacencyGraph,
@@ -21,8 +26,287 @@ const MAX_CANDIDATES = 30;
 const SENTINEL_MULT = 10;
 const W_POS = 1;
 const W_SPAN = 1;
+const ACCEPT_BUDGET_MS = 2000;
 /** Printed label rounding tolerance (fraction of printed meters, not absolute). */
 const LABEL_ROUND_TOL_FRAC = 0.05;
+
+const AUTHORITATIVE_EDGE_SOURCES = new Set([
+  "bifurcation-main",
+  "branch-arm-rehomed",
+  "branch-arm-rehomed-cross-page",
+  "branch-arm-rehomed-topology",
+  "override",
+]);
+
+function normalizeJunctionSet(junctions) {
+  if (!junctions) return new Set();
+  if (junctions instanceof Set) return junctions;
+  if (Array.isArray(junctions)) return new Set(junctions);
+  if (junctions.junctions && typeof junctions.junctions === "object") {
+    return new Set(Object.keys(junctions.junctions).map(Number));
+  }
+  return new Set();
+}
+
+function degreeClass(rawDegree) {
+  if (rawDegree <= 1) return 1;
+  if (rawDegree === 2) return 2;
+  return 3;
+}
+
+function buildConnAdjFromConnections(connections, postSet) {
+  const connAdj = new Map();
+  for (const conn of connections ?? []) {
+    if (!postSet.has(conn.from) || !postSet.has(conn.to)) continue;
+    if (!connAdj.has(conn.from)) connAdj.set(conn.from, new Set());
+    if (!connAdj.has(conn.to)) connAdj.set(conn.to, new Set());
+    connAdj.get(conn.from).add(conn.to);
+    connAdj.get(conn.to).add(conn.from);
+  }
+  return connAdj;
+}
+
+function edgeKey(a, b) {
+  return a < b ? `${a}-${b}` : `${b}-${a}`;
+}
+
+/**
+ * Partition the route into linear runs between junctions (D-10).
+ * Each junction spawns a new run per unused outgoing arm; the main spine is
+ * walked first from post 1.
+ */
+function partitionLinearRuns(postNumbers, junctionSet, connections) {
+  const postSet = new Set(postNumbers);
+  const adj = buildConnAdjFromConnections(connections, postSet);
+  const usedEdges = new Set();
+  const runs = [];
+
+  function extendChain(run, start, prev) {
+    let current = start;
+    let back = prev;
+    while (true) {
+      const neighbors = [...(adj.get(current) ?? [])].filter((n) => n !== back);
+      const next = neighbors.find((n) => !usedEdges.has(edgeKey(current, n)));
+      if (next == null) break;
+      usedEdges.add(edgeKey(current, next));
+      run.push(next);
+      back = current;
+      current = next;
+      if (junctionSet.has(current)) break;
+    }
+  }
+
+  const startPost = postNumbers[0];
+  if (startPost != null) {
+    const mainRun = [startPost];
+    extendChain(mainRun, startPost, null);
+    runs.push(mainRun);
+  }
+
+  for (const junc of [...junctionSet].sort((a, b) => a - b)) {
+    for (const neighbor of [...(adj.get(junc) ?? [])].sort((a, b) => a - b)) {
+      if (usedEdges.has(edgeKey(junc, neighbor))) continue;
+      usedEdges.add(edgeKey(junc, neighbor));
+      const armRun = [junc, neighbor];
+      extendChain(armRun, neighbor, junc);
+      runs.push(armRun);
+    }
+  }
+
+  return runs;
+}
+
+function cableSpanAlongPath(fromIdx, toIdx, adjacencyGraph, regionPosts) {
+  if (fromIdx == null || toIdx == null) return null;
+  if (fromIdx === toIdx) return 0;
+
+  const queue = [{ idx: fromIdx, dist: 0 }];
+  const visited = new Set([fromIdx]);
+
+  while (queue.length) {
+    const { idx, dist } = queue.shift();
+    for (const neighbor of adjacencyGraph.get(idx) ?? []) {
+      if (visited.has(neighbor)) continue;
+      const edgeLen = Math.hypot(
+        regionPosts[neighbor].x - regionPosts[idx].x,
+        regionPosts[neighbor].y - regionPosts[idx].y,
+      );
+      const newDist = dist + edgeLen;
+      if (neighbor === toIdx) return newDist;
+      visited.add(neighbor);
+      queue.push({ idx: neighbor, dist: newDist });
+    }
+  }
+  return null;
+}
+
+function resolveAuthoritativeDegree(postNum, authoritativeDegreeByPost, connAdj) {
+  if (authoritativeDegreeByPost?.has(postNum)) {
+    const auth = authoritativeDegreeByPost.get(postNum);
+    if (auth > 0) return auth;
+  }
+  return (connAdj.get(postNum) ?? new Set()).size;
+}
+
+function hasAuthoritativeDistanceSources(distances) {
+  for (const d of distances ?? []) {
+    if (AUTHORITATIVE_EDGE_SOURCES.has(d.source)) return true;
+  }
+  return false;
+}
+
+function buildAuthoritativeDegreeByPost(distances, posts) {
+  const postSet = new Set(posts.map((p) => p.number));
+  const degree = new Map();
+  for (const p of posts) degree.set(p.number, 0);
+  for (const d of distances ?? []) {
+    if (!AUTHORITATIVE_EDGE_SOURCES.has(d.source)) continue;
+    if (!(d.meters > 0)) continue;
+    if (postSet.has(d.from)) {
+      degree.set(d.from, (degree.get(d.from) ?? 0) + 1);
+    }
+    if (postSet.has(d.to)) {
+      degree.set(d.to, (degree.get(d.to) ?? 0) + 1);
+    }
+  }
+  return degree;
+}
+
+/**
+ * Post-hoc topology gate (D-10 arc-monotonicity + D-11 hub-degree class).
+ *
+ * @param {{
+ *   coords: Array<{ postNumber: number }>,
+ *   assignments: Map<number, { x: number, y: number }>,
+ *   posts: Array<{ number: number }>,
+ *   connections?: Array<{ from: number, to: number }>,
+ *   junctions?: Set<number>|number[]|{ junctions: object },
+ *   adjacencyGraph: Map<number, Set<number>>,
+ *   regionPosts: Array<{ x: number, y: number }>,
+ *   postToIdx?: Map<object, number>,
+ *   tolerances: { spanTolM: number },
+ *   authoritativeDegreeByPost?: Map<number, number>,
+ * }} params
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function checkTopologyGate({
+  coords,
+  assignments,
+  posts,
+  connections,
+  junctions,
+  adjacencyGraph,
+  regionPosts,
+  postToIdx,
+  tolerances,
+  authoritativeDegreeByPost,
+}) {
+  const junctionSet = normalizeJunctionSet(junctions);
+  const postNumbers = [...posts].map((p) => p.number).sort((a, b) => a - b);
+  const postSet = new Set(postNumbers);
+  const connAdj = buildConnAdjFromConnections(connections, postSet);
+
+  const idxMap = postToIdx ?? new Map();
+  if (!postToIdx) {
+    for (let i = 0; i < regionPosts.length; i++) {
+      idxMap.set(regionPosts[i], i);
+    }
+  }
+
+  const monotonicTol = tolerances?.spanTolM ?? 0;
+  const runs = partitionLinearRuns(postNumbers, junctionSet, connections);
+
+  for (let runIdx = 0; runIdx < runs.length; runIdx++) {
+    const run = runs[runIdx];
+    if (run.length < 2) continue;
+    const runStart = run[0];
+    const startNode = assignments.get(runStart);
+    const startIdx = idxMap.get(startNode);
+    let prevArc = null;
+
+    for (const postNum of run) {
+      const node = assignments.get(postNum);
+      if (!node) {
+        return { ok: false, reason: `monotonicity:run${runIdx}` };
+      }
+      const nodeIdx = idxMap.get(node);
+      const arcPos = cableSpanAlongPath(startIdx, nodeIdx, adjacencyGraph, regionPosts);
+      if (arcPos == null) {
+        return { ok: false, reason: `monotonicity:run${runIdx}` };
+      }
+      if (prevArc != null && arcPos < prevArc - monotonicTol) {
+        return { ok: false, reason: `monotonicity:run${runIdx}` };
+      }
+      prevArc = arcPos;
+    }
+  }
+
+  for (const postNum of postNumbers) {
+    const node = assignments.get(postNum);
+    if (!node) continue;
+    const nodeIdx = idxMap.get(node);
+    const dxfDegree = (adjacencyGraph.get(nodeIdx) ?? new Set()).size;
+    const pdfDegree = resolveAuthoritativeDegree(
+      postNum,
+      authoritativeDegreeByPost,
+      connAdj,
+    );
+    if (degreeClass(pdfDegree) !== degreeClass(dxfDegree)) {
+      return { ok: false, reason: `hub-degree:${postNum}` };
+    }
+  }
+
+  void coords;
+  return { ok: true };
+}
+
+/** @internal Exported for unit tests — D-05 accept bar assembly. */
+export function evaluateAcceptBar({
+  coords,
+  distances,
+  gpsByPostNumber,
+  posts,
+  assignments,
+  connections,
+  junctions,
+  adjacencyGraph,
+  regionPosts,
+  postToIdx,
+  tolerances,
+  authoritativeDegreeByPost,
+  elapsedMs,
+}) {
+  if (elapsedMs >= ACCEPT_BUDGET_MS) {
+    return { ok: false, reason: "budget" };
+  }
+
+  const shape = computeResiduals(coords, distances);
+  const anchor = computeAnchorGap(coords, gpsByPostNumber ?? new Map());
+  const residual = applyResidualGate(shape, anchor, {
+    allPostNumbers: posts.map((p) => p.number),
+  });
+  if (residual.gateDecision !== "trust") {
+    return { ok: false, reason: "residual-gate", solverScore: residual };
+  }
+
+  const topology = checkTopologyGate({
+    coords,
+    assignments,
+    posts,
+    connections,
+    junctions,
+    adjacencyGraph,
+    regionPosts,
+    postToIdx,
+    tolerances,
+    authoritativeDegreeByPost,
+  });
+  if (!topology.ok) {
+    return { ok: false, reason: topology.reason, solverScore: residual };
+  }
+
+  return { ok: true, solverScore: residual };
+}
 
 function buildDistanceMap(distances) {
   const map = new Map();
@@ -235,6 +519,9 @@ function buildPartialCoords(sortedPosts, assignmentByPost, zoneExpected) {
  *   postIndex?: import("./region-pairing.js").PostIndex,
  *   adjacencyGraph?: Map<number, Set<number>>,
  *   gpsByPostNumber?: Map<number, { lat: number, lon: number }>,
+ *   junctions?: Set<number>|number[]|{ junctions: object },
+ *   authoritativeDegreeByPost?: Map<number, number>,
+ *   testAssignments?: Map<number, object>,
  * }} params
  */
 export function solveGlobalGraphAlignment({
@@ -249,8 +536,12 @@ export function solveGlobalGraphAlignment({
   postIndex,
   adjacencyGraph,
   gpsByPostNumber,
+  junctions,
+  authoritativeDegreeByPost,
+  testAssignments,
+  _testAssignments,
 }) {
-  void gpsByPostNumber;
+  const forcedAssignments = testAssignments ?? _testAssignments;
   const t0 = performance.now();
   const warnings = [];
 
@@ -383,14 +674,32 @@ export function solveGlobalGraphAlignment({
     costMatrix[anchorRow][anchorCol] = -Infinity;
   }
 
-  const assignments = munkres(costMatrix);
-  const assignmentByPost = new Map();
+  const munkresAssignments = munkres(costMatrix);
+  const assignmentByPost = forcedAssignments ?? new Map();
   const assignedRows = new Set();
 
-  for (const [y, x] of assignments) {
-    assignedRows.add(y);
-    const cost = costMatrix[y][x];
-    if (cost !== -Infinity && cost >= sentinel * 0.999) {
+  if (!forcedAssignments) {
+    for (const [y, x] of munkresAssignments) {
+      assignedRows.add(y);
+      const cost = costMatrix[y][x];
+      if (cost !== -Infinity && cost >= sentinel * 0.999) {
+        return {
+          ok: false,
+          reason: "coverage",
+          elapsedMs: performance.now() - t0,
+          partialCoords: buildPartialCoords(
+            sortedPosts,
+            assignmentByPost,
+            zoneExpected,
+          ),
+          warnings,
+        };
+      }
+      const postNum = sortedPosts[y].number;
+      assignmentByPost.set(postNum, columnNodes[x]);
+    }
+
+    if (assignedRows.size < nRows) {
       return {
         ok: false,
         reason: "coverage",
@@ -403,32 +712,49 @@ export function solveGlobalGraphAlignment({
         warnings,
       };
     }
-    const postNum = sortedPosts[y].number;
-    assignmentByPost.set(postNum, columnNodes[x]);
-  }
-
-  if (assignedRows.size < nRows) {
-    return {
-      ok: false,
-      reason: "coverage",
-      elapsedMs: performance.now() - t0,
-      partialCoords: buildPartialCoords(
-        sortedPosts,
-        assignmentByPost,
-        zoneExpected,
-      ),
-      warnings,
-    };
   }
 
   const coords = buildPartialCoords(sortedPosts, assignmentByPost, zoneExpected);
   const elapsedMs = performance.now() - t0;
+  const authDegree =
+    authoritativeDegreeByPost ??
+    (hasAuthoritativeDistanceSources(distances)
+      ? buildAuthoritativeDegreeByPost(distances, sortedPosts)
+      : undefined);
+
+  const accept = evaluateAcceptBar({
+    coords,
+    distances,
+    gpsByPostNumber,
+    posts: sortedPosts,
+    assignments: assignmentByPost,
+    connections,
+    junctions,
+    adjacencyGraph: graph,
+    regionPosts,
+    postToIdx: postToIndex,
+    tolerances,
+    authoritativeDegreeByPost: authDegree,
+    elapsedMs,
+  });
+
+  if (!accept.ok) {
+    return {
+      ok: false,
+      reason: accept.reason,
+      elapsedMs,
+      partialCoords: coords,
+      solverScore: accept.solverScore,
+      warnings,
+    };
+  }
 
   return {
     ok: true,
     coords,
     elapsedMs,
     partialCoords: coords,
+    solverScore: accept.solverScore,
     warnings,
   };
 }

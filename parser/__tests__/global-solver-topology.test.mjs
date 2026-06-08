@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   checkTopologyGate,
+  evaluateAcceptBar,
   solveGlobalGraphAlignment,
 } from "../dwg/global-solver.js";
 import {
@@ -353,25 +354,67 @@ describe("solveGlobalGraphAlignment — D-05 accept bar", () => {
   });
 
   it("demotes when topology gate fails", () => {
-    const { regionPosts, regionEdges } = makeLineRegion(3);
-    const inputs = makeSolverInputsWithGps({ postCount: 3, nodeCount: 4 });
-    inputs.regionPosts = regionPosts;
-    inputs.regionEdges = regionEdges;
-    inputs.junctions = new Set();
-    inputs._testAssignments = new Map([
+    const { regionPosts, regionEdges } = makeLineRegion(4);
+    const posts = [1, 2, 3, 4].map((n) => ({ number: n }));
+    const connections = [
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+      { from: 3, to: 4 },
+    ];
+    const goodAssignments = new Map([
+      [1, regionPosts[0]],
+      [2, regionPosts[1]],
+      [3, regionPosts[2]],
+      [4, regionPosts[3]],
+    ]);
+    const badAssignments = new Map([
       [1, regionPosts[0]],
       [2, regionPosts[2]],
       [3, regionPosts[1]],
+      [4, regionPosts[3]],
     ]);
-    const result = solveGlobalGraphAlignment(inputs);
-    assert.equal(result.ok, false);
-    assert.match(result.reason, /monotonicity/);
+    const topoInput = buildTopologyInputs({
+      posts,
+      connections,
+      assignments: goodAssignments,
+      regionPosts,
+      regionEdges,
+    });
+    const coords = topoInput.coords;
+    const distances = connections.map((c) => ({
+      from: c.from,
+      to: c.to,
+      meters: SPAN,
+    }));
+    const gpsByPostNumber = new Map(
+      coords.map((c) => [c.postNumber, { lat: c.lat, lon: c.lon }]),
+    );
+    const accept = evaluateAcceptBar({
+      coords,
+      distances,
+      gpsByPostNumber,
+      posts,
+      assignments: badAssignments,
+      connections,
+      junctions: new Set(),
+      adjacencyGraph: topoInput.adjacencyGraph,
+      regionPosts,
+      postToIdx: topoInput.postToIdx,
+      tolerances: topoInput.tolerances,
+      elapsedMs: 10,
+    });
+    assert.equal(accept.ok, false);
+    assert.match(accept.reason, /monotonicity/);
   });
 
   it("demotes when elapsedMs >= 2000", () => {
     const inputs = makeSolverInputsWithGps();
+    let calls = 0;
     const origNow = performance.now.bind(performance);
-    performance.now = () => 2500;
+    performance.now = () => {
+      calls += 1;
+      return calls === 1 ? 0 : 2500;
+    };
     try {
       const result = solveGlobalGraphAlignment(inputs);
       assert.equal(result.ok, false);
