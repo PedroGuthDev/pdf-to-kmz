@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
 status: executing
-stopped_at: Completed 07-02-PLAN.md
+stopped_at: Completed 07-03-PLAN.md
 last_updated: "2026-06-08T00:00:00.000Z"
 last_activity: 2026-06-08
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -32,8 +32,8 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Position
 
 Phase: 07 (solver-prerequisites) — EXECUTING
-Plan: 07-01, 07-02, 07-05 complete (Wave 2 in progress — 07-03/07-04 next; then Wave 3 07-06 LC layer-B fix)
-Status: João Born position gate (07-02) green — 34/34 posts, max 0.7 pt, user-verified anchors
+Plan: 07-01, 07-02, 07-03, 07-05 complete (Wave 2 in progress — 07-04 next; then Wave 3 07-06 LC layer-B fix)
+Status: Valmor position gate (07-03) green — 11/11 posts, max 0.6 pt, user-verified anchors; D-06 parse viability PROVEN (Valmor not exempted as DWG-only)
 Last activity: 2026-06-08
 
 ## Phase History
@@ -131,5 +131,5 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 ## Session Continuity
 
 Last session: 2026-06-08T00:00:00.000Z
-Stopped at: Completed 07-02-PLAN.md (JB position gate green, user-verified)
-Resume: Execute remaining Phase 7 Wave 2 plans (07-03 Valmor, 07-04 junction oracle), then Wave 3 (07-06 LC layer-B fix)
+Stopped at: Completed 07-03-PLAN.md (Valmor position gate green, user-verified; D-06 viability proven)
+Resume: Execute remaining Phase 7 Wave 2 plan (07-04 junction oracle), then Wave 3 (07-06 LC layer-B fix)
