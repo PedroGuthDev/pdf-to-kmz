@@ -70,6 +70,10 @@ function parseTxtLines(text) {
 
 function excludeOutliers(posts, outlierKm) {
   if (!posts.length) return { kept: [], excluded: 0 };
+  // NOTE: center is computed as the component-wise lat/lon median (not a geometric medoid).
+  // For L-shaped or curved routes this synthetic point may sit off the route, inflating distances
+  // for legitimate posts at the extremities. Keep --outlier-km coarse (default 2.0 km) to avoid
+  // excluding valid endpoints. Use a real medoid if stricter outlier rejection is needed.
   const medianLat = median(posts.map((p) => p.lat));
   const medianLon = median(posts.map((p) => p.lon));
   const thresholdM = outlierKm * 1000;
