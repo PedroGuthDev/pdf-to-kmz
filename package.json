@@ -10,7 +10,8 @@
     "dev:watch": "node scripts/build.mjs --watch",
     "test": "node parser/__tests__/coordinate-calculator.test.mjs && node parser/__tests__/region-pairing.test.mjs && node parser/__tests__/ocr-outlier-repair.test.mjs && node parser/__tests__/ocr-digit-parse.test.mjs && node parser/__tests__/node-canvas-render.test.mjs",
     "test:unit": "node --test parser/__tests__/graph-walker.test.mjs parser/__tests__/distance-associator.test.mjs parser/__tests__/siriu-walk-regression.test.mjs",
-    "test:gate": "node --test parser/__tests__/graph-walker.test.mjs parser/__tests__/distance-associator.test.mjs parser/__tests__/coordinate-calculator.test.mjs parser/__tests__/branch-traversal.test.mjs && node tools/run-siriu-post-position-gate.mjs && node tools/run-siriu-regression-gate.mjs && node tools/run-residual-gate.mjs && node tools/run-dxf-ingest-timing-gate.mjs",
+    "test:gate": "node --test parser/__tests__/graph-walker.test.mjs parser/__tests__/distance-associator.test.mjs parser/__tests__/coordinate-calculator.test.mjs parser/__tests__/branch-traversal.test.mjs parser/__tests__/branch-traversal-lc.test.mjs parser/__tests__/branch-traversal-joaoborn.test.mjs parser/__tests__/branch-traversal-valmor.test.mjs && npm run test:gate:fixtures",
+    "test:gate:fixtures": "node tools/run-siriu-post-position-gate.mjs && node tools/run-lc-post-position-gate.mjs && node tools/run-joaoborn-post-position-gate.mjs && node tools/run-valmor-post-position-gate.mjs && node tools/run-siriu-txt-accuracy-gate.mjs && node tools/run-lc-txt-accuracy-gate.mjs && node tools/run-joaoborn-txt-accuracy-gate.mjs && node tools/run-valmor-txt-accuracy-gate.mjs && node tools/run-route-joaoborn-pdf-accuracy-gate.mjs && node tools/run-valmor-accuracy-gate.mjs && node tools/run-siriu-regression-gate.mjs && node tools/run-residual-gate.mjs && node tools/run-dxf-ingest-timing-gate.mjs",
     "fixtures:siriu": "node tools/export-siriu-regression-fixtures.mjs"
   },
   "keywords": [],
