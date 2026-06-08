@@ -1055,10 +1055,13 @@ export function pairPostsByGraphWalk({
   adjacencyGraph,
   warnings,
   gpsByPostNumber,
+  returnIdx = false,
 }) {
   const warn = (w) => {
     if (Array.isArray(warnings)) warnings.push(w);
   };
+  // Local flag: supports explicit returnIdx option as well as legacy GW_RETURN_IDX env var
+  const _returnIdx = returnIdx || envFlag('GW_RETURN_IDX');
 
   if (!Array.isArray(posts) || posts.length === 0) {
     return { ok: true, coords: [] };
@@ -1091,7 +1094,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: null,
-      ...(envFlag("GW_RETURN_IDX")
+      ...(_returnIdx
         ? { idxByPostNumber: {} }
         : {}),
     };
@@ -1114,7 +1117,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: null,
-      ...(envFlag("GW_RETURN_IDX")
+      ...(_returnIdx
         ? { idxByPostNumber: {} }
         : {}),
     };
@@ -1140,7 +1143,7 @@ export function pairPostsByGraphWalk({
       ok: false,
       failedAt: posts[0].number,
       nearestDistance: Number.isFinite(anchorDist) ? anchorDist : null,
-      ...(envFlag("GW_RETURN_IDX")
+      ...(_returnIdx
         ? { idxByPostNumber: {} }
         : {}),
     };
@@ -1236,7 +1239,7 @@ export function pairPostsByGraphWalk({
         ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(envFlag("GW_RETURN_IDX")
+        ...(_returnIdx
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2504,7 +2507,7 @@ export function pairPostsByGraphWalk({
           ...(envFlag("GW_RETURN_PARTIAL")
             ? { partialCoords: buildPartialCoords() }
             : {}),
-          ...(envFlag("GW_RETURN_IDX")
+          ...(_returnIdx
             ? { idxByPostNumber: Object.fromEntries(idxByNum) }
             : {}),
         };
@@ -2530,7 +2533,7 @@ export function pairPostsByGraphWalk({
         ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(envFlag("GW_RETURN_IDX")
+        ...(_returnIdx
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2585,7 +2588,7 @@ export function pairPostsByGraphWalk({
             ok: false,
             failedAt: toNum,
             nearestDistance: 0,
-            ...(envFlag("GW_RETURN_IDX")
+            ...(_returnIdx
               ? { idxByPostNumber: Object.fromEntries(idxByNum) }
               : {}),
           };
@@ -2606,7 +2609,7 @@ export function pairPostsByGraphWalk({
         ok: false,
         failedAt: toNum,
         nearestDistance: 0,
-        ...(envFlag("GW_RETURN_IDX")
+        ...(_returnIdx
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2693,7 +2696,7 @@ export function pairPostsByGraphWalk({
         ...(envFlag("GW_RETURN_PARTIAL")
           ? { partialCoords: buildPartialCoords() }
           : {}),
-        ...(envFlag("GW_RETURN_IDX")
+        ...(_returnIdx
           ? { idxByPostNumber: Object.fromEntries(idxByNum) }
           : {}),
       };
@@ -2716,7 +2719,7 @@ export function pairPostsByGraphWalk({
   return {
     ok: true,
     coords,
-    ...(envFlag("GW_RETURN_IDX")
+    ...(_returnIdx
       ? { idxByPostNumber: Object.fromEntries(idxByNum) }
       : {}),
   };

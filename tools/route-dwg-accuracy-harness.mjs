@@ -153,9 +153,8 @@ export async function runRouteDwgAccuracyHarness({
   }
 
   function runWalk(gps) {
-    const prev = process.env.GW_RETURN_IDX;
-    process.env.GW_RETURN_IDX = "1";
-    const gw = pairPostsByGraphWalk({
+    // Pass returnIdx: true explicitly instead of mutating process.env.GW_RETURN_IDX (WR-06)
+    return pairPostsByGraphWalk({
       posts: routePosts,
       distances: pdfTopology.distances,
       connections: result.walkConnections ?? result.connections ?? [],
@@ -166,10 +165,8 @@ export async function runRouteDwgAccuracyHarness({
       adjacencyGraph: bundle.adjacencyGraph,
       warnings: [],
       gpsByPostNumber: gps,
+      returnIdx: true,
     });
-    if (prev == null) delete process.env.GW_RETURN_IDX;
-    else process.env.GW_RETURN_IDX = prev;
-    return gw;
   }
 
   const noGps = runWalk(null);
