@@ -1,0 +1,217 @@
+{
+  "_meta": {
+    "purpose": "Per-post expected PDF pole-symbol position (x,y in flipped page pt) for ALL João Born posts. Enables a position gate that measures Poste-symbol placement (layer B) in isolation from the label-LSQ calibration (which can compensate for placement errors). One of the four SOLVE-05 position gates feeding the Phase 8 solver. See .planning/phases/07-solver-prerequisites/07-02-PLAN.md (D-05).",
+    "source": "hand-known anchors, JB v04",
+    "scope": "all posts",
+    "tolerancePt": 50,
+    "postCount": 34,
+    "generatedFrom": "tools/run-joaoborn-post-position-gate.mjs (pristine parse, candidate)",
+    "generatedAt": "2026-06-08"
+  },
+  "posts": [
+    {
+      "number": 1,
+      "pageNum": 3,
+      "x": 273,
+      "y": 444
+    },
+    {
+      "number": 2,
+      "pageNum": 3,
+      "x": 342,
+      "y": 429
+    },
+    {
+      "number": 3,
+      "pageNum": 3,
+      "x": 437,
+      "y": 397
+    },
+    {
+      "number": 4,
+      "pageNum": 3,
+      "x": 500,
+      "y": 357
+    },
+    {
+      "number": 5,
+      "pageNum": 3,
+      "x": 528,
+      "y": 322
+    },
+    {
+      "number": 6,
+      "pageNum": 3,
+      "x": 597,
+      "y": 306
+    },
+    {
+      "number": 7,
+      "pageNum": 3,
+      "x": 669,
+      "y": 262
+    },
+    {
+      "number": 8,
+      "pageNum": 3,
+      "x": 753,
+      "y": 237
+    },
+    {
+      "number": 9,
+      "pageNum": 3,
+      "x": 850,
+      "y": 215
+    },
+    {
+      "number": 10,
+      "pageNum": 3,
+      "x": 883,
+      "y": 201
+    },
+    {
+      "number": 11,
+      "pageNum": 3,
+      "x": 940,
+      "y": 189
+    },
+    {
+      "number": 12,
+      "pageNum": 3,
+      "x": 986,
+      "y": 179
+    },
+    {
+      "number": 13,
+      "pageNum": 3,
+      "x": 1048,
+      "y": 161
+    },
+    {
+      "number": 14,
+      "pageNum": 3,
+      "x": 1112,
+      "y": 199
+    },
+    {
+      "number": 15,
+      "pageNum": 4,
+      "x": 152,
+      "y": 283
+    },
+    {
+      "number": 16,
+      "pageNum": 4,
+      "x": 248,
+      "y": 259
+    },
+    {
+      "number": 17,
+      "pageNum": 4,
+      "x": 349,
+      "y": 232
+    },
+    {
+      "number": 18,
+      "pageNum": 4,
+      "x": 439,
+      "y": 207
+    },
+    {
+      "number": 19,
+      "pageNum": 4,
+      "x": 550,
+      "y": 178
+    },
+    {
+      "number": 20,
+      "pageNum": 4,
+      "x": 638,
+      "y": 155
+    },
+    {
+      "number": 21,
+      "pageNum": 4,
+      "x": 736,
+      "y": 129
+    },
+    {
+      "number": 22,
+      "pageNum": 4,
+      "x": 836,
+      "y": 105
+    },
+    {
+      "number": 23,
+      "pageNum": 4,
+      "x": 950,
+      "y": 72
+    },
+    {
+      "number": 24,
+      "pageNum": 4,
+      "x": 1037,
+      "y": 54
+    },
+    {
+      "number": 25,
+      "pageNum": 4,
+      "x": 1134,
+      "y": 52
+    },
+    {
+      "number": 26,
+      "pageNum": 5,
+      "x": 134,
+      "y": 330
+    },
+    {
+      "number": 27,
+      "pageNum": 5,
+      "x": 218,
+      "y": 304
+    },
+    {
+      "number": 28,
+      "pageNum": 5,
+      "x": 310,
+      "y": 284
+    },
+    {
+      "number": 29,
+      "pageNum": 5,
+      "x": 403,
+      "y": 262
+    },
+    {
+      "number": 30,
+      "pageNum": 5,
+      "x": 481,
+      "y": 241
+    },
+    {
+      "number": 31,
+      "pageNum": 5,
+      "x": 591,
+      "y": 216
+    },
+    {
+      "number": 32,
+      "pageNum": 5,
+      "x": 672,
+      "y": 193
+    },
+    {
+      "number": 33,
+      "pageNum": 5,
+      "x": 765,
+      "y": 167
+    },
+    {
+      "number": 34,
+      "pageNum": 5,
+      "x": 848,
+      "y": 117
+    }
+  ]
+}
