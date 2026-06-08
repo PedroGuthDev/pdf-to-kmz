@@ -9,6 +9,7 @@ import {
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
+import { solveGlobalGraphAlignment } from "./global-solver.js";
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate } from "./residual-gate.js";
@@ -126,12 +127,13 @@ export function formatDwgWarning(w) {
 }
 
 /**
- * Three-level DWG pairing cascade (D-DWGG-PIV-02):
+ * Four-level DWG pairing cascade (D-DWGG-PIV-02 + SOLVE-02):
+ *   0. solveGlobalGraphAlignment   → dwgPath: "global-solve"
  *   1. pairPostsByGraphWalk        → dwgPath: "dwg-graph-walk"
  *   2. pairPostsAgainstRegion      → dwgPath: "dwg-pdf-walk"
  *   3. (caller falls through to PDF-only) → dwgStatus: "pdf-fallback"
  */
-function runDwgPairingCascade({
+export function runDwgPairingCascade({
   posts,
   distances,
   connections,
@@ -144,9 +146,41 @@ function runDwgPairingCascade({
   adjacencyGraph,
   warnings,
   gpsByPostNumber,
+  _testDeps,
 }) {
-  // Level 1: DWG-graph-first
-  const level1 = pairPostsByGraphWalk({
+  const solveFn = _testDeps?.solve ?? solveGlobalGraphAlignment;
+  const walkFn = _testDeps?.walk ?? pairPostsByGraphWalk;
+
+  // Level 0: global PDF→DXF solver (strangler-fig; demotes to graph-walk on any accept-bar fail)
+  const level0 = solveFn({
+    posts,
+    distances,
+    connections,
+    startLat,
+    startLon,
+    regionData,
+    regionPosts,
+    regionEdges,
+    postIndex,
+    adjacencyGraph,
+    gpsByPostNumber,
+  });
+  if (level0.ok) {
+    return {
+      ok: true,
+      coords: level0.coords,
+      dwgPath: "global-solve",
+      solverScore: level0.solverScore ?? null,
+      solverDemoted: false,
+      demotionReason: null,
+    };
+  }
+
+  console.log("solver demoted; using graph-walker");
+  warnings.push({ kind: "dwg-solver-demoted", reason: level0.reason });
+
+  // Level 1: DWG-graph-first (UNCHANGED — pristine inputs, never solver-derived state)
+  const level1 = walkFn({
     posts,
     distances,
     connections,
@@ -163,7 +197,13 @@ function runDwgPairingCascade({
     gpsByPostNumber,
   });
   if (level1.ok) {
-    return { ok: true, coords: level1.coords, dwgPath: "dwg-graph-walk" };
+    return {
+      ok: true,
+      coords: level1.coords,
+      dwgPath: "dwg-graph-walk",
+      solverDemoted: true,
+      demotionReason: level0.reason ?? null,
+    };
   }
 
   // Level 2: existing PDF-driven walk (UNCHANGED — D-DWGG-PIV-03)
@@ -184,7 +224,13 @@ function runDwgPairingCascade({
     gpsByPostNumber,
   });
   if (level2.ok) {
-    return { ok: true, coords: level2.coords, dwgPath: "dwg-pdf-walk" };
+    return {
+      ok: true,
+      coords: level2.coords,
+      dwgPath: "dwg-pdf-walk",
+      solverDemoted: true,
+      demotionReason: level0.reason ?? null,
+    };
   }
 
   // Both DWG levels failed; caller will use pdf-only result.
@@ -450,6 +496,18 @@ export async function calculateCoordinatesWithDwg(
   const shape = computeResiduals(cascade.coords, distances);
   const anchor = computeAnchorGap(cascade.coords, gpsByPostNumber);
   successResult.dwgConfidence = applyResidualGate(shape, anchor);
+
+  successResult.solverPath = cascade.dwgPath;
+  successResult.solverDemoted = cascade.solverDemoted ?? false;
+  successResult.demotionReason = cascade.demotionReason ?? null;
+  successResult.solverScore = cascade.solverScore ?? null;
+  if (cascade.solverDemoted) {
+    successResult.warnings.push(
+      `[dwg] solver demoted (${cascade.demotionReason ?? "unknown"}); graph-walker emitted coords`,
+    );
+  } else if (cascade.dwgPath === "global-solve") {
+    successResult.warnings.push("[dwg] global-solve accepted");
+  }
 
   successResult.userWarnings = buildCalcUserWarnings(successResult);
   return successResult;
