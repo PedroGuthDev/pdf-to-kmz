@@ -144,7 +144,31 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   3. A deliberate low-confidence solver run (synthetic fixture with ambiguous topology) causes the cascade to fall back to the graph-walker and logs "solver demoted; using graph-walker" — fallback activation is observable, not silent.
   4. The solver completes within 2 seconds for all current named routes (85 posts max) in a browser environment; if the time budget is exceeded, a confidence downgrade is emitted and the graph-walker runs.
 
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves (strictly linear — each wave gates the next; D-09 ingestion green before any solve)
+
+  **Wave 1** *(D-09 prerequisite — ingestion + scale guard)*
+
+  - [ ] 08-00-PLAN.md — Attest Phase-6 ingestion gates green (DXF-01..07) + new D-08 median cross-validation scale/unit guard
+
+  **Wave 2** *(blocked on 08-00; munkres install gated)*
+
+  - [ ] 08-01-PLAN.md — [BLOCKING] munkres package-name checkpoint + Hungarian core (anchor, rbush prune k≤30, D-02 cost, munkres assign, coords mapping, 2s timer)
+
+  **Wave 3** *(blocked on 08-01)*
+
+  - [ ] 08-02-PLAN.md — Post-hoc topology gate (per-branch arc-monotonicity D-10 + hub-degree class D-11) + assembled D-05 accept bar
+
+  **Wave 4** *(phase exit; blocked on 08-02)*
+
+  - [ ] 08-03-PLAN.md — Level-0 cascade wiring + observable demotion + D-13 fields + 2s timing gate + four-route green-bar exit (zero regression)
+
+  **Cross-cutting constraints:**
+
+  - Strangler-fig: solver = level-0; graph-walker.js byte-identical (never edited); walker output byte-identical on Siriu when it emits (Pitfall 2)
+  - Hard red-lines green at EVERY checkpoint: four per-post position gates + Siriu regression gate + four junction oracles (07-GATE-AUDIT §3)
+  - Soft fences (residual LC-must-fail, LC/JB txt-accuracy zero-bad-tier) may flip RED on a correct fix — re-baseline deliberately per 07-GATE-AUDIT §5
+  - All tolerances scale-derived from D-08 medians; only fractions/factors are constants (Pitfall 9)
+  - munkres is the ONLY new external dependency (install behind a blocking human-verify checkpoint)
 
 ### Phase 9: Diagnostic Failure & Confidence Surfacing
 
@@ -170,7 +194,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 | 5. Truth-Free Residual Gate | 2/2 | Complete   | 2026-06-06 |
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
 | 7. Solver Prerequisites | 7/7 | Complete | 2026-06-08 |
-| 8. Global PDF-DXF Solver | 0/? | Not started | - |
+| 8. Global PDF-DXF Solver | 0/4 | Planned | - |
 | 9. Diagnostic Failure & Confidence Surfacing | 0/? | Not started | - |
 
 ---
