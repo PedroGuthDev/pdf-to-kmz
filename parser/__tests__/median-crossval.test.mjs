@@ -72,7 +72,8 @@ describe("medianCrossValidate — D-08 PDF vs DXF scale guard", () => {
         { from: 1, to: 2, meters: null },
         { from: 2, to: 3, meters: 0 },
         { from: 3, to: 4, meters: 36 },
-        { from: 4, to: 5, meters: 44 },
+        { from: 4, to: 5, meters: 40 },
+        { from: 5, to: 6, meters: 44 },
       ],
       regionEdges: [
         { a: { x: 0, y: 0 }, b: { x: 40, y: 0 } },
