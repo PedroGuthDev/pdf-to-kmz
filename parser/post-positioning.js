@@ -1518,6 +1518,7 @@ export function correctRouteNumberingByDistanceLabels(
       const minN = Math.min(...nums);
       const maxN = Math.max(...nums);
       for (const p of run) {
+        if (p._originalNumber == null) p._originalNumber = p.number;  // snapshot before mirror (WR-07: auditable/reversible)
         p.number = minN + maxN - p.number;
       }
       warnings.push(
