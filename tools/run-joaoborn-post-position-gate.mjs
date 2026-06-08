@@ -106,10 +106,16 @@ function seedTruth(posts) {
 
 function compare(posts, truthDoc) {
   const truthPosts = truthDoc.posts ?? [];
+  const _jbRaw = Number(process.env.JOAOBORN_POST_POS_TOL_PT);
   const tolPt =
     process.env.JOAOBORN_POST_POS_TOL_PT != null
-      ? Number(process.env.JOAOBORN_POST_POS_TOL_PT)
+      ? (Number.isFinite(_jbRaw) && _jbRaw > 0
+          ? _jbRaw
+          : (truthDoc._meta?.tolerancePt ?? DEFAULT_TOL_PT))
       : (truthDoc._meta?.tolerancePt ?? DEFAULT_TOL_PT);
+  if (process.env.JOAOBORN_POST_POS_TOL_PT !== undefined && !(Number.isFinite(_jbRaw) && _jbRaw > 0)) {
+    console.warn(`[warn] JOAOBORN_POST_POS_TOL_PT="${process.env.JOAOBORN_POST_POS_TOL_PT}" is not a valid positive number; using default ${tolPt}`);
+  }
   const byNum = new Map(posts.map((p) => [p.number, p]));
 
   const failures = [];

@@ -126,10 +126,16 @@ function seedTruth(posts) {
 
 function compare(posts, truthDoc) {
   const truthPosts = truthDoc.posts ?? [];
+  const _valRaw = Number(process.env.VALMOR_POST_POS_TOL_PT);
   const tolPt =
     process.env.VALMOR_POST_POS_TOL_PT != null
-      ? Number(process.env.VALMOR_POST_POS_TOL_PT)
+      ? (Number.isFinite(_valRaw) && _valRaw > 0
+          ? _valRaw
+          : (truthDoc._meta?.tolerancePt ?? DEFAULT_TOL_PT))
       : (truthDoc._meta?.tolerancePt ?? DEFAULT_TOL_PT);
+  if (process.env.VALMOR_POST_POS_TOL_PT !== undefined && !(Number.isFinite(_valRaw) && _valRaw > 0)) {
+    console.warn(`[warn] VALMOR_POST_POS_TOL_PT="${process.env.VALMOR_POST_POS_TOL_PT}" is not a valid positive number; using default ${tolPt}`);
+  }
   const byNum = new Map(posts.map((p) => [p.number, p]));
 
   const failures = [];
