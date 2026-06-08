@@ -25,6 +25,7 @@
     "dxf-parser": "^1.1.2",
     "idb": "^8.0.3",
     "jszip": "^3.10.1",
+    "munkres": "^2.0.3",
     "pdf-parse": "^2.4.5",
     "pdf2json": "^4.0.3",
     "pdfjs-dist": "^5.7.284",
