@@ -104,6 +104,8 @@ export async function runRouteDwgAccuracyHarness({
     pageDimensions: objectToMap(parsed.pageDimensions),
     viewportBoxes: parsed.viewportBoxes ?? [],
     utmGridPathsPerPage: objectToMap(parsed.utmGridPathsPerPage),
+    distanceLabelItems: parsed.distanceLabelItems ?? [],
+    cablePaths: parsed.cablePaths ?? [],
   };
 
   // ── DWG region ─────────────────────────────────────────────────────────────
@@ -123,6 +125,8 @@ export async function runRouteDwgAccuracyHarness({
       pageDimensions: pdfTopology.pageDimensions,
       viewportBoxes: pdfTopology.viewportBoxes,
       utmGridPathsPerPage: pdfTopology.utmGridPathsPerPage,
+      distanceLabelItems: pdfTopology.distanceLabelItems,
+      cablePaths: pdfTopology.cablePaths,
     },
     library,
   );
