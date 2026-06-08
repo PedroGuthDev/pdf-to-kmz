@@ -10,6 +10,7 @@ import {
   assignPostsByRouteOrder,
   alignPostPositionsToRouteMarkers,
   routeSortKeyForPage,
+  restoreSharedSymbolCollapsedPosts,
   VITERBI_SIGMA_PT,
   VITERBI_BETA_M,
 } from '../post-positioning.js';
@@ -333,6 +334,57 @@ for (let i = 0; i < viterbiValmorP4.length; i++) {
   }
 }
 assert(valmorP4OneToOne, '[D-N2-01] Viterbi Valmor p4 one-to-one symbol assignment');
+
+// ---------------------------------------------------------------------------
+// 07-06 — shared-symbol collapse restore (LC layer-B fix, D-09/D-10).
+// Additive predicate: a post whose final (x,y) diverges far from its OWN free
+// label anchor AND clusters with another such post is a shared-symbol collapse;
+// restore it to its label anchor. Generic geometry — no literal post-number guard.
+// ---------------------------------------------------------------------------
+console.log('\n[post-positioning] shared-symbol collapse restore');
+
+// LC-shaped collapse: posts 9/10/11 collapsed near (305,302)/(338,343) while their
+// own free label anchors sit far away (~y 509-562). They cluster together → restore.
+const lcCollapse = [
+  { number: 7, pageNum: 4, x: 315, y: 338, anchorX: 315, anchorY: 338 },  // correct
+  { number: 8, pageNum: 4, x: 298, y: 419, anchorX: 298, anchorY: 419 },  // correct
+  { number: 9, pageNum: 4, x: 338, y: 343, anchorX: 295, anchorY: 509 },  // collapsed
+  { number: 10, pageNum: 4, x: 305, y: 302, anchorX: 283, anchorY: 562 }, // collapsed (shared)
+  { number: 11, pageNum: 4, x: 305, y: 302, anchorX: 319, anchorY: 518 }, // collapsed (shared)
+  { number: 12, pageNum: 5, x: 262, y: 63, anchorX: 262, anchorY: 63 },   // correct, other page
+];
+const lcRestored = restoreSharedSymbolCollapsedPosts(lcCollapse, []);
+const lc9 = lcCollapse.find(p => p.number === 9);
+const lc10 = lcCollapse.find(p => p.number === 10);
+const lc11 = lcCollapse.find(p => p.number === 11);
+assert(Math.hypot(lc9.x - 295, lc9.y - 509) < 2, 'collapse: post 9 restored to its label anchor');
+assert(Math.hypot(lc10.x - 283, lc10.y - 562) < 2, 'collapse: post 10 restored to its label anchor');
+assert(Math.hypot(lc11.x - 319, lc11.y - 518) < 2, 'collapse: post 11 restored to its label anchor');
+assert(lcRestored instanceof Set && lcRestored.size === 3, 'collapse: returns the 3 restored post indices');
+
+// Correctly-placed posts are left untouched.
+const lc7 = lcCollapse.find(p => p.number === 7);
+assert(Math.hypot(lc7.x - 315, lc7.y - 338) < 2, 'collapse: correctly-placed post 7 untouched');
+
+// Siriu-shaped legitimate off-anchor (single post, NOT clustered with another collapsed
+// post, OR anchor occupied) must NOT be moved — guards against Pitfall-2 regression.
+const siriuLegit = [
+  { number: 49, pageNum: 2, x: 400, y: 400, anchorX: 400, anchorY: 400 }, // occupies post 50's anchor
+  { number: 50, pageNum: 2, x: 900, y: 900, anchorX: 405, anchorY: 402 }, // far off-anchor but anchor OCCUPIED by 49
+  { number: 51, pageNum: 2, x: 600, y: 600, anchorX: 600, anchorY: 600 }, // correct
+];
+restoreSharedSymbolCollapsedPosts(siriuLegit, []);
+const s50 = siriuLegit.find(p => p.number === 50);
+assert(Math.hypot(s50.x - 900, s50.y - 900) < 2, 'collapse: off-anchor post with OCCUPIED anchor untouched (Siriu-safe)');
+
+// Lone off-anchor post with a FREE anchor but NO clustered partner must also be left alone.
+const loneOffAnchor = [
+  { number: 70, pageNum: 2, x: 800, y: 800, anchorX: 300, anchorY: 300 }, // far + free anchor, but lone
+  { number: 71, pageNum: 2, x: 500, y: 500, anchorX: 500, anchorY: 500 }, // correct, not clustered
+];
+restoreSharedSymbolCollapsedPosts(loneOffAnchor, []);
+const s70 = loneOffAnchor.find(p => p.number === 70);
+assert(Math.hypot(s70.x - 800, s70.y - 800) < 2, 'collapse: lone off-anchor (no clustered partner) untouched');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
