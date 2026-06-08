@@ -148,7 +148,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 1** *(D-09 prerequisite — ingestion + scale guard)*
 
-  - [ ] 08-00-PLAN.md — Attest Phase-6 ingestion gates green (DXF-01..07) + new D-08 median cross-validation scale/unit guard
+  - [x] 08-00-PLAN.md — Attest Phase-6 ingestion gates green (DXF-01..07) + new D-08 median cross-validation scale/unit guard
 
   **Wave 2** *(blocked on 08-00)*
 

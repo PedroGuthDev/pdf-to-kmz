@@ -17,13 +17,13 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 
 ### DXF Ingestion & Region Lookup (DXF) → Phase 6
 
-- [ ] **DXF-01**: User can ingest a DXF into the region library; the system resolves its coordinate system (UTM zone-22S / SIRGAS-2000) at ingest time.
-- [ ] **DXF-02**: Ingestion validates units (mm→m retry) and **fails loud** on out-of-envelope drawings ("DXF unit mismatch suspected").
-- [ ] **DXF-03**: Every UTM→WGS84 conversion is validated inside Brazil's bounding box; out-of-range **fails loud** (never confidently-wrong GPS).
-- [ ] **DXF-04**: Regions are indexed by GPS bounding box; lookup by the first post's GPS returns the covering region.
-- [ ] **DXF-05**: When no region covers the GPS, the system **fails loud** with a nearest-region hint + distance — never a silent wrong-region match.
-- [ ] **DXF-06**: Large DXFs (e.g. Palhoça ~60k INSERTs) ingest within an acceptable budget (~5 s target) via spatial indexing.
-- [ ] **DXF-07**: User can list the ingested regions in the library.
+- [x] **DXF-01**: User can ingest a DXF into the region library; the system resolves its coordinate system (UTM zone-22S / SIRGAS-2000) at ingest time.
+- [x] **DXF-02**: Ingestion validates units (mm→m retry) and **fails loud** on out-of-envelope drawings ("DXF unit mismatch suspected").
+- [x] **DXF-03**: Every UTM→WGS84 conversion is validated inside Brazil's bounding box; out-of-range **fails loud** (never confidently-wrong GPS).
+- [x] **DXF-04**: Regions are indexed by GPS bounding box; lookup by the first post's GPS returns the covering region.
+- [x] **DXF-05**: When no region covers the GPS, the system **fails loud** with a nearest-region hint + distance — never a silent wrong-region match.
+- [x] **DXF-06**: Large DXFs (e.g. Palhoça ~60k INSERTs) ingest within an acceptable budget (~5 s target) via spatial indexing.
+- [x] **DXF-07**: User can list the ingested regions in the library.
 
 ### Solver Prerequisites (SOLVE-05) → Phase 7
 
@@ -69,13 +69,13 @@ Continues REQ-ID numbering from v1.0 (new categories: ACC, DXF, SOLVE, CONF).
 | ACC-03 | Phase 5 | Complete |
 | ACC-04 | Phase 5 | Complete |
 | ACC-05 | Phase 5 | Pending |
-| DXF-01 | Phase 6 | Pending |
-| DXF-02 | Phase 6 | Pending |
-| DXF-03 | Phase 6 | Pending |
-| DXF-04 | Phase 6 | Pending |
-| DXF-05 | Phase 6 | Pending |
-| DXF-06 | Phase 6 | Pending |
-| DXF-07 | Phase 6 | Pending |
+| DXF-01 | Phase 6 | Complete |
+| DXF-02 | Phase 6 | Complete |
+| DXF-03 | Phase 6 | Complete |
+| DXF-04 | Phase 6 | Complete |
+| DXF-05 | Phase 6 | Complete |
+| DXF-06 | Phase 6 | Complete |
+| DXF-07 | Phase 6 | Complete |
 | SOLVE-05 | Phase 7 | Pending |
 | SOLVE-01 | Phase 8 | Pending |
 | SOLVE-02 | Phase 8 | Pending |
