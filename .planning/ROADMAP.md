@@ -113,7 +113,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 
   **Wave 2** *(parallel additive fixtures; blocked on 07-01)*
 
-  - [ ] 07-02-PLAN.md — João Born PDF per-post position fixture + gate (hand-known anchors, all 34 posts)
+  - [x] 07-02-PLAN.md — João Born PDF per-post position fixture + gate (hand-known anchors, all 34 posts)
   - [ ] 07-03-PLAN.md — Valmor PDF per-post position fixture + gate (parse-viability gated, all 11 posts)
   - [ ] 07-04-PLAN.md — Junction ground-truth fixtures + DFS-oracle tests for LC/JB(linear)/Valmor
   - [x] 07-05-PLAN.md — Per-route txt GPS accuracy gates with four-tier classifier (Siriu/Valmor hard; LC/JB soft fence — deferred to Phase 8)

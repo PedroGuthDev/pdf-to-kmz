@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Generalized DXF-Driven Accuracy
 status: executing
-stopped_at: Completed 07-05-PLAN.md
+stopped_at: Completed 07-02-PLAN.md
 last_updated: "2026-06-08T00:00:00.000Z"
 last_activity: 2026-06-08
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -32,8 +32,8 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 ## Current Position
 
 Phase: 07 (solver-prerequisites) — EXECUTING
-Plan: 5 of 7 complete (Wave 2 done; Wave 3 next — 07-06 LC layer-B fix)
-Status: Ready to execute Wave 3
+Plan: 07-01, 07-02, 07-05 complete (Wave 2 in progress — 07-03/07-04 next; then Wave 3 07-06 LC layer-B fix)
+Status: João Born position gate (07-02) green — 34/34 posts, max 0.7 pt, user-verified anchors
 Last activity: 2026-06-08
 
 ## Phase History
@@ -130,6 +130,6 @@ Items acknowledged and deferred at milestone v1.0 close on 2026-06-05. Carried f
 
 ## Session Continuity
 
-Last session: 2026-06-06T14:51:18.444Z
-Stopped at: Completed 07-01-PLAN.md
-Resume: Run `/gsd:execute-phase 5` to execute the truth-free residual gate plans
+Last session: 2026-06-08T00:00:00.000Z
+Stopped at: Completed 07-02-PLAN.md (JB position gate green, user-verified)
+Resume: Execute remaining Phase 7 Wave 2 plans (07-03 Valmor, 07-04 junction oracle), then Wave 3 (07-06 LC layer-B fix)
