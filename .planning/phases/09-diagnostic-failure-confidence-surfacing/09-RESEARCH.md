@@ -296,19 +296,18 @@ function showConfidenceBanner({ overall, hardBlockReason, unresolved }) {
 | A4 | KML balloon CDATA not required (existing code uses `escapeXml`, keep consistent) | Pattern 3 | LOW — both render in Google Earth; escapeXml matches current behavior |
 | A5 | `diverged-at-post` warning is produced somewhere in the solver/gate path with `at_post`+`residual_m` available | Pattern 4 / D-09 | MEDIUM — D-09 names it as a NEW kind; the data source (which post diverged) must come from gate per-post anchorGap or solver diagnostics. Planner must confirm the producing site has `at_post`/`residual_m` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where is the `diverged-at-post` data sourced?**
+1. **Where is the `diverged-at-post` data sourced?** — RESOLVED: Plan 01 Task 2 implements this as the worst post where `anchorGap.perPost[].gapM` ≥ `ANCHOR_FALLBACK_M`, read-only from existing `anchorGap`. Pushed as `{ kind:"diverged-at-post", at_post, residual_m }` into `successResult.warnings`.
    - What we know: D-09 wants a `diverged-at-post` warning with `{ at_post, residual_m }`. The gate's `anchorGap.perPost[]` has `{ postNumber, gapM }` and `shapeFidelity.perEdge[]` has `residualM`.
-   - What's unclear: Whether "diverged at post N" should be the worst-anchor-gap post, the first post crossing a threshold, or a solver-emitted demotion locus.
    - Recommendation: Planner defines it as the first/worst post where `anchorGap.perPost[].gapM` ≥ `ANCHOR_FALLBACK_M`, derived read-only from existing `anchorGap` — no new computation. Confirm wording with discuss-phase.
 
-2. **Does `successResult` expose a clean "region matched" flag for the block-vs-flag decision?**
+2. **Does `successResult` expose a clean "region matched" flag for the block-vs-flag decision?** — RESOLVED: Plan 01 Task 2 adds an explicit `hardBlock: boolean` to every result exit. `hardBlock: true` on no-region and zone/error miss; `hardBlock: false` on cascade-fail-after-match and success. No UI-side string sniffing needed.
    - What we know: `missResult` carries `dwgNoRegion` and `dwgStatus:"pdf-fallback"`; `successResult` (matched then maybe degraded) also can carry `dwgStatus:"pdf-fallback"` via the cascade-fail branch (line 440-449).
    - What's unclear: The cascade-fail-after-match branch (line 441) sets `dwgStatus:"pdf-fallback"` but DOES set `dwgRegionId` and has NO `dwgNoRegion`. That's the disambiguator.
    - Recommendation: Block iff `dwgNoRegion` present OR `dwg-zone-mismatch`/DXF-02 fail; else flag. Planner should add an explicit `hardBlock: true/false` field to the result at the calculator to avoid UI-side string sniffing.
 
-3. **Tier-color vs user-icon-color toggle (D-03)?**
+3. **Tier-color vs user-icon-color toggle (D-03)?** — RESOLVED: Toggle deferred per CONTEXT Deferred Ideas; tier wins hard-coded first (Plan 02 ships this default).
    - What we know: Default is tier color wins; D-03 allows an optional toggle; Deferred Ideas marks the toggle as optional polish.
    - Recommendation: Ship tier-wins hard-coded first; defer the toggle (matches CONTEXT Deferred Ideas).
 
