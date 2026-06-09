@@ -58,14 +58,17 @@ test("DXF-03: corners outside Brazil throw and store nothing", async () => {
   );
 
   const dxfText = readFileSync(
-    new URL("./fixtures/mm-scale.dxf", import.meta.url),
+    new URL("./fixtures/outside-brazil.dxf", import.meta.url),
     "utf8",
   );
   const lib = createRegionLibrary(new IDBFactory());
   await assert.rejects(
     () => lib.addRegion("brazil-fail", dxfBlob(dxfText)),
-    /DXF unit mismatch suspected/,
+    /outside Brazil/,
   );
+
+  const regions = await lib.listRegions();
+  assert.ok(!regions.some((r) => r.id === "brazil-fail"));
 });
 
 test("D-08: no-extents DXF ingests with confidence inferred", async () => {
