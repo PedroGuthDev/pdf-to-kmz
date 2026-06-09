@@ -68,9 +68,19 @@ export function medianCrossValidate({ distances, regionEdges }) {
 
   const medianPDF = medianOf(pdfMeters);
   const medianDXF = medianOf(dxfSpans);
+  // Guard against null/zero medians before dividing: a NaN ratio makes BOTH
+  // band comparisons false, which would silently return ok:true on degenerate
+  // input and poison every downstream tolerance with NaN.
+  if (medianPDF == null || medianDXF == null || !(medianDXF > 0)) {
+    return { ok: false, reason: "insufficient-data" };
+  }
   const ratio = medianPDF / medianDXF;
 
-  if (ratio < 1 / AGREEMENT_FACTOR || ratio > AGREEMENT_FACTOR) {
+  if (
+    !Number.isFinite(ratio) ||
+    ratio < 1 / AGREEMENT_FACTOR ||
+    ratio > AGREEMENT_FACTOR
+  ) {
     return { ok: false, reason: "scale-mismatch", medianPDF, medianDXF, ratio };
   }
 
