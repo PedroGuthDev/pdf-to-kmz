@@ -710,8 +710,13 @@ export function solveGlobalGraphAlignment({
   if (!forcedAssignments) {
     for (const [y, x] of munkresAssignments) {
       assignedRows.add(y);
-      const cost = costMatrix[y][x];
-      if (cost !== -Infinity && cost >= sentinel * 0.999) {
+      // Detect uncovered assignments structurally (WR-03): a cell is a real
+      // candidate iff realCosts[y][x] != null. The forced anchor cell
+      // (cost === -Infinity) is real by construction. This removes the fragile
+      // magnitude check (sentinel * 0.999) and its SENTINEL_MULT coupling, which
+      // could collide with a legitimately high real cost.
+      const isForcedAnchor = y === anchorRow && x === anchorCol;
+      if (!isForcedAnchor && realCosts[y][x] == null) {
         return {
           ok: false,
           reason: "coverage",
