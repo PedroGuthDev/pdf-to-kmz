@@ -699,7 +699,24 @@ export function solveGlobalGraphAlignment({
 
   const anchorCol = nodeToCol.get(anchorBest);
   const anchorRow = sortedPosts.findIndex((p) => p.number === anchorPostNum);
+
+  // WR-02: validate the anchor candidate's DXF degree class against post 1's
+  // connection degree BEFORE hard-pinning. anchorBest is chosen purely by
+  // Euclidean proximity to the GPS anchor; a neighboring spur head can be
+  // nearer than the true origin. If the degree classes disagree, hard-pinning
+  // would seed the entire dead-reckoning propagation from the wrong node, so
+  // demote with a distinct reason instead.
   if (anchorRow >= 0 && anchorCol != null) {
+    const pdfAnchorDegree = (connAdj.get(anchorPostNum) ?? []).length;
+    const dxfAnchorDegree = (graph.get(anchorIdx) ?? new Set()).size;
+    if (degreeClass(pdfAnchorDegree) !== degreeClass(dxfAnchorDegree)) {
+      return {
+        ok: false,
+        reason: "anchor-degree-mismatch",
+        elapsedMs: performance.now() - t0,
+        warnings,
+      };
+    }
     costMatrix[anchorRow][anchorCol] = -Infinity;
   }
 
