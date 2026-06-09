@@ -23,7 +23,12 @@ export const CANDIDATE_WINDOW_MULT = 2;
 function medianOf(values) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)];
+  const mid = sorted.length >> 1;
+  // Average the two central elements on even length (true median), instead of
+  // taking the upper-middle element which biases the median upward.
+  return sorted.length % 2
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 /**
