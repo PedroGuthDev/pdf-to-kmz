@@ -132,7 +132,7 @@ describe("applyResidualGate — two-gate decision + per-post tiers", () => {
   it("trust only when BOTH shape and anchor pass", () => {
     const r = applyResidualGate(
       { medianRelError: 0.003, perEdge: [] },
-      { p95GapM: 10, perPost: [] },
+      { p95GapM: 9, perPost: [] }, // strictly < ANCHOR_TRUST_M (10) — boundary is exclusive
     );
     assert.equal(r.gateDecision, "trust");
   });
@@ -177,12 +177,141 @@ describe("applyResidualGate — two-gate decision + per-post tiers", () => {
     );
     assert.ok(r.postTiers.length > 0);
     for (const t of r.postTiers) {
-      assert.deepEqual(Object.keys(t).sort(), ["postNumber", "tier"]);
+      // D-06: each entry exposes per-post sub-score METERS additively alongside
+      // the tier label. Keys are exactly these four — and crucially NO numeric
+      // percentage field (CONF-04: meters are diagnostics, % is forbidden).
+      assert.deepEqual(
+        Object.keys(t).sort(),
+        ["anchorGapM", "postNumber", "shapeResidualM", "tier"],
+      );
       assert.ok(
         ["HIGH", "MED", "LOW", "UNRESOLVABLE"].includes(t.tier),
         `tier ${t.tier} must be a label`,
       );
+      // sub-score meters are a number or null — never a percentage / NaN
+      assert.ok(
+        t.shapeResidualM === null || typeof t.shapeResidualM === "number",
+        "shapeResidualM is number|null",
+      );
+      assert.ok(
+        t.anchorGapM === null || typeof t.anchorGapM === "number",
+        "anchorGapM is number|null",
+      );
     }
+  });
+
+  it("D-06: per-post shapeResidualM is the worst incident residual in METERS (from perEdge[].residualM)", () => {
+    const r = applyResidualGate(
+      {
+        medianRelError: 0.05,
+        perEdge: [
+          { from: 1, to: 2, relError: 0.01, residualM: 3.2 },
+          { from: 2, to: 3, relError: 0.4, residualM: 88.5 }, // post 2's worst
+        ],
+      },
+      {
+        p95GapM: 9,
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 2, gapM: 6 },
+          { postNumber: 3, gapM: 7 },
+        ],
+      },
+    );
+    const t2 = r.postTiers.find((t) => t.postNumber === 2);
+    assert.equal(t2.shapeResidualM, 88.5); // worst incident residual, not recomputed
+    assert.equal(t2.anchorGapM, 6); // sourced from anchor.perPost gapM
+    const t1 = r.postTiers.find((t) => t.postNumber === 1);
+    assert.equal(t1.shapeResidualM, 3.2);
+  });
+
+  it("D-06: a post with only an anchor entry has shapeResidualM null (no incident edge)", () => {
+    const r = applyResidualGate(
+      { medianRelError: 0.05, perEdge: [{ from: 1, to: 2, relError: 0.01, residualM: 2 }] },
+      {
+        p95GapM: 9,
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 9, gapM: 12 }, // post 9 has anchor only, no edge
+        ],
+      },
+    );
+    const t9 = r.postTiers.find((t) => t.postNumber === 9);
+    assert.equal(t9.shapeResidualM, null);
+    assert.equal(t9.anchorGapM, 12);
+  });
+
+  it("D-08: overall is 'high' only when gateDecision trusts AND every post is HIGH", () => {
+    const r = applyResidualGate(
+      { medianRelError: 0.003, perEdge: [{ from: 1, to: 2, relError: 0.01, residualM: 1 }] },
+      {
+        p95GapM: 9, // anchor passes → gateDecision "trust"
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 2, gapM: 5 },
+        ],
+      },
+    );
+    assert.equal(r.gateDecision, "trust");
+    assert.ok(r.postTiers.every((t) => t.tier === "HIGH"));
+    assert.equal(r.overall, "high");
+  });
+
+  it("D-08: a trusting route with one MED post degrades overall to 'med' (NOT 'high')", () => {
+    const r = applyResidualGate(
+      {
+        medianRelError: 0.003, // shape median passes → trust on shape
+        perEdge: [
+          { from: 1, to: 2, relError: 0.01, residualM: 1 }, // post 1 HIGH
+          { from: 2, to: 3, relError: 0.08, residualM: 40 }, // post 2 between trust/fallback → MED
+        ],
+      },
+      {
+        p95GapM: 9, // anchor p95 passes → gateDecision "trust"
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 2, gapM: 5 },
+          { postNumber: 3, gapM: 5 },
+        ],
+      },
+    );
+    assert.equal(r.gateDecision, "trust");
+    const t2 = r.postTiers.find((t) => t.postNumber === 2);
+    assert.equal(t2.tier, "MED");
+    assert.equal(r.overall, "med"); // a single MED post must NOT be masked as high
+  });
+
+  it("D-08: an UNRESOLVABLE post drives overall to 'unresolvable' regardless of gateDecision", () => {
+    const r = applyResidualGate(
+      { medianRelError: 0.003, perEdge: [{ from: 1, to: 2, relError: 0.01, residualM: 1 }] },
+      {
+        p95GapM: 9,
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 2, gapM: 5 },
+        ],
+      },
+      { allPostNumbers: [1, 2, 77] }, // post 77 unscored → UNRESOLVABLE
+    );
+    assert.equal(r.overall, "unresolvable");
+  });
+
+  it("D-08: a fail gateDecision with all-HIGH posts is never 'high' (HIGH-but-not-trust → 'med')", () => {
+    // anchor p95 hard-fails the route gate, but every scored post is individually HIGH
+    const r = applyResidualGate(
+      { medianRelError: 0.003, perEdge: [{ from: 1, to: 2, relError: 0.01, residualM: 1 }] },
+      {
+        p95GapM: 200, // exceeds ANCHOR_FAIL_M → gateDecision "fail"
+        perPost: [
+          { postNumber: 1, gapM: 4 },
+          { postNumber: 2, gapM: 5 },
+        ],
+      },
+    );
+    assert.equal(r.gateDecision, "fail");
+    assert.ok(r.postTiers.every((t) => t.tier === "HIGH"));
+    assert.notEqual(r.overall, "high"); // trust gate is a precondition for "high"
+    assert.equal(r.overall, "med"); // worst material tier is HIGH but gate didn't trust → "med"
   });
 
   it("HIGH only when both per-post sub-scores pass; a single bad edge forces away from HIGH", () => {
