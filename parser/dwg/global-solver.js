@@ -364,6 +364,10 @@ function propagatePredictedPositions({
   const postSet = new Set(posts.map((p) => p.number));
   const predicted = new Map([[anchorPostNum, { x: anchorPos.x, y: anchorPos.y }]]);
   const parent = new Map([[anchorPostNum, null]]);
+  // Hop depth from the anchor. Colinear dead-reckoning accumulates angular
+  // error with each hop, so the prune window is later widened proportionally
+  // (WR-04) to avoid pruning the true DXF node on routes that turn.
+  const hops = new Map([[anchorPostNum, 0]]);
 
   const connAdj = buildConnAdj(posts, connections);
   const queue = [anchorPostNum];
@@ -417,6 +421,7 @@ function propagatePredictedPositions({
         y: curPos.y + dirY * d,
       });
       parent.set(neighbor, current);
+      hops.set(neighbor, (hops.get(current) ?? 0) + 1);
       visited.add(neighbor);
       queue.push(neighbor);
     }
@@ -425,21 +430,30 @@ function propagatePredictedPositions({
   for (const p of posts) {
     if (!predicted.has(p.number)) {
       predicted.set(p.number, { x: anchorPos.x, y: anchorPos.y });
+      hops.set(p.number, hops.get(p.number) ?? 0);
     }
   }
 
-  return predicted;
+  return { predicted, hops };
 }
 
-function pruneCandidates({ posts, predicted, postIndex, candidateWindowM, warnings }) {
+/** Per-hop widening of the prune window to absorb accumulated dead-reckoning drift (WR-04). */
+const HOP_WINDOW_GROWTH = 0.25;
+
+function pruneCandidates({ posts, predicted, hops, postIndex, candidateWindowM, warnings }) {
   const prunedByPost = new Map();
   for (const p of posts) {
     const pred = predicted.get(p.number);
+    // Widen the window proportional to hop count: each colinear hop adds
+    // angular drift, so a node N hops from the anchor needs a larger window
+    // than the anchor's immediate neighbor (WR-04).
+    const hopCount = hops?.get(p.number) ?? 0;
+    const windowM = candidateWindowM * (1 + HOP_WINDOW_GROWTH * hopCount);
     const raw = postIndex.search({
-      minX: pred.x - candidateWindowM,
-      minY: pred.y - candidateWindowM,
-      maxX: pred.x + candidateWindowM,
-      maxY: pred.y + candidateWindowM,
+      minX: pred.x - windowM,
+      minY: pred.y - windowM,
+      maxX: pred.x + windowM,
+      maxY: pred.y + windowM,
     });
     const sorted = raw
       .map((node) => ({
@@ -617,7 +631,7 @@ export function solveGlobalGraphAlignment({
   const anchorPostNum = sortedPosts[0]?.number ?? 1;
 
   const distMap = buildDistanceMap(distances);
-  const predicted = propagatePredictedPositions({
+  const { predicted, hops } = propagatePredictedPositions({
     posts: sortedPosts,
     connections,
     distMap,
@@ -632,6 +646,7 @@ export function solveGlobalGraphAlignment({
   const prunedByPost = pruneCandidates({
     posts: sortedPosts,
     predicted,
+    hops,
     postIndex: tree,
     candidateWindowM,
     warnings,
