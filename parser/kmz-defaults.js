@@ -24,6 +24,19 @@ export const PRESET_COLORS = {
   moss: '#55aa00',
 };
 
+/**
+ * Confidence-tier traffic-light palette (D-03 discoverability). References the
+ * SAME PRESET_COLORS hexes so the tier palette stays consistent with user-facing
+ * presets. The authoritative tier→hex map lives in `parser/dwg/tier-styles.js`;
+ * this convenience export mirrors it for callers that work from kmz-defaults.
+ */
+export const TIER_COLORS = {
+  HIGH: PRESET_COLORS.green,
+  MED: PRESET_COLORS.yellow,
+  LOW: PRESET_COLORS.amber,
+  UNRESOLVABLE: PRESET_COLORS.red,
+};
+
 const PRESET_FALLBACKS = {
   iconColor: 'green',
   lineColor: 'red',
