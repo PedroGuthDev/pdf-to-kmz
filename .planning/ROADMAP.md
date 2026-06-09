@@ -26,7 +26,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 - [ ] **Phase 6: DXF Ingestion & Region Lookup** — Ingest DXFs with CRS normalization, spatial indexing, and fail-loud boundaries; GPS-based region lookup.
 - [x] **Phase 7: Solver Prerequisites** — Lock per-post position fixtures for all four named routes, audit all gates (fence vs. accuracy), and confirm junction ground-truth is clean; green gate for solver entry. (completed 2026-06-08)
 - [x] **Phase 8: Global PDF-DXF Solver** — Hungarian bipartite solver as cascade level-0; strangler-fig fallback; re-clears Siriu 85-post gate and LC per-post position gate with zero regression. (completed 2026-06-09)
-- [ ] **Phase 9: Diagnostic Failure & Confidence Surfacing** — Per-post TIER labels in KMZ/UI; Portuguese failure messages; partial output on low confidence; no numeric percentage seals.
+- [x] **Phase 9: Diagnostic Failure & Confidence Surfacing** — Per-post TIER labels in KMZ/UI; Portuguese failure messages; partial output on low confidence; no numeric percentage seals. (completed 2026-06-09)
 
 ---
 
@@ -187,9 +187,9 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   4. No UI, KMZ description, or ExtendedData field anywhere in the output shows a numeric percentage confidence value (e.g., "87%" is forbidden; "HIGH" is correct).
 
 **Plans**: 3 plans
-- [ ] 09-01-PLAN.md — Expose per-post sub-scores + overall tier + hardBlock flag + diverged-at-post warning (data layer)
-- [ ] 09-02-PLAN.md — Tier styles, ExtendedData, balloon tier line, unresolvable flagging in buildKml (KMZ layer)
-- [ ] 09-03-PLAN.md — Confidence status banner, hard-block KMZ gating, unresolved-post list (UI layer)
+- [x] 09-01-PLAN.md — Expose per-post sub-scores + overall tier + hardBlock flag + diverged-at-post warning (data layer)
+- [x] 09-02-PLAN.md — Tier styles, ExtendedData, balloon tier line, unresolvable flagging in buildKml (KMZ layer)
+- [x] 09-03-PLAN.md — Confidence status banner, hard-block KMZ gating, unresolved-post list (UI layer)
 **UI hint**: yes
 
 ---
@@ -202,7 +202,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
 | 6. DXF Ingestion & Region Lookup | 0/3 | Planned | - |
 | 7. Solver Prerequisites | 7/7 | Complete | 2026-06-08 |
 | 8. Global PDF-DXF Solver | 4/4 | Complete | 2026-06-09 |
-| 9. Diagnostic Failure & Confidence Surfacing | 0/3 | Planned | - |
+| 9. Diagnostic Failure & Confidence Surfacing | 3/3 | Complete | 2026-06-09 |
 
 ---
 
