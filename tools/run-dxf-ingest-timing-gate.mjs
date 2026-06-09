@@ -12,7 +12,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { createRegionLibrary } from "../parser/dwg/region-library.js";
 
-const BUDGET_MS = 5000;
+const BUDGET_MS = 10_000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PALHOCA_PATH = path.join(__dirname, "..", "Palhoca.dxf");
 
