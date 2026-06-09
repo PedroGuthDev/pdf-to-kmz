@@ -1,4 +1,5 @@
 import { mergeOptions, resolveStyleColors } from "./kmz-defaults.js";
+import { tierStyleId, tierStyleBlock, TIER_LABEL_PT } from "./dwg/tier-styles.js";
 
 /**
  * @param {string} str
@@ -248,13 +249,27 @@ export function buildKml(posts, connections, options = {}) {
   const colors = resolveStyleColors(merged);
   const postByNum = new Map(posts.map((p) => [p.number, p]));
   const warnings = [];
+  // D-11: posts declared but with NO coordinate at all (never silently dropped).
+  const unresolvedNoCoord = [];
   const stats = {
     placemarkCount: 0,
     lineCount: 0,
     omittedNoGps: 0,
+    // D-11: list of post numbers that have no coordinate; omittedNoGps stays as
+    // its count for back-compat.
+    unresolvedNoCoord,
     skippedLines: 0,
     warnings,
   };
+
+  // D-01/D-04/D-05: per-post confidence tier map produced by the residual gate
+  // (Plan 01). When absent, buildKml falls back to the single #postPoint style and
+  // emits no ExtendedData (back-compat).
+  const tierByPost = new Map();
+  for (const t of options.postTiers ?? []) {
+    tierByPost.set(t.postNumber, t);
+  }
+  const hasTiers = tierByPost.size > 0;
 
   // Render-boundary normalization: drop spurious chords / gap-bridges the DWG
   // geometry path emits (see normalizeConnections). All downstream rendering —
@@ -318,27 +333,82 @@ export function buildKml(posts, connections, options = {}) {
     `<Style id="routeLine"><LineStyle><color>${colors.lineColorKml}</color><width>${merged.lineWidth}</width></LineStyle></Style>`,
   ];
 
+  // D-01: when tiers are supplied, emit the four traffic-light tier Style blocks
+  // (#postPoint stays as the fallback for posts without a tier entry). The icon
+  // href and label conventions mirror the #postPoint template.
+  if (hasTiers) {
+    const iconHref = escapeXml(merged.iconHref);
+    for (const tier of ["HIGH", "MED", "LOW", "UNRESOLVABLE"]) {
+      parts.push(
+        tierStyleBlock(tier, iconHref, {
+          labelColorKml: colors.labelColorKml,
+          labelScale: merged.labelScale,
+        }),
+      );
+    }
+  }
+
   for (const post of posts) {
     if (!hasGps(post)) {
-      stats.omittedNoGps += 1;
+      // D-11: a post with NO coordinate at all is recorded by number — never
+      // silently dropped. omittedNoGps stays as the count for back-compat.
+      unresolvedNoCoord.push(post.number);
+      stats.omittedNoGps = unresolvedNoCoord.length;
       warnings.push(
-        `[kml-builder] post ${padPostNumber(post.number)} omitted (no GPS)`,
+        `[kml-builder] poste ${padPostNumber(post.number)} sem coordenada (não resolvido)`,
       );
       continue;
     }
+    const tp = tierByPost.get(post.number);
     const name = `Poste ${padPostNumber(post.number)}`;
-    const desc = `Lat: ${post.lat}, Lon: ${post.lon}`;
+    const latLon = `Lat: ${post.lat}, Lon: ${post.lon}`;
+    // D-05: prepend a Portuguese tier line to the balloon when a tier exists.
+    const desc = tp
+      ? `Confiança: ${TIER_LABEL_PT[tp.tier]} — ${latLon}`
+      : latLon;
+    // D-01: reference the post's own tier style; fall back to #postPoint.
+    const styleId = tp ? `#${tierStyleId(tp.tier)}` : "#postPoint";
+
     parts.push(
       "<Placemark>",
       `<name>${escapeXml(name)}</name>`,
       `<description>${escapeXml(desc)}</description>`,
-      "<styleUrl>#postPoint</styleUrl>",
+      `<styleUrl>${styleId}</styleUrl>`,
       "<Point>",
       "<altitudeMode>clampToGround</altitudeMode>",
       `<coordinates>${Number(post.lon).toFixed(7)},${Number(post.lat).toFixed(7)},0</coordinates>`,
       "</Point>",
-      "</Placemark>",
     );
+
+    // D-04: per-post ExtendedData diagnostics (meters allowed, no %). Each value
+    // passes through escapeXml; null sub-scores omit their <Data> entry.
+    if (tp) {
+      parts.push("<ExtendedData>");
+      parts.push(
+        `<Data name="tier"><value>${escapeXml(tp.tier)}</value></Data>`,
+      );
+      if (typeof tp.shapeResidualM === "number") {
+        parts.push(
+          `<Data name="shape_residual_m"><value>${escapeXml(tp.shapeResidualM.toFixed(1))}</value></Data>`,
+        );
+      }
+      if (typeof tp.anchorGapM === "number") {
+        parts.push(
+          `<Data name="anchor_gap_m"><value>${escapeXml(tp.anchorGapM.toFixed(1))}</value></Data>`,
+        );
+      }
+      parts.push(
+        `<Data name="source"><value>${escapeXml(String(post.source ?? "pdf"))}</value></Data>`,
+      );
+      if (tp.demotionReason != null) {
+        parts.push(
+          `<Data name="demotionReason"><value>${escapeXml(String(tp.demotionReason))}</value></Data>`,
+        );
+      }
+      parts.push("</ExtendedData>");
+    }
+
+    parts.push("</Placemark>");
     stats.placemarkCount += 1;
   }
 
