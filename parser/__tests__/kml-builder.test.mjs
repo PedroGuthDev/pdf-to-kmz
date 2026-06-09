@@ -198,13 +198,16 @@ describe("buildKml", () => {
     assert.equal(stats.lineCount, 2);
   });
 
-  it("omits posts without GPS and counts them", () => {
+  it("flags posts without coordinates instead of silently dropping them (D-11)", () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 3, lat: null, lon: null },
     ];
     const { kml, stats } = buildKml(posts, [], {});
+    // back-compat: omittedNoGps still counts no-coordinate posts
     assert.equal(stats.omittedNoGps, 1);
+    // D-11: the no-coordinate post is recorded by number, never silently dropped
+    assert.deepEqual(stats.unresolvedNoCoord, [3]);
     assert.equal(stats.placemarkCount, 1);
     assert.doesNotMatch(kml, /<name>Poste 03<\/name>/);
   });
@@ -225,5 +228,84 @@ describe("buildKml", () => {
     assert.equal(stats.placemarkCount, 0);
     assert.match(kml, /<Document>/);
     assert.ok(Array.isArray(stats.warnings));
+  });
+
+  it("emits four tier styles and references each post's own tier styleUrl (D-01/D-05)", () => {
+    const posts = [
+      { number: 1, lat: 1, lon: 1 },
+      { number: 2, lat: 2, lon: 2 },
+    ];
+    const postTiers = [
+      { postNumber: 1, tier: "HIGH", shapeResidualM: 1.2, anchorGapM: 0.5 },
+      { postNumber: 2, tier: "MED", shapeResidualM: 8.4, anchorGapM: 12.3 },
+    ];
+    const { kml } = buildKml(posts, [], { postTiers });
+    // all four tier style blocks present
+    assert.match(kml, /<Style id="tierHigh">/);
+    assert.match(kml, /<Style id="tierMed">/);
+    assert.match(kml, /<Style id="tierLow">/);
+    assert.match(kml, /<Style id="tierUnresolvable">/);
+    // HIGH post references #tierHigh and carries the Portuguese tier line
+    const p1 = kml.match(/<Placemark>[\s\S]*?Poste 01[\s\S]*?<\/Placemark>/)[0];
+    assert.match(p1, /<styleUrl>#tierHigh<\/styleUrl>/);
+    assert.match(p1, /Confiança: ALTA/);
+  });
+
+  it("emits ExtendedData with tier + meters + source (D-04)", () => {
+    const posts = [{ number: 1, lat: 1, lon: 1, source: "dwg" }];
+    const postTiers = [
+      { postNumber: 1, tier: "MED", shapeResidualM: 8.4, anchorGapM: 12.3 },
+    ];
+    const { kml } = buildKml(posts, [], { postTiers });
+    assert.match(kml, /<ExtendedData>/);
+    assert.match(kml, /<Data name="tier">[\s\S]*?MED/);
+    assert.match(kml, /<Data name="shape_residual_m">/);
+    assert.match(kml, /<Data name="anchor_gap_m">/);
+    assert.match(kml, /<Data name="source">[\s\S]*?dwg/);
+  });
+
+  it("emits no percent sign anywhere for a tiered build (CONF-04)", () => {
+    const posts = [
+      { number: 1, lat: 1, lon: 1 },
+      { number: 2, lat: 2, lon: 2 },
+    ];
+    const postTiers = [
+      { postNumber: 1, tier: "HIGH", shapeResidualM: 1.2, anchorGapM: 0.5 },
+      { postNumber: 2, tier: "LOW", shapeResidualM: 30.1, anchorGapM: 22.0 },
+    ];
+    const { kml } = buildKml(posts, [{ from: 1, to: 2 }], { postTiers });
+    assert.doesNotMatch(kml, /%/);
+  });
+
+  it("renders an UNRESOLVABLE post WITH coordinates (red marker, not dropped) (D-11)", () => {
+    const posts = [{ number: 7, lat: -27.6, lon: -48.6 }];
+    const postTiers = [
+      { postNumber: 7, tier: "UNRESOLVABLE", shapeResidualM: null, anchorGapM: null },
+    ];
+    const { kml, stats } = buildKml(posts, [], { postTiers });
+    assert.equal(stats.placemarkCount, 1);
+    const pm = kml.match(/<Placemark>[\s\S]*?Poste 07[\s\S]*?<\/Placemark>/)[0];
+    assert.match(pm, /<styleUrl>#tierUnresolvable<\/styleUrl>/);
+    assert.match(pm, /Confiança: NÃO RESOLVIDO/);
+    // it has a coordinate so it is NOT in the unresolved-no-coord list
+    assert.deepEqual(stats.unresolvedNoCoord, []);
+  });
+
+  it("omits a <Data> when its meter sub-score is null", () => {
+    const posts = [{ number: 1, lat: 1, lon: 1 }];
+    const postTiers = [
+      { postNumber: 1, tier: "MED", shapeResidualM: null, anchorGapM: 5.0 },
+    ];
+    const { kml } = buildKml(posts, [], { postTiers });
+    assert.doesNotMatch(kml, /<Data name="shape_residual_m">/);
+    assert.match(kml, /<Data name="anchor_gap_m">/);
+  });
+
+  it("keeps #postPoint output unchanged when no postTiers supplied (back-compat)", () => {
+    const posts = [{ number: 1, lat: 1, lon: 1 }];
+    const { kml } = buildKml(posts, [], {});
+    assert.match(kml, /<styleUrl>#postPoint<\/styleUrl>/);
+    assert.doesNotMatch(kml, /<Style id="tierHigh">/);
+    assert.doesNotMatch(kml, /<ExtendedData>/);
   });
 });
