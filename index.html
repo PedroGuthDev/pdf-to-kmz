@@ -238,6 +238,49 @@
         border: 1px solid var(--border);
       }
 
+      .confidence-banner {
+        margin-top: var(--space-sm);
+        padding: var(--space-md);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border);
+        border-left-width: 6px;
+      }
+
+      .confidence-banner.tier-high {
+        border-left-color: #00aa00;
+        background: rgba(0, 255, 0, 0.08);
+      }
+
+      .confidence-banner.tier-med {
+        border-left-color: #d6c200;
+        background: rgba(255, 255, 0, 0.1);
+      }
+
+      .confidence-banner.tier-low {
+        border-left-color: #ffaa00;
+        background: rgba(255, 170, 0, 0.12);
+      }
+
+      .confidence-banner.tier-unresolvable {
+        border-left-color: #ff0000;
+        background: rgba(255, 0, 0, 0.1);
+      }
+
+      .confidence-overall {
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .confidence-block-reason {
+        margin: var(--space-xs) 0 0;
+        color: #b00020;
+        font-weight: 600;
+      }
+
+      .confidence-unresolved {
+        margin: var(--space-xs) 0 0;
+      }
+
       #dxfLibrarySection {
         margin: var(--space-xs) 0;
         padding: var(--space-md);
@@ -691,6 +734,25 @@
         <div id="calcNotices" class="panel" style="display: none" role="note">
           <strong>Precisão do cálculo (PDF vs DXF)</strong>
           <ul id="calcNoticesList"></ul>
+        </div>
+        <div
+          id="confidenceBanner"
+          class="confidence-banner"
+          style="display: none"
+          role="status"
+          aria-live="polite"
+        >
+          <p id="confidenceOverall" class="confidence-overall"></p>
+          <p
+            id="confidenceBlockReason"
+            class="confidence-block-reason"
+            style="display: none"
+          ></p>
+          <p
+            id="confidenceUnresolved"
+            class="confidence-unresolved"
+            style="display: none"
+          ></p>
         </div>
       </section>
     </div>
