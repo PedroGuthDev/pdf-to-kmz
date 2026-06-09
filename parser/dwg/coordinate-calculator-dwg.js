@@ -176,7 +176,6 @@ export function runDwgPairingCascade({
     };
   }
 
-  console.log("solver demoted; using graph-walker");
   warnings.push({ kind: "dwg-solver-demoted", reason: level0.reason });
 
   // Level 1: DWG-graph-first (UNCHANGED — pristine inputs, never solver-derived state)

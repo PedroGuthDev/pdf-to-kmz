@@ -2,7 +2,7 @@
  * Cascade level-0 integration: solveGlobalGraphAlignment → demote → pairPostsByGraphWalk.
  * Run: node --test parser/__tests__/global-solver-cascade.test.mjs
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -70,22 +70,10 @@ describe("runDwgPairingCascade — level-0 solver (injected deps)", () => {
   let walkerCallCount = 0;
   let walkerReceivedArgs = null;
   let solverImpl = () => ({ ok: false, reason: "residual-gate" });
-  let logLines = [];
-  let origLog;
 
   beforeEach(() => {
     walkerCallCount = 0;
     walkerReceivedArgs = null;
-    logLines = [];
-    origLog = console.log;
-    console.log = (...args) => {
-      logLines.push(args.join(" "));
-      origLog(...args);
-    };
-  });
-
-  afterEach(() => {
-    console.log = origLog;
   });
 
   function testDeps() {
@@ -121,7 +109,7 @@ describe("runDwgPairingCascade — level-0 solver (injected deps)", () => {
     assert.ok(result.solverScore);
   });
 
-  it("demotion: solver fail → logs message, walker called once", () => {
+  it("demotion: solver fail → pushes dwg-solver-demoted warning, walker called once", () => {
     solverImpl = () => ({ ok: false, reason: "hub-degree:7" });
     const warnings = [];
 
@@ -134,14 +122,10 @@ describe("runDwgPairingCascade — level-0 solver (injected deps)", () => {
     assert.equal(result.ok, true);
     assert.equal(result.dwgPath, "dwg-graph-walk");
     assert.equal(walkerCallCount, 1);
-    assert.ok(
-      logLines.some((l) => l.includes("solver demoted; using graph-walker")),
-      `expected demotion log, got: ${logLines.join("; ")}`,
-    );
     assert.equal(result.solverDemoted, true);
     assert.equal(result.demotionReason, "hub-degree:7");
     const demoteWarn = warnings.find((w) => w.kind === "dwg-solver-demoted");
-    assert.ok(demoteWarn);
+    assert.ok(demoteWarn, "expected a dwg-solver-demoted warning on demotion");
     assert.equal(demoteWarn.reason, "hub-degree:7");
   });
 
