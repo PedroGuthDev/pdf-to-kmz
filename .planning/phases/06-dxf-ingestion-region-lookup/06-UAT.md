@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 06-dxf-ingestion-region-lookup
 source: 06-01-SUMMARY.md, 06-02-SUMMARY.md, 06-03-SUMMARY.md
 started: 2026-06-09T12:00:00Z
@@ -55,5 +55,15 @@ blocked: 0
   reason: "User reported: actually, i tested it, i uploaded a dxf file without siriu region, then used the siriu pdf, the system runs, but the dxf does not include that pdf. There is also no warning about this"
   severity: major
   test: 4
-  artifacts: []
-  missing: []
+  root_cause: "dwgNoRegion and dwg-region-miss signals are emitted by the calculator but only dwg-region-miss is appended to #warningsList inside hidden #debugSection; main #calcNotices shows generic PDF-only text at best and does not state no region covers GPS or nearest-region hint"
+  artifacts:
+    - path: "browser/main.js"
+      issue: "calc warnings appended to hidden dev-tools #warningsList; dwgNoRegion not rendered in main UI"
+    - path: "index.html"
+      issue: "#warnings inside #debugSection (display:none by default)"
+    - path: "parser/dwg/coordinate-calculator-dwg.js"
+      issue: "backend emits dwgNoRegion correctly; UI layer does not consume it"
+  missing:
+    - "Surface dwgNoRegion in calcNotices with nearest region name + distanceKm (Portuguese)"
+    - "Promote dwg-region-miss warnings to main workflow, not only dev tools"
+  debug_session: ".planning/debug/no-region-warning-missing.md"
