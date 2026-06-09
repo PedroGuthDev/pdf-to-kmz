@@ -171,6 +171,10 @@ const downloadKmzHint = document.getElementById("downloadKmzHint");
 const kmzStats = document.getElementById("kmzStats");
 const kmzStatsBody = document.getElementById("kmzStatsBody");
 const kmzStatsOmitted = document.getElementById("kmzStatsOmitted");
+const confidenceBanner = document.getElementById("confidenceBanner");
+const confidenceOverall = document.getElementById("confidenceOverall");
+const confidenceBlockReason = document.getElementById("confidenceBlockReason");
+const confidenceUnresolved = document.getElementById("confidenceUnresolved");
 const refCompareSection = document.getElementById("refCompareSection");
 const compareOutput = document.getElementById("compareOutput");
 const dxfLibrarySection = document.getElementById("dxfLibrarySection");
@@ -660,6 +664,84 @@ function showWarnings(warnings) {
   warningsEl.style.display = "block";
 }
 
+/**
+ * Render the dedicated confidence status banner (D-07): the Portuguese overall
+ * tier label (SC-1), the hard-block reason + nearest-region hint (SC-2 / D-12),
+ * and the unresolved-post list (D-11 / CONF-03). All text via textContent only —
+ * never innerHTML (mirrors showWarnings). No percent sign anywhere (CONF-04).
+ */
+function showConfidenceBanner(result, unresolvedNoCoord) {
+  const OVERALL_LABEL_PT = {
+    high: "ALTA",
+    med: "MÉDIA",
+    low: "BAIXA",
+    unresolvable: "NÃO RESOLVIDO",
+  };
+
+  // Reset
+  confidenceOverall.textContent = "";
+  confidenceBlockReason.textContent = "";
+  confidenceUnresolved.textContent = "";
+  confidenceBlockReason.style.display = "none";
+  confidenceUnresolved.style.display = "none";
+  confidenceBanner.classList.remove(
+    "tier-high",
+    "tier-med",
+    "tier-low",
+    "tier-unresolvable",
+  );
+
+  // Overall tier (SC-1)
+  const overall = result?.dwgConfidence?.overall ?? null;
+  if (overall) {
+    confidenceOverall.textContent =
+      "Confiança geral: " + (OVERALL_LABEL_PT[overall] ?? "—");
+    confidenceBanner.classList.add("tier-" + overall);
+  } else {
+    confidenceOverall.textContent = "Confiança geral: —";
+  }
+
+  // Hard-block reason (SC-2 / D-12)
+  let hasBlockReason = false;
+  if (result && result.hardBlock === true) {
+    let reason;
+    if (result.dwgNoRegion) {
+      reason = "KMZ bloqueado: nenhuma região DXF cobre o poste 1.";
+      const nearest = result.dwgNoRegion.nearest;
+      if (nearest) {
+        reason +=
+          " Região mais próxima: " +
+          nearest.name +
+          " (" +
+          Number(nearest.distanceKm).toFixed(1) +
+          " km).";
+      }
+    } else {
+      reason =
+        "KMZ bloqueado: coordenadas fora do envelope da região DXF (possível erro de unidade/zona). Verifique a região e a entrada e calcule novamente.";
+    }
+    confidenceBlockReason.textContent = reason;
+    confidenceBlockReason.style.display = "block";
+    hasBlockReason = true;
+  }
+
+  // Unresolved-post list (D-11 / CONF-03)
+  let hasUnresolved = false;
+  if (Array.isArray(unresolvedNoCoord) && unresolvedNoCoord.length > 0) {
+    confidenceUnresolved.textContent =
+      "Postes não resolvidos: " + unresolvedNoCoord.join(", ");
+    confidenceUnresolved.style.display = "block";
+    hasUnresolved = true;
+  }
+
+  // Show the banner whenever any signal is present
+  if (overall || hasBlockReason || hasUnresolved) {
+    confidenceBanner.style.display = "block";
+  } else {
+    confidenceBanner.style.display = "none";
+  }
+}
+
 browsePdfBtn.addEventListener("click", () => pdfInput.click());
 changeFileBtn.addEventListener("click", () => resetSession());
 pdfInput.addEventListener("change", () => {
@@ -850,7 +932,13 @@ calcBtn.addEventListener("click", async () => {
     posts: calculatedPosts,
     connections,
     warnings: calcWarnings,
+    dwgConfidence: result.dwgConfidence,
+    hardBlock: result.hardBlock === true,
+    dwgNoRegion: result.dwgNoRegion ?? null,
   };
+  // Surface overall tier / hard-block reason now (D-07 / SC-1). The unresolved
+  // list is finalized at download time (buildKml stats), so pass [] here.
+  showConfidenceBanner(lastCalcResult, []);
   const placemarkEligible = calculatedPosts.filter(
     (p) => p.lat != null && p.lon != null,
   ).length;
@@ -862,6 +950,18 @@ calcBtn.addEventListener("click", async () => {
 
 downloadKmzBtn.addEventListener("click", async () => {
   if (!lastCalcResult) return;
+
+  // Hard-block gate (SC-2 / D-12 / D-13): no-region & unit/envelope failures emit
+  // NO KMZ. A non-hardBlock degraded route falls through and still emits (D-10).
+  if (lastCalcResult.hardBlock) {
+    showConfidenceBanner(lastCalcResult, []);
+    showStatus(
+      "KMZ bloqueado: a região DXF não cobre estas coordenadas. Veja o aviso acima.",
+      "error",
+    );
+    downloadKmzBtn.disabled = true;
+    return;
+  }
 
   const placemarkEligible = lastCalcResult.posts.filter(
     (p) => p.lat != null && p.lon != null,
@@ -875,7 +975,7 @@ downloadKmzBtn.addEventListener("click", async () => {
     const { kml, stats } = buildKml(
       lastCalcResult.posts,
       lastCalcResult.connections,
-      opts,
+      { ...opts, postTiers: lastCalcResult.dwgConfidence?.postTiers ?? [] },
     );
 
     if (stats.placemarkCount === 0) {
@@ -899,17 +999,23 @@ downloadKmzBtn.addEventListener("click", async () => {
     a.remove();
 
     kmzStatsBody.textContent = `${stats.placemarkCount} postes no mapa. ${stats.lineCount} linhas de rota.`;
-    if (stats.omittedNoGps > 0) {
-      kmzStatsOmitted.textContent = `${stats.omittedNoGps} postes ficaram fora do KMZ porque não têm coordenadas GPS.`;
+    const unresolvedNoCoord = Array.isArray(stats.unresolvedNoCoord)
+      ? stats.unresolvedNoCoord
+      : [];
+    const unresolvedCount = unresolvedNoCoord.length || stats.omittedNoGps || 0;
+    if (unresolvedCount > 0) {
+      kmzStatsOmitted.textContent = `${unresolvedCount} postes não resolvidos (sem coordenada) — listados no painel de confiança.`;
       kmzStatsOmitted.style.display = "block";
       const li = document.createElement("li");
-      li.textContent = `[kmz] ${stats.omittedNoGps} postes sem coordenadas GPS ficaram fora do KMZ.`;
+      li.textContent = `[kmz] ${unresolvedCount} postes sem coordenadas GPS ficaram fora do KMZ.`;
       warningsList.appendChild(li);
       warningsEl.style.display = "block";
     } else {
       kmzStatsOmitted.style.display = "none";
       kmzStatsOmitted.textContent = "";
     }
+    // Finalize the confidence banner with the unresolved-post list (D-11 / CONF-03).
+    showConfidenceBanner(lastCalcResult, unresolvedNoCoord);
     for (const w of stats.warnings || []) {
       const li = document.createElement("li");
       li.textContent = "[kmz] " + w;
