@@ -87,3 +87,14 @@ Logged to `.planning/phases/09-diagnostic-failure-confidence-surfacing/deferred-
 ## Threat Surface
 
 No new security-relevant surface introduced. All new field values are numeric (`at_post`, `residual_m` via `Number().toFixed`, gap meters) or fixed enum labels; no raw user text is interpolated. Downstream KML/DOM escaping is owned by Plans 02/03 per the plan's threat register (T-09-01). Zero new dependencies (T-09-SC).
+
+## Self-Check: PASSED
+
+- FOUND: parser/dwg/residual-gate.js
+- FOUND: parser/__tests__/residual-gate.test.mjs
+- FOUND: parser/dwg/coordinate-calculator-dwg.js
+- FOUND: parser/__tests__/coordinate-calculator-dwg-conf.test.mjs
+- FOUND: .planning/phases/09-diagnostic-failure-confidence-surfacing/09-01-SUMMARY.md
+- FOUND commit: fe04297 (Task 1)
+- FOUND commit: 32da245 (Task 2)
+- FOUND commit: f0d7b5d (docs/SUMMARY)
