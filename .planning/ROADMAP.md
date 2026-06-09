@@ -73,7 +73,7 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   4. Palhoca.dxf (134 MB, 60k INSERTs) ingests and indexes in under 5 seconds in a browser environment, verified by a timed integration test.
   5. The user can list all ingested regions in the region library UI (region names and their GPS bounding boxes).
 
-**Plans**: 3 plans in 2 waves
+**Plans**: 4 plans in 2 waves (+ 1 gap-closure plan)
 
   **Wave 1**
 
@@ -83,6 +83,10 @@ truth-free residual gate decides trust; no matching DXF means fail loud, never w
   **Wave 2** *(blocked on 06-01 — shared region-library.js)*
 
   - [ ] 06-03-PLAN.md — Web Worker off-thread parse/index + Palhoca 5s timing gate
+
+  **Gap closure** *(UAT Test 4 — no-region warning surfacing)*
+
+  - [ ] 06-04-PLAN.md — Surface dwgNoRegion / dwg-region-miss in main #calcNotices (Portuguese nearest-region hint)
 
   **Cross-cutting constraints:**
 
