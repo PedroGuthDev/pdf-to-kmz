@@ -120,21 +120,35 @@ function cableSpanAlongPath(fromIdx, toIdx, adjacencyGraph, regionPosts) {
   if (fromIdx == null || toIdx == null) return null;
   if (fromIdx === toIdx) return 0;
 
-  const queue = [{ idx: fromIdx, dist: 0 }];
-  const visited = new Set([fromIdx]);
+  // Dijkstra by accumulated Euclidean span (NOT hop-count BFS): a node's
+  // distance is only finalized when it is popped as the current minimum, so the
+  // returned span is the true shortest path even on graphs with junctions or
+  // cycles. A linear-scan priority queue is adequate for these small graphs.
+  const dist = new Map([[fromIdx, 0]]);
+  const pq = [{ idx: fromIdx, d: 0 }];
+  const settled = new Set();
 
-  while (queue.length) {
-    const { idx, dist } = queue.shift();
+  while (pq.length) {
+    let best = 0;
+    for (let i = 1; i < pq.length; i++) {
+      if (pq[i].d < pq[best].d) best = i;
+    }
+    const { idx, d } = pq.splice(best, 1)[0];
+    if (idx === toIdx) return d;
+    if (settled.has(idx)) continue;
+    settled.add(idx);
     for (const neighbor of adjacencyGraph.get(idx) ?? []) {
-      if (visited.has(neighbor)) continue;
-      const edgeLen = Math.hypot(
-        regionPosts[neighbor].x - regionPosts[idx].x,
-        regionPosts[neighbor].y - regionPosts[idx].y,
-      );
-      const newDist = dist + edgeLen;
-      if (neighbor === toIdx) return newDist;
-      visited.add(neighbor);
-      queue.push({ idx: neighbor, dist: newDist });
+      if (settled.has(neighbor)) continue;
+      const nd =
+        d +
+        Math.hypot(
+          regionPosts[neighbor].x - regionPosts[idx].x,
+          regionPosts[neighbor].y - regionPosts[idx].y,
+        );
+      if (nd < (dist.get(neighbor) ?? Infinity)) {
+        dist.set(neighbor, nd);
+        pq.push({ idx: neighbor, d: nd });
+      }
     }
   }
   return null;
