@@ -286,6 +286,11 @@ export async function calculateCoordinatesWithDwg(
       lon: lon1,
       error: String(e?.message ?? e),
     });
+    const regions =
+      typeof regionLibrary.listRegions === "function"
+        ? await regionLibrary.listRegions()
+        : [];
+    const dwgNoRegion = noRegionError(lat1, lon1, regions);
     const fallback = calculateCoordinates(
       posts,
       distances,
@@ -299,6 +304,7 @@ export async function calculateCoordinatesWithDwg(
       warnings: [...(fallback.warnings ?? []), ...warnings],
       dwgStatus: "pdf-fallback",
       dwgRegionId: regionId ?? null,
+      dwgNoRegion,
     };
     missResult.userWarnings = buildCalcUserWarnings(missResult);
     return missResult;
