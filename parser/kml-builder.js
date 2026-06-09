@@ -400,11 +400,6 @@ export function buildKml(posts, connections, options = {}) {
       parts.push(
         `<Data name="source"><value>${escapeXml(String(post.source ?? "pdf"))}</value></Data>`,
       );
-      if (tp.demotionReason != null) {
-        parts.push(
-          `<Data name="demotionReason"><value>${escapeXml(String(tp.demotionReason))}</value></Data>`,
-        );
-      }
       parts.push("</ExtendedData>");
     }
 

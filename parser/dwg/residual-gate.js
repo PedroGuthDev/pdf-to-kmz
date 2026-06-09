@@ -11,7 +11,7 @@ const SHAPE_TRUST = 0.05;       // median relError < 5% → shape passes (trust)
 const SHAPE_FALLBACK = 0.15;    // median relError >= 15% → shape fails
 // LOCKED 2026-06-06, calibrated: TRUST<10m, FAIL>20m (user-specified strict accuracy threshold; measured p95: Valmor 16.6m→fallback, Siriu 188m→fail, João Born 909m→fail, LC 417m→fail)
 const ANCHOR_TRUST_M = 10;      // < 10m = route is trustworthy
-const ANCHOR_FALLBACK_M = 15;   // 10–20m = fallback zone
+export const ANCHOR_FALLBACK_M = 15;   // 10–20m = fallback zone
 const ANCHOR_FAIL_M = 20;       // > 20m = fail (strict accuracy requirement)
 
 /**
@@ -79,7 +79,7 @@ export function computeResiduals(coords, distances) {
   }
   const rels = perEdge.map(e => e.relError).sort((a, b) => a - b);
   const median = rels.length ? rels[Math.floor(rels.length / 2)] : null;
-  const p95 = rels.length ? rels[Math.floor(rels.length * 0.95)] : null;
+  const p95 = rels.length ? rels[Math.min(rels.length - 1, Math.ceil(rels.length * 0.95) - 1)] : null;
   return { medianRelError: median, p95RelError: p95, edgeCount: perEdge.length, perEdge };
 }
 
@@ -113,7 +113,7 @@ export function computeAnchorGap(coords, gpsByPostNumber) {
   }
   const gaps = perPost.map(p => p.gapM).sort((a, b) => a - b);
   const mean = gaps.length ? gaps.reduce((s, g) => s + g, 0) / gaps.length : null;
-  const p95 = gaps.length ? gaps[Math.floor(gaps.length * 0.95)] : null;
+  const p95 = gaps.length ? gaps[Math.min(gaps.length - 1, Math.ceil(gaps.length * 0.95) - 1)] : null;
   return { meanGapM: mean, p95GapM: p95, perPost };
 }
 

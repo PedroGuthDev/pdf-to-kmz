@@ -12,14 +12,9 @@ import { pairPostsByGraphWalk } from "./graph-walker.js";
 import { solveGlobalGraphAlignment } from "./global-solver.js";
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
-import { computeResiduals, computeAnchorGap, applyResidualGate } from "./residual-gate.js";
+import { computeResiduals, computeAnchorGap, applyResidualGate, ANCHOR_FALLBACK_M } from "./residual-gate.js";
 import { haversineMeters } from "../geo/utm-calibrator.js";
 
-// Mirror of residual-gate's LOCKED ANCHOR_FALLBACK_M (10–20 m fallback band lower
-// bound). Re-declared locally as a named const — NOT imported and NOT mutating the
-// gate's constant. Used only to decide when to surface a `diverged-at-post` warning
-// (D-09); the gate remains the sole authority on tier thresholds.
-const DIVERGED_ANCHOR_FALLBACK_M = 15;
 
 /** @param {number} lat @param {number} lon @param {Array<{ name?: string, bboxLatLon?: { minLat: number, maxLat: number, minLon: number, maxLon: number } }>} regions */
 export function noRegionError(lat, lon, regions) {
@@ -523,7 +518,7 @@ export async function calculateCoordinatesWithDwg(
   for (const p of anchor?.perPost ?? []) {
     if (worstGapPost == null || p.gapM > worstGapPost.gapM) worstGapPost = p;
   }
-  if (worstGapPost && worstGapPost.gapM >= DIVERGED_ANCHOR_FALLBACK_M) {
+  if (worstGapPost && worstGapPost.gapM >= ANCHOR_FALLBACK_M) {
     successResult.warnings.push({
       kind: "diverged-at-post",
       at_post: worstGapPost.postNumber,

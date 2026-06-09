@@ -77,4 +77,40 @@ describe("hardBlock at result exits (D-12/D-13)", () => {
     assert.ok(result.dwgNoRegion, "no-region miss carries dwgNoRegion");
     assert.equal(result.dwgStatus, "pdf-fallback");
   });
+
+  it("region-matched degraded result carries hardBlock:false", async () => {
+    // A region matches the GPS but has no DWG posts → cascade fails → degraded
+    // fallback path (line 464), which must carry hardBlock:false (D-13 flag-not-block).
+    function emptyRegionLibrary() {
+      return {
+        async lookupByGps() {
+          return {
+            id: "test-region",
+            name: "test-region",
+            crs: { zone: 22 },
+            posts: [],
+            edges: [],
+            bboxLatLon: { minLat: -28, maxLat: -23, minLon: -50, maxLon: -45 },
+          };
+        },
+        async listRegions() { return []; },
+      };
+    }
+    const posts = [
+      { number: 1, lat: -23.5, lon: -46.6 },
+      { number: 2, lat: -23.51, lon: -46.61 },
+    ];
+    const distances = [{ from: 1, to: 2, meters: 1200 }];
+    const result = await calculateCoordinatesWithDwg(
+      posts,
+      distances,
+      -23.5,
+      -46.6,
+      [],
+      {},
+      emptyRegionLibrary(),
+    );
+    assert.equal(result.hardBlock, false, "degraded match must not hard-block download");
+    assert.equal(result.dwgStatus, "pdf-fallback");
+  });
 });

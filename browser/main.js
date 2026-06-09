@@ -620,6 +620,8 @@ async function handlePdfFile(file) {
     utmGridPathsPerPage: result.utmGridPathsPerPage,
     viewportBoxes: result.viewportBoxes,
     pageDimensions: result.pageDimensions,
+    distanceLabelItems: result.distanceLabelItems,
+    posteRawCentroids: result.posteRawCentroids,
   };
 
   coordForm.style.display = "block";
@@ -804,6 +806,13 @@ calcBtn.addEventListener("click", async () => {
     return;
   }
 
+  if (!currentParseData || !currentParseData.posts.length) {
+    coordWarning.textContent =
+      "Nenhum poste foi lido ainda. Envie um PDF antes de calcular.";
+    coordWarning.style.display = "block";
+    return;
+  }
+
   const { lat, lon } = parsed;
   const boundsCheck = validateBrazilBounds(lat, lon);
 
@@ -811,13 +820,6 @@ calcBtn.addEventListener("click", async () => {
     // D-15: Show warning but do not reject
     coordWarning.textContent = "Aviso: " + boundsCheck.message;
     coordWarning.style.display = "block";
-  }
-
-  if (!currentParseData || !currentParseData.posts.length) {
-    coordWarning.textContent =
-      "Nenhum poste foi lido ainda. Envie um PDF antes de calcular.";
-    coordWarning.style.display = "block";
-    return;
   }
 
   // Read optional 2nd-anchor input (D-ACC-07)
