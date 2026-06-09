@@ -15,6 +15,12 @@ import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate } from "./residual-gate.js";
 import { haversineMeters } from "../geo/utm-calibrator.js";
 
+// Mirror of residual-gate's LOCKED ANCHOR_FALLBACK_M (10–20 m fallback band lower
+// bound). Re-declared locally as a named const — NOT imported and NOT mutating the
+// gate's constant. Used only to decide when to surface a `diverged-at-post` warning
+// (D-09); the gate remains the sole authority on tier thresholds.
+const DIVERGED_ANCHOR_FALLBACK_M = 15;
+
 /** @param {number} lat @param {number} lon @param {Array<{ name?: string, bboxLatLon?: { minLat: number, maxLat: number, minLon: number, maxLon: number } }>} regions */
 export function noRegionError(lat, lon, regions) {
   let best = null;
@@ -95,6 +101,9 @@ export function formatDwgWarning(w) {
           : "sem candidato";
       return `DWG: pareamento falhou no poste ${o.at_post} (mais próximo ${dist}, tol ${o.tolerance_m} m). Usando só PDF.`;
     }
+    case "diverged-at-post":
+      // D-09: route diverged from its PDF anchor at this post (meters, never %).
+      return `DXF: rota divergiu no poste ${o.at_post} (resíduo ${Number(o.residual_m).toFixed(1)} m).`;
     case "dwg-tolerance-relaxed": {
       const d =
         o.picked_distance_m != null
@@ -305,6 +314,7 @@ export async function calculateCoordinatesWithDwg(
       dwgStatus: "pdf-fallback",
       dwgRegionId: regionId ?? null,
       dwgNoRegion,
+      hardBlock: true, // D-12/D-13: region lookup threw / no region → BLOCK (no KMZ)
     };
     missResult.userWarnings = buildCalcUserWarnings(missResult);
     return missResult;
@@ -331,6 +341,7 @@ export async function calculateCoordinatesWithDwg(
       dwgStatus: "pdf-fallback",
       dwgRegionId: regionId ?? null,
       dwgNoRegion,
+      hardBlock: true, // D-12/D-13: no region covers post-1 GPS → BLOCK (no KMZ)
     };
     missResult.userWarnings = buildCalcUserWarnings(missResult);
     return missResult;
@@ -449,6 +460,7 @@ export async function calculateCoordinatesWithDwg(
       warnings: [...(pdfResult.warnings ?? []), ...warnings],
       dwgStatus: "pdf-fallback",
       dwgRegionId: region.id ?? region.name,
+      hardBlock: false, // D-13: a DXF region MATCHED then degraded → FLAG + emit, never block
     };
     fallbackResult.userWarnings = buildCalcUserWarnings(fallbackResult);
     return fallbackResult;
@@ -488,6 +500,7 @@ export async function calculateCoordinatesWithDwg(
     warnings: [...(pdfResult.warnings ?? []), ...warnings],
     dwgStatus: cascade.dwgPath,
     dwgRegionId: region.id ?? region.name,
+    hardBlock: false, // D-13: region matched and coords assembled → FLAG by tier, never block
   };
   if (useCable) {
     successResult.warnings.push(
@@ -500,7 +513,23 @@ export async function calculateCoordinatesWithDwg(
   // mutates posts/connections/coordinates — it only measures.
   const shape = computeResiduals(cascade.coords, distances);
   const anchor = computeAnchorGap(cascade.coords, gpsByPostNumber);
+  // dwgConfidence carries `overall` (D-08) + per-post sub-scores (D-06) from the gate.
   successResult.dwgConfidence = applyResidualGate(shape, anchor);
+
+  // D-09: surface a `diverged-at-post` warning for the worst anchor gap when it
+  // crosses the fallback band — a read-only lookup over the already-computed
+  // anchor.perPost (no new math). The post with the maximum gapM is reported.
+  let worstGapPost = null;
+  for (const p of anchor?.perPost ?? []) {
+    if (worstGapPost == null || p.gapM > worstGapPost.gapM) worstGapPost = p;
+  }
+  if (worstGapPost && worstGapPost.gapM >= DIVERGED_ANCHOR_FALLBACK_M) {
+    successResult.warnings.push({
+      kind: "diverged-at-post",
+      at_post: worstGapPost.postNumber,
+      residual_m: worstGapPost.gapM,
+    });
+  }
 
   successResult.solverPath = cascade.dwgPath;
   successResult.solverDemoted = cascade.solverDemoted ?? false;

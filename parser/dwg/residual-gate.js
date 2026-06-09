@@ -164,7 +164,9 @@ export function computeAnchorGap(coords, gpsByPostNumber) {
  *   gateDecision: "trust"|"fallback"|"fail",
  *   shapeFidelity: object,
  *   anchorGap: object,
- *   postTiers: Array<{ postNumber: number, tier: "HIGH"|"MED"|"LOW"|"UNRESOLVABLE" }>
+ *   postTiers: Array<{ postNumber: number, tier: "HIGH"|"MED"|"LOW"|"UNRESOLVABLE",
+ *                      shapeResidualM: number|null, anchorGapM: number|null }>,
+ *   overall: "high"|"med"|"low"|"unresolvable"
  * }}
  */
 export function applyResidualGate(shape, anchor, thresholds = {}) {
@@ -183,11 +185,19 @@ export function applyResidualGate(shape, anchor, thresholds = {}) {
       : "fallback";
 
   // Per-post incident-edge index: a post is incident on an edge as EITHER endpoint.
-  const incidentRel = new Map();   // postNumber → max incident relError
+  const incidentRel = new Map();   // postNumber → max incident relError (TIER source — unchanged)
+  // D-06: parallel per-post residual-METERS index, sourced from the SAME worst
+  // incident edge as `incidentRel` (the edge whose relError is the post's max).
+  // This is purely a surfacing map for `shapeResidualM`; tier logic still reads
+  // `incidentRel` (relError) so tier VALUES are byte-identical.
+  const incidentResidualM = new Map();   // postNumber → residualM of the worst incident edge
   for (const e of shape?.perEdge ?? []) {
     for (const n of [e.from, e.to]) {
       const prev = incidentRel.get(n);
-      if (prev == null || e.relError > prev) incidentRel.set(n, e.relError);
+      if (prev == null || e.relError > prev) {
+        incidentRel.set(n, e.relError);
+        incidentResidualM.set(n, e.residualM ?? null);
+      }
     }
   }
   // Per-post anchor index.
@@ -215,9 +225,31 @@ export function applyResidualGate(shape, anchor, thresholds = {}) {
         || (anchorScore != null && anchorScore >= ANCHOR_FALLBACK_M);
       tier = high ? "HIGH" : low ? "LOW" : "MED";
     }
-    postTiers.push({ postNumber, tier });
+    // D-06: surface the raw per-post sub-score METERS alongside the tier label.
+    // shapeResidualM = worst incident edge residual in metres (null if the post
+    // has no incident edge); anchorGapM = the post's anchor gap (null if absent).
+    postTiers.push({
+      postNumber,
+      tier,
+      shapeResidualM: hasEdge ? (incidentResidualM.get(postNumber) ?? null) : null,
+      anchorGapM: hasAnchor ? (anchorByPost.get(postNumber) ?? null) : null,
+    });
   }
   postTiers.sort((a, b) => a.postNumber - b.postNumber);
 
-  return { gateDecision, shapeFidelity: shape, anchorGap: anchor, postTiers };
+  // D-08: route-level `overall` tier — a PURE read over { gateDecision, postTiers },
+  // no recompute. "high" ONLY when the route gate trusts AND every post is HIGH
+  // (or there are no posts). Otherwise degrade to the worst MATERIAL per-post tier
+  // (UNRESOLVABLE > LOW > MED > HIGH severity), mapped to lowercase. A HIGH-but-not-
+  // trust worst maps to "med" (the gate trust is a hard precondition for "high").
+  const TIER_SEVERITY = ["UNRESOLVABLE", "LOW", "MED", "HIGH"];
+  const worst = TIER_SEVERITY.find((t) => postTiers.some((p) => p.tier === t)) ?? null;
+  let overall;
+  if (gateDecision === "trust" && (worst === "HIGH" || worst == null)) {
+    overall = "high";
+  } else {
+    overall = { UNRESOLVABLE: "unresolvable", LOW: "low", MED: "med", HIGH: "med" }[worst] ?? "low";
+  }
+
+  return { gateDecision, shapeFidelity: shape, anchorGap: anchor, postTiers, overall };
 }
