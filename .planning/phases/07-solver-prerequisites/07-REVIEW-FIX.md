@@ -28,6 +28,18 @@ status: all_fixed
 **Commit:** `8c4f0fe`
 **Applied fix:** Moved `const prevSi = assignment[i + 1].si;` before the nearest-symbol loop so it is available for the guard. Added `if (si !== prevSi && usedSymbol.has(si)) continue;` inside the loop to skip already-claimed symbols. Added a post-loop guard `if (bestSi !== prevSi && usedSymbol.has(bestSi)) continue;` to only commit the move when `bestSi` is genuinely free or equals the post's own prior `si`. This mirrors the `siSeen` conflict guard used for the Viterbi result.
 
+> **REVERTED (2026-06-10, phase 05 UAT gap fix):** The guard regressed the Siriu
+> per-post position lock — 16 posts moved (max 379 pt) — and broke the Siriu DWG
+> cascade (pdf-fallback at posts 3/24), which in turn made `run-residual-gate.mjs`
+> exit 1 (05-UAT tests 4/6). Bisected to `8c4f0fe` via the Siriu position gate.
+> The "steal" the guard prevented is load-bearing: the label-implied arc target may
+> legitimately land on a symbol another post holds, and the dedicated
+> `restoreSharedSymbolCollapsedPosts` pass (07-06-T2, `c98dc28`) is the designed
+> resolution for the resulting shared-symbol pair. The duplicate-assignment risk
+> CR-01 identified is real but already mitigated downstream; the guard traded a
+> hypothetical corruption for a measured 16-post regression. A code comment at the
+> loop now documents why the steal must stay.
+
 ---
 
 ### WR-01: `post-positioning.test.mjs` not wired into any npm script
