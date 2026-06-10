@@ -125,9 +125,12 @@ const onPole = Math.hypot(p4.x - 505, p4.y - 380) < 3;
 assert(onPole, 'post 4 moved to pole symbol between posts 3 and 5 along the street');
 
 console.log('\n[post-positioning] keeps circle when raw pole already matches Numero_Poste ring');
+// Post 4's anchor IS its Numero_Poste ring, sitting beside the raw symbol it matches
+// (anchor = ring in the data model; a ring 186 pt from its own post with no nearby
+// Poste was an unrealistic pre-realign fixture — see cdabaae post-8 rule).
 const routeWithRaw = [
   { number: 3, x: 440, y: 470, pageNum: 3, anchorX: 437, anchorY: 397 },
-  { number: 4, x: 500, y: 357, pageNum: 3, anchorX: 600, anchorY: 200 },
+  { number: 4, x: 500, y: 357, pageNum: 3, anchorX: 505, anchorY: 350 },
   { number: 5, x: 528, y: 322, pageNum: 3, anchorX: 509, anchorY: 302 },
 ];
 const poleAtRing = [
@@ -271,6 +274,23 @@ const valmorPage4Cable = {
   ],
 };
 
+/**
+ * Short cable fragments running near the Numero_Poste anchor row. The real page 4
+ * cable layer is fragmented (12 sub-paths) and anchors sit near other fragments, so
+ * `realignPostsToMarkerAnchorWhenCablePulled` sees `pulledOntoCable=false` and keeps
+ * the symbol assignment. Without these, the sparse single-cable fixture makes every
+ * anchor look off-cable and the realign pass (cdabaae) resets correct symbol picks
+ * to bare anchors — a fixture artifact the live route never exhibits (the Valmor
+ * txt-accuracy gate locks the real behavior at ≤4.4 m).
+ */
+const valmorPage4CableFragments = [
+  { pageNum: 4, ops: [{ type: 'M', x: 1100, y: 405 }, { type: 'L', x: 1150, y: 418 }] },
+  { pageNum: 4, ops: [{ type: 'M', x: 1010, y: 392 }, { type: 'L', x: 1060, y: 400 }] },
+  { pageNum: 4, ops: [{ type: 'M', x: 920, y: 378 }, { type: 'L', x: 970, y: 388 }] },
+  { pageNum: 4, ops: [{ type: 'M', x: 700, y: 352 }, { type: 'L', x: 820, y: 370 }] },
+];
+const valmorPage4Cables = [valmorPage4Cable, ...valmorPage4CableFragments];
+
 const valmorPage4Dist = [
   { from: 7, to: 8, meters: 38.8 },
   { from: 8, to: 9, meters: 41.2 },
@@ -298,7 +318,7 @@ function maxValmorP4SymbolDistance(postsArr) {
 }
 
 const greedyValmorP4 = structuredClone(valmorPage4Posts);
-assignPostPositionsFromPosteSymbols(greedyValmorP4, valmorPage4PosteRaw, [valmorPage4Cable], []);
+assignPostPositionsFromPosteSymbols(greedyValmorP4, valmorPage4PosteRaw, valmorPage4Cables, []);
 const maxGreedyError = maxValmorP4SymbolDistance(greedyValmorP4);
 assert(
   maxGreedyError < 30,
@@ -309,7 +329,7 @@ const viterbiValmorP4 = structuredClone(valmorPage4Posts);
 assignPolesGloballyByLabels(
   viterbiValmorP4,
   valmorPage4PosteRaw,
-  [valmorPage4Cable],
+  valmorPage4Cables,
   valmorPage4Dist,
   [],
   {
