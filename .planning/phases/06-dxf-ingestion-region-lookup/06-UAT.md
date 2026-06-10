@@ -67,3 +67,13 @@ blocked: 0
     - "Surface dwgNoRegion in calcNotices with nearest region name + distanceKm (Portuguese)"
     - "Promote dwg-region-miss warnings to main workflow, not only dev tools"
   debug_session: ".planning/debug/no-region-warning-missing.md"
+  resolution: |
+    Fixed 2026-06-10. buildCalcUserWarnings (parser/dwg/coordinate-calculator-dwg.js)
+    now prepends an explicit Portuguese notice on the no-region miss path:
+    "Nenhuma região DXF carregada cobre o GPS do poste 1 — o cálculo usou apenas o
+    PDF. Região mais próxima: <name> (<km> km). Carregue o DXF da região correta e
+    calcule novamente." This flows into #calcNotices via result.userWarnings (main
+    workflow, not dev tools). Phase 09's confidence banner additionally hard-blocks
+    KMZ download with the same nearest-region hint (hardBlock=true on miss).
+    Regression test: "phase-06 UAT-4" in coordinate-calculator-dwg-no-region.test.mjs.
+    Needs user re-test to confirm visually.
