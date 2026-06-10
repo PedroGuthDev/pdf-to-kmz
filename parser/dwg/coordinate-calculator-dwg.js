@@ -40,7 +40,7 @@ export function noRegionError(lat, lon, regions) {
 /**
  * User-facing notices after route calculation (main UI, not developer tools).
  *
- * @param {{ posts?: Array<{ source?: string }>, dwgStatus?: string, dwgRegionId?: string }} result
+ * @param {{ posts?: Array<{ source?: string }>, dwgStatus?: string, dwgRegionId?: string, dwgNoRegion?: { code?: string, nearest?: { name?: string, distanceKm?: number } } | null }} result
  * @returns {string[]}
  */
 export function buildCalcUserWarnings(result) {
@@ -56,6 +56,21 @@ export function buildCalcUserWarnings(result) {
     : "";
 
   if (status === "pdf-fallback" || dwgCount === 0) {
+    // No-region miss must be stated explicitly in the main workflow — not only in
+    // the hidden dev-tools warning list (phase 06 UAT test 4 gap).
+    const noRegion = result.dwgNoRegion ?? null;
+    if (noRegion) {
+      let msg =
+        "Nenhuma região DXF carregada cobre o GPS do poste 1 — o cálculo usou apenas o PDF.";
+      const nearest = noRegion.nearest;
+      if (nearest?.name && Number.isFinite(Number(nearest.distanceKm))) {
+        msg +=
+          ` Região mais próxima: ${nearest.name}` +
+          ` (${Number(nearest.distanceKm).toFixed(1)} km).`;
+      }
+      msg += " Carregue o DXF da região correta e calcule novamente.";
+      notices.push(msg);
+    }
     notices.push(
       "Precisão limitada: coordenadas calculadas só pelo PDF — o pareamento DXF não concluiu." +
         regionHint +
