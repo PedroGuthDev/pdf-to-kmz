@@ -71,6 +71,16 @@ proximity + degree" alternative. Confirm the new demotion path and the new
 `anchor-degree-mismatch` reason string are acceptable to downstream consumers,
 and that the degree-class equivalence (classes 1/2/3) is the intended strictness.
 
+> **REMOVED (2026-06-10):** the human verification this note asked for happened
+> and the answer was no — the equivalence check demoted the solver on EVERY real
+> route (level-0 never produced a coordinate in production). Degree is unreliable
+> in both directions at the anchor: the PDF route subgraph under/over-counts
+> (label-noise edges like LC's 1→3), and the clipped, fragmented DXF region
+> undercounts (LC's anchor is a degree-1 tip in the extract). The wrong-pin risk
+> is covered by the anchorDist ≤ tolerance requirement (sub-meter GPS match) and
+> the D-05 accept bar. Removed outright; see the code comment at the hard-pin
+> site. Same review-fix-regression pattern as Phase 7 CR-01.
+
 ### WR-03: sentinel-cost collision threshold `>= sentinel * 0.999`
 
 **Files modified:** `parser/dwg/global-solver.js`

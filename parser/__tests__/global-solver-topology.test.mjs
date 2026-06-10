@@ -346,11 +346,22 @@ describe("solveGlobalGraphAlignment — D-05 accept bar", () => {
     };
   }
 
-  it("demotes when residual gate is not trust", () => {
+  it("demotes when residual gate fails (hard anchor band)", () => {
     const inputs = makeSolverInputsWithGps({ gpsOffsetM: 500 });
     const result = solveGlobalGraphAlignment(inputs);
     assert.equal(result.ok, false);
     assert.equal(result.reason, "residual-gate");
+  });
+
+  it("accepts a fallback-band residual (anchor gap 10-20 m) — Valmor case", () => {
+    // PDF GPS ~12 m off the DXF nodes: anchor p95 lands in the 10-20 m
+    // fallback band. The PDF's own georeferencing floor makes "trust"
+    // unreachable for any correct solve, so fallback must be accepted.
+    const inputs = makeSolverInputsWithGps({ gpsOffsetM: 12 });
+    const result = solveGlobalGraphAlignment(inputs);
+    assert.equal(result.ok, true);
+    assert.equal(result.solverScore?.gateDecision, "fallback");
+    assert.equal(result.coords.length, 3);
   });
 
   it("demotes when topology gate fails", () => {
