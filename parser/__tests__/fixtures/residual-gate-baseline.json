@@ -1,10 +1,16 @@
 {
-  "updated": "2026-06-06",
+  "updated": "2026-06-10",
   "decisions": {
     "siriu": "fail",
     "valmor": "fallback",
     "joaoborn": "fail",
     "luizcarolino": "fail",
     "lc-mustfail": "fail"
+  },
+  "solverPaths": {
+    "siriu": "dwg-graph-walk",
+    "valmor": "global-solve",
+    "joaoborn": "dwg-graph-walk",
+    "luizcarolino": "dwg-graph-walk"
   }
 }

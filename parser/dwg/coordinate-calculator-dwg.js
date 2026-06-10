@@ -221,6 +221,10 @@ export function runDwgPairingCascade({
       dwgPath: "dwg-graph-walk",
       solverDemoted: true,
       demotionReason: level0.reason ?? null,
+      // Diagnostic passthrough: what the demoted solver scored/produced, so
+      // demotions are observable downstream (probes + acceptance gate).
+      solverScore: level0.solverScore ?? null,
+      solverPartialCoords: level0.partialCoords ?? null,
     };
   }
 
@@ -248,6 +252,8 @@ export function runDwgPairingCascade({
       dwgPath: "dwg-pdf-walk",
       solverDemoted: true,
       demotionReason: level0.reason ?? null,
+      solverScore: level0.solverScore ?? null,
+      solverPartialCoords: level0.partialCoords ?? null,
     };
   }
 
@@ -545,6 +551,7 @@ export async function calculateCoordinatesWithDwg(
   successResult.solverDemoted = cascade.solverDemoted ?? false;
   successResult.demotionReason = cascade.demotionReason ?? null;
   successResult.solverScore = cascade.solverScore ?? null;
+  successResult.solverPartialCoords = cascade.solverPartialCoords ?? null;
   if (cascade.solverDemoted) {
     successResult.warnings.push(
       `[dwg] solver demoted (${cascade.demotionReason ?? "unknown"}); graph-walker emitted coords`,

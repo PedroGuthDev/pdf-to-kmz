@@ -12,6 +12,10 @@
  *   3. No route crashes the gate — every route returns a defined gateDecision
  *      (Siriu/João Born legitimately "fail" by anchor; that is not a false-fail
  *      because their real DWG anchor gaps are 100s of metres).
+ *   4. Cascade-path lock (solverPaths in the baseline): which level produced
+ *      each route's coords (global-solve / dwg-graph-walk / ...). Locks the
+ *      Phase-8 solver's first acceptance (Valmor → global-solve) and makes any
+ *      silent demotion-or-promotion drift fail loud.
  *
  * Run:  node tools/run-residual-gate.mjs
  * Refresh decision baseline after an intentional change:
@@ -55,7 +59,7 @@ async function runRoute(r) {
     if (!existsSync(p)) throw new Error(`${r.id}: missing ${label}: ${p}`);
   }
   const res = await runRouteDwgAccuracyHarness({ pdfPath, dwgRegionPath, groundTruthPath, regionId: r.id });
-  return res.dwgConfidence ?? null;
+  return res;
 }
 
 async function main() {
@@ -65,10 +69,14 @@ async function main() {
   const observed = {};
 
   // ── Live per-route gate decisions ──────────────────────────────────────────
+  const observedSolver = {};
   for (const r of ROUTES) {
     let dc;
+    let solverPath = null;
     try {
-      dc = await runRoute(r);
+      const res = await runRoute(r);
+      dc = res.dwgConfidence ?? null;
+      solverPath = res.solverPath ?? "none";
     } catch (e) {
       failures.push(`${r.id}: gate threw (${e.message ?? e})`);
       continue;
@@ -82,10 +90,12 @@ async function main() {
       shapeMedian: dc.shapeFidelity?.medianRelError ?? null,
       anchorP95: dc.anchorGap?.p95GapM ?? null,
     };
+    observedSolver[r.id] = solverPath;
     console.log(
       `  ${r.id}: decision=${dc.gateDecision}` +
         ` shapeMedian=${(dc.shapeFidelity?.medianRelError ?? NaN).toFixed?.(4)}` +
-        ` anchorP95=${(dc.anchorGap?.p95GapM ?? NaN).toFixed?.(1)} m`,
+        ` anchorP95=${(dc.anchorGap?.p95GapM ?? NaN).toFixed?.(1)} m` +
+        ` path=${solverPath}`,
     );
   }
 
@@ -143,8 +153,13 @@ async function main() {
   const updateBaseline =
     process.env.RESIDUAL_UPDATE_BASELINE === "1" || !existsSync(BASELINE_PATH);
   if (updateBaseline) {
-    const baseline = { updated: new Date().toISOString().slice(0, 10), decisions: {} };
+    const baseline = {
+      updated: new Date().toISOString().slice(0, 10),
+      decisions: {},
+      solverPaths: {},
+    };
     for (const [k, v] of Object.entries(observed)) baseline.decisions[k] = v.gateDecision;
+    for (const [k, v] of Object.entries(observedSolver)) baseline.solverPaths[k] = v;
     writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + "\n", "utf8");
     console.log(`Baseline written to ${BASELINE_PATH}`);
   } else {
@@ -155,6 +170,23 @@ async function main() {
         failures.push(`${k}: present in baseline but not produced this run`);
       } else if (got !== decision) {
         failures.push(`${k}: gateDecision regressed: got "${got}", baseline "${decision}"`);
+      }
+    }
+    // Solver-path lock: level-0 acceptance must never silently regress. The
+    // solver demoted on 100% of real routes for all of Phase 8 and nothing in
+    // CI noticed — this lock makes cascade-path drift loud in both directions.
+    if (!baseline.solverPaths) {
+      failures.push(
+        `baseline missing "solverPaths" section — refresh with RESIDUAL_UPDATE_BASELINE=1`,
+      );
+    } else {
+      for (const [k, path] of Object.entries(baseline.solverPaths)) {
+        const got = observedSolver[k];
+        if (got == null) {
+          failures.push(`${k}: solverPath in baseline but not produced this run`);
+        } else if (got !== path) {
+          failures.push(`${k}: cascade path changed: got "${got}", baseline "${path}"`);
+        }
       }
     }
   }

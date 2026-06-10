@@ -196,5 +196,9 @@ export async function runRouteDwgAccuracyHarness({
     walkOk: Boolean(walk.ok),
     walkCoords: (walk.coords ?? walk.partialCoords ?? []).length,
     gpsFirstDivergentPost,
+    // Solver cascade observability (level-0 acceptance lock in run-residual-gate)
+    solverPath: result.solverPath ?? null,
+    solverDemoted: result.solverDemoted ?? null,
+    demotionReason: result.demotionReason ?? null,
   };
 }
