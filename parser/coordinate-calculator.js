@@ -1227,9 +1227,22 @@ export function calculateCoordinates(
       const { map: arcAugDistMap } = overviewComposite
         ? { map: distMap }
         : augmentCrossPageDistances(sorted, distMap);
+      // The N1 walk follows the MAIN route line; a bifurcation-tap value is a
+      // junction→tap ARM length, not a main-line span. Walking a through post
+      // with one dead-reckons it onto the arm (JB 13→14: a false-bifurcation
+      // tap of 10.9 m dragged post 14 to 9 m past post 13 — real span 36 m).
+      // Removing the leg breaks the chain at the junction instead, which is
+      // what the walk already does one step later at the cleared tap→main edge.
+      const placerDistMap = new Map(arcAugDistMap);
+      for (const d of distances) {
+        if (d.source === "bifurcation-tap") {
+          placerDistMap.delete(`${d.from}->${d.to}`);
+          placerDistMap.delete(`${d.to}->${d.from}`);
+        }
+      }
       const placer = placePostsOnCableByArcLength({
         sortedPosts: sorted,
-        distMap: arcAugDistMap,
+        distMap: placerDistMap,
         cablesByPage: arcCablesByPage,
         perPageScale: (pn) => {
           const paths = utmGridPathsPerPage?.get(pn);

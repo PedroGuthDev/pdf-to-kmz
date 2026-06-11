@@ -12,6 +12,7 @@ import {
   applyBifurcationJunctionLabelRehome,
   applyJumpbackDistanceCleanup,
   associateDistancesRich,
+  dropPhantomSkipEdges,
 } from "./distance-associator.js";
 import { prefillGapDistancesForPolePlacement } from "./geo/label-lsq-calibrator.js";
 import { buildCablesByPage } from "./cable-builder.js";
@@ -157,6 +158,10 @@ export function calibrateMultiSheetPostCoordinates(posts, {
         distances.push({ ...d2 });
       }
     }
+    // Pass-2 re-associates on pole-anchored geometry and can re-mint a
+    // phantom skip-edge pass-1 already dropped (JB 12→14 = 27.6); re-apply
+    // the guard on the spliced result.
+    dropPhantomSkipEdges(distances, warnings);
     const cablesForPass2 = buildCablesByPage(allCablePaths);
     prefillGapDistancesForPolePlacement(posts, distances, cablesForPass2);
     applyJumpbackDistanceCleanup(

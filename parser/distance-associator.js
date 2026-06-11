@@ -228,6 +228,8 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     meters: null,
   }));
 
+  /** @type {Map<number, number>} segIdx → label index, for the street-order remap. */
+  const segToLabel = new Map();
   for (const c of candidates) {
     if (assignedSeg.has(c.segIdx) || assignedLabel.has(c.labelKey)) continue;
     if (c.score > 120) continue;
@@ -235,7 +237,10 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
     assignedSeg.add(c.segIdx);
     assignedLabel.add(c.labelKey);
     usedLabelIndices.add(c.li);
+    segToLabel.set(c.segIdx, c.li);
   }
+
+  remapGroupsByStreetOrder(sortedPosts, distItems, pairs, segToLabel, warnings);
 
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i];
@@ -248,6 +253,135 @@ export function associateDistances(posts, distItems, warnings = [], opts = {}) {
   }
 
   return { distances, warnings, usedLabelIndices };
+}
+
+/**
+ * Street-order remap of greedily assigned labels within contiguous same-page
+ * span groups.
+ *
+ * The greedy score is gap + 35·|log(drawnSpan/printed)|. Where the detail
+ * drawing is locally distorted (JB posts 9–12: each drawn post sits ~5 m off,
+ * so drawn spans are 12.8/20.5/16.9 m against real 17.8/14.1/10.9 m), the
+ * ratio term rotates the cluster: each label lands one span away from where
+ * it is printed. The invariant this pass restores is that Distância_Poste
+ * labels are printed at span midpoints IN STREET ORDER, so within a group of
+ * consecutive assigned spans the label-to-span mapping must be
+ * order-preserving along the route polyline.
+ *
+ * The greedy keeps its job of choosing WHICH labels belong to the group (the
+ * ratio guard still rejects parallel-street strays); this pass only reorders
+ * a group's own labels, and only when the order-preserving mapping strictly
+ * reduces the group's total label-to-chord gap — pure position evidence, no
+ * value term, so a drawing whose label placement genuinely violates street
+ * order (switchback folds) keeps the greedy result.
+ */
+function remapGroupsByStreetOrder(
+  sortedPosts,
+  distItems,
+  pairs,
+  segToLabel,
+  warnings,
+) {
+  const pdfPos = (p) => ({ x: p.anchorX ?? p.x, y: p.anchorY ?? p.y });
+  const labelCenter = (li) => {
+    const dt = distItems[li];
+    const w = typeof dt.width === "number" && dt.width > 0 ? dt.width : 0;
+    return { lx: w > 0 ? dt.x + w * 0.5 : dt.x, ly: dt.y };
+  };
+  const segPage = (segIdx) => {
+    const from = sortedPosts[segIdx];
+    const to = sortedPosts[segIdx + 1];
+    if (from.pageNum == null || from.pageNum !== to.pageNum) return null;
+    return from.pageNum;
+  };
+
+  let segIdx = 0;
+  while (segIdx < pairs.length) {
+    const page = segPage(segIdx);
+    if (page == null || !segToLabel.has(segIdx)) {
+      segIdx++;
+      continue;
+    }
+    // Maximal contiguous run of assigned same-page segments on this page.
+    let end = segIdx;
+    while (
+      end + 1 < pairs.length &&
+      segPage(end + 1) === page &&
+      segToLabel.has(end + 1)
+    ) {
+      end++;
+    }
+    const group = [];
+    for (let s = segIdx; s <= end; s++) group.push(s);
+    if (group.length >= 2) {
+      // Projection of each label along the group's own post chain.
+      const cum = [0];
+      for (let s = segIdx; s <= end; s++) {
+        const a = pdfPos(sortedPosts[s]);
+        const b = pdfPos(sortedPosts[s + 1]);
+        cum.push(cum[cum.length - 1] + Math.hypot(b.x - a.x, b.y - a.y));
+      }
+      const projectT = (lx, ly) => {
+        let bestT = 0;
+        let bestD = Infinity;
+        for (let s = segIdx; s <= end; s++) {
+          const a = pdfPos(sortedPosts[s]);
+          const b = pdfPos(sortedPosts[s + 1]);
+          const abx = b.x - a.x;
+          const aby = b.y - a.y;
+          const ab2 = abx * abx + aby * aby;
+          let t = ab2 > 1e-12 ? ((lx - a.x) * abx + (ly - a.y) * aby) / ab2 : 0;
+          t = Math.max(0, Math.min(1, t));
+          const px = a.x + abx * t;
+          const py = a.y + aby * t;
+          const d = Math.hypot(lx - px, ly - py);
+          if (d < bestD) {
+            bestD = d;
+            bestT = cum[s - segIdx] + t * (cum[s - segIdx + 1] - cum[s - segIdx]);
+          }
+        }
+        return bestT;
+      };
+      const entries = group.map((s) => {
+        const li = segToLabel.get(s);
+        const { lx, ly } = labelCenter(li);
+        return { li, lx, ly, t: projectT(lx, ly) };
+      });
+      const ordered = [...entries].sort((a, b) => a.t - b.t || a.li - b.li);
+      const changed = ordered.some((e, k) => e.li !== entries[k].li);
+      if (changed) {
+        const gapOf = (e, s) =>
+          labelGapToSegment(
+            e.lx,
+            e.ly,
+            sortedPosts[s],
+            sortedPosts[s + 1],
+            false,
+            sortedPosts,
+          );
+        let curGap = 0;
+        let newGap = 0;
+        for (let k = 0; k < group.length; k++) {
+          curGap += gapOf(entries[k], group[k]);
+          newGap += gapOf(ordered[k], group[k]);
+        }
+        if (newGap < curGap) {
+          for (let k = 0; k < group.length; k++) {
+            const s = group[k];
+            const li = ordered[k].li;
+            segToLabel.set(s, li);
+            pairs[s].meters = parseDistanceMeters(distItems[li].str);
+          }
+          warnings.push(
+            `[distance-assoc] Street-order remap: spans ${pairs[segIdx].from}→` +
+              `${pairs[end].to} reordered to label street order ` +
+              `(gap sum ${curGap.toFixed(1)} → ${newGap.toFixed(1)} pt).`,
+          );
+        }
+      }
+    }
+    segIdx = end + 1;
+  }
 }
 
 /**
@@ -840,6 +974,49 @@ function scoreLabelOnSequentialSeg(sortedPosts, segIdx, dt, opts) {
 }
 
 /**
+ * Phantom skip-one guard: drop (in place) an inferred a→a+2 edge whose meters
+ * EQUALS a consecutive sub-edge of the same pair — that is the sub-edge's own
+ * label leaking onto the skip-chord, which hugs the label when the street is
+ * near-straight (JB "27,6" sat 8 pt from the 12→14 chord vs 21 pt from its
+ * true 12→13 span, and the phantom 12→14 later poisoned the N3 arc-jump
+ * relabel of post 14). One label, one span. Genuine skip edges (Siriu branch
+ * returns over a tap pole) print their OWN value, distinct from the
+ * sub-spans', and pass through.
+ *
+ * Runs post-cleanup in associateDistancesRich AND after the N3 pass-2 splice
+ * (post-positioning-n3), because pass-2 re-associates on pole-anchored
+ * geometry and can re-mint the phantom after pass-1 dropped it.
+ */
+export function dropPhantomSkipEdges(distances, warnings) {
+  const consecByPair = new Map();
+  for (const d of distances) {
+    if (Math.abs(d.from - d.to) === 1 && d.meters != null) {
+      consecByPair.set(
+        `${Math.min(d.from, d.to)}->${Math.max(d.from, d.to)}`,
+        d.meters,
+      );
+    }
+  }
+  for (let i = distances.length - 1; i >= 0; i--) {
+    const e = distances[i];
+    if (e.source !== "inferred-label" || e.meters == null) continue;
+    const a = Math.min(e.from, e.to);
+    const b = Math.max(e.from, e.to);
+    if (b - a !== 2) continue;
+    const subDup = [`${a}->${a + 1}`, `${a + 1}->${b}`].some((sk) => {
+      const sub = consecByPair.get(sk);
+      return sub != null && Math.abs(sub - e.meters) < 0.05;
+    });
+    if (!subDup) continue;
+    warnings.push(
+      `[distance-assoc] Phantom skip-edge dropped: ${e.from}→${e.to} = ${e.meters} ` +
+        `duplicates a consecutive sub-span's label.`,
+    );
+    distances.splice(i, 1);
+  }
+}
+
+/**
  * Rich association: keep the sequential N→N+1 distances, but also infer additional
  * edges (including non-consecutive numbers) by matching each Distância_Poste label
  * to the best post-pair "under" that label.
@@ -896,6 +1073,8 @@ export function associateDistancesRich(
   }
 
   applyJumpbackDistanceCleanup(posts, distItems, merged, warnings, opts);
+
+  dropPhantomSkipEdges(merged, warnings);
 
   // Apply manual overrides last (debug / project-specific fixes).
   // Format: { "10->11": 37.3, "11->12": 24.2 }
@@ -1878,6 +2057,29 @@ export function applyBifurcationJunctionLabelRehome(
       if (Math.abs(c.m - tapTarget) < Math.abs(tapM - tapTarget)) tapM = c.m;
     }
     if (mainM < tapM * 2) continue;
+    if (typeof process !== "undefined" && process.env?.DEBUG_SHEETBREAK === "1") {
+      const mainC = nearJunction.find((c) => c.m === mainM);
+      const tapC = nearJunction.find((c) => c.m === tapM);
+      const exTap = findEdge(junction.number, tap.number);
+      const exMain = findEdge(tap.number, mainNext.number);
+      // strongest on-chord label for the J→J+1 chord
+      let bestChord = null;
+      for (const it of distItems) {
+        if ((it.pageNum ?? 1) !== (junction.pageNum ?? 1)) continue;
+        const m2 = parseDistanceMeters(it.str);
+        if (m2 == null || m2 <= 0) continue;
+        const w2 = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+        const lx2 = w2 > 0 ? it.x + w2 * 0.5 : it.x;
+        const g = labelGapToSegment(lx2, it.y, junction, tap, false, sorted);
+        if (!bestChord || g < bestChord.g) bestChord = { m: m2, g };
+      }
+      console.error(
+        `[DEBUG_SHEETBREAK] J=${junction.number} mainM=${mainM} dJunc=${mainC?.dJunc.toFixed(0)} ` +
+          `tapM=${tapM} dJunc=${tapC?.dJunc.toFixed(0)} candidates=${nearJunction.length} ` +
+          `existingTapEdge=${exTap?.meters}(${exTap?.source}) existingTapMain=${exMain?.meters}(${exMain?.source}) ` +
+          `bestChordLabel=${bestChord?.m}@${bestChord?.g.toFixed(0)}pt`,
+      );
+    }
     if (findEdge(junction.number, mainNext.number)?.source === "bifurcation-main") {
       const existing = findEdge(junction.number, mainNext.number)?.meters;
       if (existing != null && Math.abs(existing - mainM) > 0.5) continue;
@@ -2630,6 +2832,89 @@ const MIN_CROSS_PAGE_ARM_GAP = 15;
 /** Prior-sheet junction search window behind the cross-page bridge post (e.g. 80→81 ⇒ 62). */
 const CROSS_PAGE_JUNCTION_LOOKBACK = MIN_CROSS_PAGE_ARM_GAP + 3;
 
+/** Backward-ray length (pt) behind a cross-page bridge post: how far back
+ * along the incoming drawn street an entry label may sit. */
+const CROSS_PAGE_ENTRY_RAY_PT = 150;
+
+/**
+ * Best refill candidate for an EMPTY consecutive span lo→hi. Same-page spans
+ * measure label-to-chord; cross-page spans measure to either anchor — plus
+ * the backward ray from the bridge post along the incoming street (the next
+ * on-page span's bearing extended behind the post), because entry labels sit
+ * ON the drawn cable before the first on-page post, not beside its anchor
+ * (JB page 4 prints all labels ~52 pt from the anchors, just over the
+ * 45 pt threshold, while lying ~24 pt off the cable itself).
+ *
+ * Exclusion tolerance is 0.05 — exact-value steals only. Printed values
+ * carry 0.1 m precision, so 34,6 must stay claimable next to a 34,5
+ * neighbor (the old 0.25 conflated distinct labels).
+ *
+ * @returns {{ meters: number, gap: number } | null}
+ */
+function findConsecutiveRefillCandidate(sorted, distItems, lo, hi, excludeMeters) {
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  const a = byNum.get(lo);
+  const b = byNum.get(hi);
+  if (!a || !b) return null;
+
+  const samePage = (a.pageNum ?? 1) === (b.pageNum ?? 1);
+  const crossPage = !samePage && a.pageNum != null && b.pageNum != null;
+
+  // Incoming-street backward ray at the bridge post (cross-page only): use
+  // the bearing of the bridge post toward its next same-page neighbor.
+  let ray = null;
+  if (crossPage) {
+    const next = byNum.get(hi + 1);
+    if (next && (next.pageNum ?? 1) === (b.pageNum ?? 1)) {
+      const bx = b.anchorX ?? b.x;
+      const by = b.anchorY ?? b.y;
+      const dx = bx - (next.anchorX ?? next.x);
+      const dy = by - (next.anchorY ?? next.y);
+      const d = Math.hypot(dx, dy);
+      if (d > 1) ray = { bx, by, ux: dx / d, uy: dy / d };
+    }
+  }
+
+  let best = null;
+  for (const it of distItems) {
+    const m = parseDistanceMeters(it.str);
+    if (m == null || m <= 0) continue;
+    if (excludeMeters.some((x) => Math.abs(m - x) < 0.05)) continue;
+    const labelPage = it.pageNum ?? 1;
+    const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+    const lx = w > 0 ? it.x + w * 0.5 : it.x;
+    const ly = it.y;
+    let gap = Infinity;
+    if (samePage) {
+      if (labelPage !== (a.pageNum ?? 1)) continue;
+      gap = labelGapToSegment(lx, ly, a, b, false, sorted);
+    } else if (crossPage) {
+      const gapLo =
+        labelPage === (a.pageNum ?? 1)
+          ? Math.hypot(lx - (a.anchorX ?? a.x), ly - (a.anchorY ?? a.y))
+          : Infinity;
+      let gapHi = Infinity;
+      if (labelPage === (b.pageNum ?? 1)) {
+        gapHi = labelGapToSegment(lx, ly, a, b, true, sorted);
+        if (ray) {
+          const t = (lx - ray.bx) * ray.ux + (ly - ray.by) * ray.uy;
+          if (t >= 0 && t <= CROSS_PAGE_ENTRY_RAY_PT) {
+            const px = ray.bx + ray.ux * t;
+            const py = ray.by + ray.uy * t;
+            gapHi = Math.min(gapHi, Math.hypot(lx - px, ly - py));
+          }
+        }
+      }
+      gap = Math.min(gapLo, gapHi);
+    } else {
+      continue;
+    }
+    if (gap > TOPOLOGY_REHOME_ON_CHORD_PT) continue;
+    if (!best || gap < best.gap) best = { meters: m, gap };
+  }
+  return best;
+}
+
 /**
  * Refill a consecutive spine step exposed when a branch-arm label is moved off a
  * stolen consecutive edge. Mirrors phantom-refill but excludes the moved meters.
@@ -2644,53 +2929,14 @@ function refillTopologyRehomeConsecutive(
   excludeMeters,
   warnings,
 ) {
-  const byNum = new Map(sorted.map((p) => [p.number, p]));
-  const a = byNum.get(lo);
-  const b = byNum.get(hi);
-  if (!a || !b) return false;
   const consec = findEdge(lo, hi);
   if (consec && consec.meters != null && consec.meters > 0) return false;
-
-  const samePage = (a.pageNum ?? 1) === (b.pageNum ?? 1);
-  const crossPage = !samePage && a.pageNum != null && b.pageNum != null;
-  let best = null;
-  let bestGap = Infinity;
-  for (const it of distItems) {
-    const m = parseDistanceMeters(it.str);
-    if (m == null || m <= 0) continue;
-    if (excludeMeters.some((x) => Math.abs(m - x) < 0.25)) continue;
-    const labelPage = it.pageNum ?? 1;
-    const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
-    const lx = w > 0 ? it.x + w * 0.5 : it.x;
-    const ly = it.y;
-    let gap = Infinity;
-    if (samePage) {
-      if (labelPage !== (a.pageNum ?? 1)) continue;
-      gap = labelGapToSegment(lx, ly, a, b, false, sorted);
-    } else if (crossPage) {
-      const gapLo =
-        labelPage === (a.pageNum ?? 1)
-          ? Math.hypot(lx - (a.anchorX ?? a.x), ly - (a.anchorY ?? a.y))
-          : Infinity;
-      const gapHi =
-        labelPage === (b.pageNum ?? 1)
-          ? labelGapToSegment(lx, ly, a, b, true, sorted)
-          : Infinity;
-      gap = Math.min(gapLo, gapHi);
-    } else {
-      continue;
-    }
-    if (gap > TOPOLOGY_REHOME_ON_CHORD_PT) continue;
-    if (gap < bestGap) {
-      bestGap = gap;
-      best = { meters: m };
-    }
-  }
+  const best = findConsecutiveRefillCandidate(sorted, distItems, lo, hi, excludeMeters);
   if (!best) return false;
   upsertEdge(lo, hi, best.meters, "topology-refill-consecutive");
   warnings.push(
     `[distance-assoc] Topology rehome refill: ${lo}→${hi} = ${best.meters} m ` +
-      `(exposed by branch-arm move; label gap ${bestGap.toFixed(1)} pt).`,
+      `(exposed by branch-arm move; label gap ${best.gap.toFixed(1)} pt).`,
   );
   return true;
 }
@@ -3062,19 +3308,41 @@ export function revertFalseBifurcationsByTopology(
     // re-claim 10→11's 19.6) — plus the sibling refill within this revert.
     // Deliberately NOT a blanket in-use exclusion: distant spans can share a
     // printed value legitimately (LC 1→2 and 3→4 are both 18.8).
-    const siblingExclude = [];
-    for (const [lo, hi] of [
-      [J + 1, M],
+    //
+    // Claim order is JOINT (ascending best-gap), not positional: both nulled
+    // spans may want the same label, and the geometrically closer span must
+    // win. JB 13→15 revert: "36" sits 19.5 pt off the 13–14 chord but only
+    // 29.4 pt from post 14's anchor, so a fixed 14→15-first order stole 13→14's
+    // label across the page seam and left 13→14 permanently null (the chain
+    // then dead-reckoned a PDF span 22 m short and shifted the whole tail).
+    const refillSpans = [
       [J, J + 1],
-    ]) {
+      [J + 1, M],
+    ].filter(([lo, hi]) => {
       const existing = findEdge(lo, hi);
-      if (existing?.meters != null && existing.meters > 0) continue;
-      const refillExclude = [...siblingExclude];
+      return !(existing?.meters != null && existing.meters > 0);
+    });
+    const excludesFor = (lo, hi) => {
+      const refillExclude = [];
       for (const adj of [findEdge(lo - 1, lo), findEdge(hi, hi + 1)]) {
         if (adj?.meters != null && adj.meters > 0) {
           refillExclude.push(adj.meters);
         }
       }
+      return refillExclude;
+    };
+    refillSpans.sort((s1, s2) => {
+      const c1 = findConsecutiveRefillCandidate(
+        sorted, distItems, s1[0], s1[1], excludesFor(s1[0], s1[1]),
+      );
+      const c2 = findConsecutiveRefillCandidate(
+        sorted, distItems, s2[0], s2[1], excludesFor(s2[0], s2[1]),
+      );
+      return (c1?.gap ?? Infinity) - (c2?.gap ?? Infinity);
+    });
+    const siblingExclude = [];
+    for (const [lo, hi] of refillSpans) {
+      const refillExclude = [...siblingExclude, ...excludesFor(lo, hi)];
       const ok = refillTopologyRehomeConsecutive(
         sorted,
         distItems,
@@ -3296,7 +3564,12 @@ export function mergeSplitSpanLabels(posts, distItems, distances, warnings) {
  *
  * @returns {boolean} true if any edge was demoted.
  */
-export function demoteDuplicateWindowRefineLabels(distances, warnings) {
+export function demoteDuplicateWindowRefineLabels(
+  distances,
+  warnings,
+  posts = null,
+  distItems = null,
+) {
   if (!distances?.length) return false;
   const consec = distances.filter((d) => {
     if (d.meters == null || d.meters <= 0) return false;
@@ -3322,6 +3595,77 @@ export function demoteDuplicateWindowRefineLabels(distances, warnings) {
       `[distance-assoc] Window-refine duplicate demoted: ${lo}→${hi} = ${e.meters} ` +
         `repeats adjacent ${Math.min(duplicate.from, duplicate.to)}→${Math.max(duplicate.from, duplicate.to)} ` +
         `(${duplicate.source}) — one label, two claims; solver falls back to drawn span`,
+    );
+    e.source = "window-refine-duplicate";
+    changed = true;
+  }
+
+  // Second sweep, same one-label-one-span axiom from the other direction:
+  // a TRUSTED consecutive value whose twin sits on an ADJACENT span as an
+  // invented refill copy. Two sub-cases, told apart by where the PHYSICAL
+  // label sits:
+  //   - LC 21→22 = 29.8 legacy + 20→21 = 29.8 jumpback-refill: the "29,8"
+  //     item lies ON the 21-22 chord — the refill copied the legacy value
+  //     across the numbering jump; the legacy claim is the rightful owner
+  //     and MUST keep solver trust (demoting it put LC post 21 68 m off).
+  //   - JB 4→5 = 38.9 legacy + 3→4 = 38.9 jumpback-refill: the "38,9" item
+  //     lies on the 3-4 chord, nowhere near 4-5 — the legacy claim itself is
+  //     a migrated stray over a real 15.9 m span (post 5 landed 30 m
+  //     down-street). Demote it; the solver falls back to the drawn span.
+  // Without posts/distItems the sweep stays off (conservative).
+  if (!posts?.length || !distItems?.length) return changed;
+  const sorted = deduplicatePostsPreferLowerPage(posts).sort(
+    (a, b) => a.number - b.number,
+  );
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  const INVENTED_TWIN = new Set(["jumpback-refill", "inferred-label"]);
+  const chordGapForValue = (meters, a, b) => {
+    // Smallest gap from any same-page label item printing `meters` to the
+    // a-b chord. Null when no such item exists on the span's page.
+    if (!a || !b || (a.pageNum ?? 1) !== (b.pageNum ?? 1)) return null;
+    let bestGap = null;
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== (a.pageNum ?? 1)) continue;
+      const m = parseDistanceMeters(it.str);
+      if (m == null || Math.abs(m - meters) >= 0.05) continue;
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const g = labelGapToSegment(lx, it.y, a, b, false, sorted);
+      if (bestGap == null || g < bestGap) bestGap = g;
+    }
+    return bestGap;
+  };
+  for (const e of consec) {
+    if (e.source == null || INVENTED_TWIN.has(e.source)) continue;
+    if (e.source === "window-refine-duplicate") continue;
+    const lo = Math.min(e.from, e.to);
+    const hi = Math.max(e.from, e.to);
+    const inventedTwin = consec.find((o) => {
+      if (o === e) return false;
+      if (Math.abs(o.meters - e.meters) >= 0.05) return false;
+      const oLo = Math.min(o.from, o.to);
+      const oHi = Math.max(o.from, o.to);
+      if (oHi !== lo && oLo !== hi) return false;
+      return o.source != null && INVENTED_TWIN.has(o.source);
+    });
+    if (!inventedTwin) continue;
+    const gapOwn = chordGapForValue(e.meters, byNum.get(lo), byNum.get(hi));
+    const gapTwin = chordGapForValue(
+      e.meters,
+      byNum.get(Math.min(inventedTwin.from, inventedTwin.to)),
+      byNum.get(Math.max(inventedTwin.from, inventedTwin.to)),
+    );
+    // Keep the trusted claim unless the physical label is clearly NOT on this
+    // span's chord while being a better fit for the invented twin's chord.
+    if (gapOwn == null || gapTwin == null) continue;
+    if (gapOwn <= gapTwin) continue;
+    warnings.push(
+      `[distance-assoc] Adjacent-invented duplicate demoted: ${lo}→${hi} = ${e.meters} ` +
+        `(${e.source}, label gap ${gapOwn.toFixed(1)} pt) twins invented ` +
+        `${Math.min(inventedTwin.from, inventedTwin.to)}→` +
+        `${Math.max(inventedTwin.from, inventedTwin.to)} (${inventedTwin.source}, ` +
+        `label gap ${gapTwin.toFixed(1)} pt) — label belongs to the twin's chord; ` +
+        `solver falls back to drawn span`,
     );
     e.source = "window-refine-duplicate";
     changed = true;
