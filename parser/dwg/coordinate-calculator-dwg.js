@@ -1,6 +1,10 @@
 import { calculateCoordinates } from "../coordinate-calculator.js";
 import { deduplicatePostsPreferLowerPage } from "../post-assembler.js";
-import { applyTopologyBranchArmRehome } from "../distance-associator.js";
+import {
+  applyTopologyBranchArmRehome,
+  revertFalseBifurcationsByTopology,
+  mergeSplitSpanLabels,
+} from "../distance-associator.js";
 import { buildCablesByPage } from "../cable-builder.js";
 
 import {
@@ -155,6 +159,7 @@ export function formatDwgWarning(w) {
 export function runDwgPairingCascade({
   posts,
   distances,
+  solverDistances,
   connections,
   startLat,
   startLon,
@@ -165,15 +170,19 @@ export function runDwgPairingCascade({
   adjacencyGraph,
   warnings,
   gpsByPostNumber,
+  routeTopologyNeighbors,
+  solverDebugSink,
   _testDeps,
 }) {
   const solveFn = _testDeps?.solve ?? solveGlobalGraphAlignment;
   const walkFn = _testDeps?.walk ?? pairPostsByGraphWalk;
 
-  // Level 0: global PDF→DXF solver (strangler-fig; demotes to graph-walk on any accept-bar fail)
+  // Level 0: global PDF→DXF solver (strangler-fig; demotes to graph-walk on
+  // any accept-bar fail). Sees the repaired solver-only distance view;
+  // levels 1–2 below keep the pristine `distances`.
   const level0 = solveFn({
     posts,
-    distances,
+    distances: solverDistances ?? distances,
     connections,
     startLat,
     startLon,
@@ -183,7 +192,22 @@ export function runDwgPairingCascade({
     postIndex,
     adjacencyGraph,
     gpsByPostNumber,
+    routeTopologyNeighbors,
+    debugSink: solverDebugSink,
   });
+  if (solverDebugSink) {
+    solverDebugSink.level0Reason = level0.ok ? null : (level0.reason ?? null);
+    solverDebugSink.level0Coords = level0.coords ?? level0.partialCoords ?? null;
+    solverDebugSink.level0Score = level0.solverScore ?? null;
+    solverDebugSink.cascadeInputs = {
+      posts,
+      distances: solverDistances ?? distances,
+      connections,
+      regionPosts,
+      regionEdges,
+      gpsByPostNumber,
+    };
+  }
   if (level0.ok) {
     return {
       ok: true,
@@ -426,6 +450,17 @@ export async function calculateCoordinatesWithDwg(
 
   const distItems = opts?.distanceLabelItems;
   const cablePaths = opts?.cablePaths;
+  let routeTopologyNeighbors = null;
+  // SOLVER-ONLY distance view (level 0). The bifurcation revert and the
+  // split-span merge produce values verified correct against ground truth
+  // (Siriu 59→60 merge 51.5 vs GT 51.4), yet feeding them to the graph-walker
+  // BREAKS it: the walker's heuristics (hub-hints, branch tie-breaks) are
+  // calibrated against the original label set, wrong values included — Siriu
+  // posts 65–74 went to 900 m when the walker saw the repaired labels. The
+  // cascade contract is "level 1 gets pristine inputs"; the repairs therefore
+  // apply to a CLONE consumed only by the level-0 solver (and by the solver
+  // path's confidence scoring).
+  let solverDistances = distances;
   if (Array.isArray(distItems) && distItems.length > 0) {
     const cablesByPage =
       Array.isArray(cablePaths) && cablePaths.length > 0
@@ -443,7 +478,10 @@ export async function calculateCoordinatesWithDwg(
       cableEdgesForTopo,
       { zone: zoneExpected },
     );
+    solverDistances = distances.map((d) => ({ ...d }));
     if (neighborsByPost.size > 0) {
+      routeTopologyNeighbors = neighborsByPost;
+      // Pre-existing, walker-visible (part of the Siriu-green baseline).
       applyTopologyBranchArmRehome(
         routePosts,
         distItems,
@@ -452,12 +490,31 @@ export async function calculateCoordinatesWithDwg(
         cablesByPage,
         { topologyNeighborsByPost: neighborsByPost },
       );
+      // Re-clone so the solver view includes the rehome plus the solver-only
+      // repairs below.
+      solverDistances = distances.map((d) => ({ ...d }));
+      revertFalseBifurcationsByTopology(
+        routePosts,
+        distItems,
+        solverDistances,
+        warnings,
+        { topologyNeighborsByPost: neighborsByPost },
+      );
     }
+    // Split-span merge needs the ORIGINAL parsed page coords (placement moves
+    // posts to match the labels being repaired), hence `posts`, not routePosts.
+    // NOTE: deliberately NO placement re-run on the repaired distances — the
+    // label-lsq page-origin fit is under-constrained at sheet seams and a
+    // re-run destabilizes walkConnections (verified on LC: walker lost its
+    // route entirely). The repaired meters feed the level-0 solver only; the
+    // PDF placement and the walker keep their original, proven behavior.
+    mergeSplitSpanLabels(posts, distItems, solverDistances, warnings);
   }
 
   const cascade = runDwgPairingCascade({
     posts: routePosts,
     distances,
+    solverDistances,
     connections,
     startLat: lat1,
     startLon: lon1,
@@ -468,6 +525,8 @@ export async function calculateCoordinatesWithDwg(
     adjacencyGraph,
     warnings,
     gpsByPostNumber,
+    routeTopologyNeighbors,
+    solverDebugSink: opts?.solverDebugSink,
   });
 
   if (!cascade.ok) {
@@ -526,8 +585,13 @@ export async function calculateCoordinatesWithDwg(
   }
   // Truth-free residual gate (D-01, pure judge): rate the assembled route with
   // two independent sub-scores and attach a confidence verdict. This NEVER
-  // mutates posts/connections/coordinates — it only measures.
-  const shape = computeResiduals(cascade.coords, distances);
+  // mutates posts/connections/coordinates — it only measures. The solver path
+  // is scored against the repaired distance view it solved with; walker paths
+  // keep the pristine labels their baselines were locked on.
+  const shape = computeResiduals(
+    cascade.coords,
+    cascade.dwgPath === "global-solve" ? solverDistances : distances,
+  );
   const anchor = computeAnchorGap(cascade.coords, gpsByPostNumber);
   // dwgConfidence carries `overall` (D-08) + per-post sub-scores (D-06) from the gate.
   successResult.dwgConfidence = applyResidualGate(shape, anchor);

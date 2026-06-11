@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-10",
+  "updated": "2026-06-11",
   "decisions": {
     "siriu": "fail",
     "valmor": "fallback",
@@ -10,7 +10,7 @@
   "solverPaths": {
     "siriu": "dwg-graph-walk",
     "valmor": "global-solve",
-    "joaoborn": "dwg-graph-walk",
-    "luizcarolino": "dwg-graph-walk"
+    "joaoborn": "global-solve",
+    "luizcarolino": "global-solve"
   }
 }

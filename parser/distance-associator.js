@@ -2968,3 +2968,307 @@ export function applyTopologyBranchArmRehome(
     );
   }
 }
+
+/**
+ * DWG-only pass: revert FALSE bifurcation claims using DXF cable topology.
+ *
+ * The sheet-break bifurcation detector cannot distinguish a genuine junction
+ * from a consecutive mid-street pole with available PDF geometry (see the
+ * GATED note above applyBifurcationJunctionLabelRehome's sheet-break block:
+ * LC false positives at posts 2/10 structurally overlap Siriu's genuine
+ * junctions). The DXF region cable graph IS the route-independent junction
+ * signal that note names as the prerequisite: a post whose cable neighbors
+ * are exactly its consecutive route neighbors (degree 2, no non-consecutive
+ * arm) is a through-pole — a bifurcation-main edge J→J+2 hung on it is a
+ * label artifact. Revert it and refill the nulled consecutive spans from the
+ * original labels.
+ *
+ * Positive-evidence only: posts the topology map could not attach (deformed
+ * PDF position beyond attachR) yield no verdict and are left untouched, so a
+ * genuine junction can never be reverted by missing data.
+ *
+ * @returns {boolean} true if any edge changed (caller may re-run placement).
+ */
+export function revertFalseBifurcationsByTopology(
+  posts,
+  distItems,
+  distances,
+  warnings,
+  rehomeOpts = {},
+) {
+  const topologyNeighbors = rehomeOpts.topologyNeighborsByPost ?? null;
+  if (!topologyNeighbors?.size || !posts?.length || !distances?.length) {
+    return false;
+  }
+
+  const sorted = deduplicatePostsPreferLowerPage(posts).sort(
+    (a, b) => a.number - b.number,
+  );
+
+  const findEdge = (from, to) =>
+    distances.find(
+      (d) =>
+        (d.from === from && d.to === to) || (d.from === to && d.to === from),
+    );
+  const upsertEdge = (from, to, meters, source) => {
+    let e = findEdge(from, to);
+    if (!e) {
+      distances.push({ from, to, meters, source });
+      return;
+    }
+    e.from = from;
+    e.to = to;
+    e.meters = meters;
+    e.source = source;
+  };
+
+  let changed = false;
+
+  for (const e of [...distances]) {
+    if (e.source !== "bifurcation-main" || e.meters == null) continue;
+    const J = Math.min(e.from, e.to);
+    const M = Math.max(e.from, e.to);
+    if (M !== J + 2) continue;
+
+    const topoJ = topologyNeighbors.get(J);
+    if (!topoJ || topoJ.size < 2) continue; // no positive through-pole evidence
+    let allConsecutive = true;
+    for (const nb of topoJ) {
+      if (Math.abs(nb - J) > 1) {
+        allConsecutive = false;
+        break;
+      }
+    }
+    if (!allConsecutive) continue; // genuine junction per DXF — keep
+
+    e.meters = null;
+    e.source = "bifurcation-topology-reverted";
+    const tapEdge = findEdge(J, J + 1);
+    if (tapEdge?.source === "bifurcation-tap") {
+      tapEdge.meters = null;
+      tapEdge.source = "bifurcation-topology-reverted";
+    }
+    changed = true;
+    warnings.push(
+      `[distance-assoc] Topology bifurcation revert: ${J}→${M} dropped — ` +
+        `DXF cable degree says post ${J} is a through-pole (neighbors {${[...topoJ].sort((a, b) => a - b).join(",")}})`,
+    );
+
+    // Refill the consecutive spans the false bifurcation nulled, from the
+    // original labels (e.g. LC 3→4 = the cross-page "18,8" the bifurcation
+    // had stolen as 2→4). Exclude the values of the spans ADJACENT to the one
+    // being refilled — a label matching the neighboring span's meters is that
+    // neighbor's own label sitting near the shared post (LC: 11→12 must not
+    // re-claim 10→11's 19.6) — plus the sibling refill within this revert.
+    // Deliberately NOT a blanket in-use exclusion: distant spans can share a
+    // printed value legitimately (LC 1→2 and 3→4 are both 18.8).
+    const siblingExclude = [];
+    for (const [lo, hi] of [
+      [J + 1, M],
+      [J, J + 1],
+    ]) {
+      const existing = findEdge(lo, hi);
+      if (existing?.meters != null && existing.meters > 0) continue;
+      const refillExclude = [...siblingExclude];
+      for (const adj of [findEdge(lo - 1, lo), findEdge(hi, hi + 1)]) {
+        if (adj?.meters != null && adj.meters > 0) {
+          refillExclude.push(adj.meters);
+        }
+      }
+      const ok = refillTopologyRehomeConsecutive(
+        sorted,
+        distItems,
+        findEdge,
+        upsertEdge,
+        lo,
+        hi,
+        refillExclude,
+        warnings,
+      );
+      if (ok) {
+        const refilled = findEdge(lo, hi);
+        if (refilled?.meters != null) siblingExclude.push(refilled.meters);
+      }
+    }
+  }
+
+  return changed;
+}
+
+/** Split-span merge: printed label explains less than this fraction of the
+ * drawn chord → suspect a second partial label on the same span. */
+const SPLIT_SPAN_MIN_CHORD_RATIO = 1.35;
+/** Merged sum must explain the drawn chord within this relative tolerance. */
+const SPLIT_SPAN_SUM_TOL_FRAC = 0.2;
+/** Partial label must lie this close to the span chord (page pt). */
+const SPLIT_SPAN_MAX_GAP_PT = 60;
+
+/**
+ * Merge split-span distance labels at cable crossings.
+ *
+ * When the drawn cable between consecutive posts crosses another cable,
+ * INFOVIAS prints the span as TWO partial labels (post→crossing,
+ * crossing→post). The associator assigns one partial (the one nearer the
+ * chord) and drops the other, leaving the span's meters at a fraction of its
+ * true value (LC 6→7: 13.8 assigned of 25.3+13.8; LC 22→23: 25.5 of
+ * 25.5+12.7). Generic, geometry-fenced repair:
+ *
+ *   - the drawn chord (page pt × per-page scale) must be ≥35% longer than
+ *     the assigned meters (the span is under-explained),
+ *   - the candidate partial must be unused by any edge, sit on this span's
+ *     chord (≤60 pt, projection inside the open segment), and
+ *   - assigned + partial must match the drawn chord within 20%.
+ *
+ * The page scale is estimated internally as the median of printed-meters /
+ * drawn-chord-pt over consecutive same-page spans (robust to the few wrong
+ * spans being repaired). IMPORTANT: pass ORIGINAL parsed posts — placement
+ * passes move page coords to match the (possibly wrong) labels, which would
+ * erase the very chord evidence this pass relies on.
+ *
+ * @returns {boolean} true if any span was merged.
+ */
+/**
+ * Estimate drawn-chord meters for same-page consecutive pairs: per-page scale
+ * = median(printed meters / chord pt) over consecutive spans (route-global
+ * fallback for sparse pages), robust to the few wrong spans being repaired.
+ * Returns null when too few samples exist.
+ */
+function buildChordMetersEstimator(byNum, distances) {
+  const samplesByPage = new Map();
+  const allSamples = [];
+  for (const d of distances) {
+    if (d.meters == null || d.meters <= 0) continue;
+    const lo = Math.min(d.from, d.to);
+    const hi = Math.max(d.from, d.to);
+    if (hi !== lo + 1) continue;
+    const a = byNum.get(lo);
+    const b = byNum.get(hi);
+    if (!a || !b) continue;
+    if ((a.pageNum ?? 1) !== (b.pageNum ?? 1)) continue;
+    const chordPt = Math.hypot(
+      (b.anchorX ?? b.x) - (a.anchorX ?? a.x),
+      (b.anchorY ?? b.y) - (a.anchorY ?? a.y),
+    );
+    if (!(chordPt > 5)) continue;
+    const s = d.meters / chordPt;
+    const page = a.pageNum ?? 1;
+    if (!samplesByPage.has(page)) samplesByPage.set(page, []);
+    samplesByPage.get(page).push(s);
+    allSamples.push(s);
+  }
+  const medianOfArr = (arr) => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((x, y) => x - y);
+    const mid = s.length >> 1;
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  };
+  const globalScale = allSamples.length >= 3 ? medianOfArr(allSamples) : null;
+  if (globalScale == null) return null;
+  const pageScale = (page) => {
+    const arr = samplesByPage.get(page);
+    return arr && arr.length >= 3 ? medianOfArr(arr) : globalScale;
+  };
+  return (a, b) => {
+    const chordPt = Math.hypot(
+      (b.anchorX ?? b.x) - (a.anchorX ?? a.x),
+      (b.anchorY ?? b.y) - (a.anchorY ?? a.y),
+    );
+    if (!(chordPt > 5)) return null;
+    return chordPt * pageScale(a.pageNum ?? 1);
+  };
+}
+
+export function mergeSplitSpanLabels(posts, distItems, distances, warnings) {
+  if (!posts?.length || !distItems?.length || !distances?.length) return false;
+
+  const sorted = deduplicatePostsPreferLowerPage(posts).sort(
+    (a, b) => a.number - b.number,
+  );
+  const byNum = new Map(sorted.map((p) => [p.number, p]));
+  let changed = false;
+
+  const chordMeters = buildChordMetersEstimator(byNum, distances);
+  if (!chordMeters) return false;
+
+  // Partial values absorbed by earlier merges stay "used": when two crossing
+  // spans split at the SAME point (LC spine 6→7 × spur 22→23, four partial
+  // labels clustered at one crossing), a merged span's original value must
+  // not be re-claimed as another span's partial.
+  const consumedValues = [];
+  const valueInUse = (m) =>
+    distances.some((d) => d.meters != null && Math.abs(d.meters - m) < 0.05) ||
+    consumedValues.some((v) => Math.abs(v - m) < 0.05);
+
+  for (const e of distances) {
+    if (e.meters == null || e.meters <= 0) continue;
+    const lo = Math.min(e.from, e.to);
+    const hi = Math.max(e.from, e.to);
+    if (hi !== lo + 1) continue;
+    const a = byNum.get(lo);
+    const b = byNum.get(hi);
+    if (!a || !b) continue;
+    if ((a.pageNum ?? 1) !== (b.pageNum ?? 1)) continue; // crossings are drawn on one sheet
+
+    const chordM = chordMeters(a, b);
+    if (!(chordM > 0)) continue;
+    if (chordM / e.meters < SPLIT_SPAN_MIN_CHORD_RATIO) continue;
+
+    const ax = a.anchorX ?? a.x;
+    const ay = a.anchorY ?? a.y;
+    const bx = b.anchorX ?? b.x;
+    const by = b.anchorY ?? b.y;
+    const ab2 = (bx - ax) * (bx - ax) + (by - ay) * (by - ay);
+
+    let best = null;
+    for (const it of distItems) {
+      if ((it.pageNum ?? 1) !== (a.pageNum ?? 1)) continue;
+      const m = parseDistanceMeters(it.str);
+      if (m == null || m <= 0) continue;
+      // Printed values carry 0.1 m precision — exact-ish comparison (0.05)
+      // so distinct values like 25.3 vs 25.5 are not conflated.
+      if (Math.abs(m - e.meters) < 0.05) continue; // the already-assigned value
+      // Unused only: a value claimed by any edge or prior merge is someone
+      // else's label.
+      if (valueInUse(m)) continue;
+
+      const w = typeof it.width === "number" && it.width > 0 ? it.width : 0;
+      const lx = w > 0 ? it.x + w * 0.5 : it.x;
+      const ly = it.y;
+      const gap = labelGapToSegment(lx, ly, a, b, false, sorted);
+      if (gap > SPLIT_SPAN_MAX_GAP_PT) continue;
+      const t =
+        ab2 > 1e-12 ? ((lx - ax) * (bx - ax) + (ly - ay) * (by - ay)) / ab2 : -1;
+      if (t < 0.05 || t > 0.95) continue;
+
+      const sum = e.meters + m;
+      if (Math.abs(sum - chordM) / chordM > SPLIT_SPAN_SUM_TOL_FRAC) continue;
+
+      if (!best || gap < best.gap) best = { m, gap };
+    }
+
+    if (!best) continue;
+    const mergedMeters = Math.round((e.meters + best.m) * 100) / 100;
+    warnings.push(
+      `[distance-assoc] Split-span merge ${lo}→${hi}: ${e.meters} + ${best.m} = ${mergedMeters} m ` +
+        `(drawn chord ≈${chordM.toFixed(1)} m; crossing splits the printed span)`,
+    );
+    consumedValues.push(e.meters, best.m);
+    e.meters = mergedMeters;
+    e.splitSpanMerged = true;
+    changed = true;
+  }
+
+  return changed;
+}
+
+// NOTE (2026-06-11): a drawn-chord crossed-label swap pass
+// (swapCrossedConsecutiveLabelsByChord) was tried here and REMOVED. On LC the
+// drawing itself lies in both directions: at posts 1–3 the anchors are
+// deformed inversely to the true spans (drawn chord 1→2 ≈ 2.3× chord 2→3
+// while ground truth is 0.56×), so the pass swapped two CORRECT labels; at
+// its intended 9–11 target the drawing agrees with the WRONG labels (post 11
+// is drawn out of route order), so chord evidence can never fire there.
+// Crossed labels are instead resolved at solve time by the DXF
+// arc-monotonicity constraint in refineAssignmentsByViterbi
+// (global-solver.js), where the real pole spacing — not the drawing —
+// arbitrates.

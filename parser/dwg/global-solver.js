@@ -27,6 +27,18 @@ const SENTINEL_MULT = 10;
 const W_POS = 1;
 const W_SPAN = 1;
 const ACCEPT_BUDGET_MS = 2000;
+/** D-05 accept bar: median |span−printed|/printed must beat this (the residual
+ * gate's SHAPE_TRUST band) for the solver to replace the graph-walker. */
+const SOLVER_SHAPE_ACCEPT = 0.05;
+/** Viterbi refinement: per-edge span-misfit cap (m) so a single bad label
+ * cannot dominate the path choice, and the emission (prediction-prior) weight
+ * relative to span misfit. */
+const VITERBI_SPAN_CAP = 30;
+// Tie-breaker only: at 0.05, a full prediction drift of 60 m contributes 3 per
+// post — the non-uniform pole-spacing fingerprint (span misfits of 10–30 m per
+// wrong hop) always outvotes it, while parallel equally-spaced streets still
+// resolve toward the prediction prior.
+const VITERBI_EMISSION_W = 0.05;
 /** Printed label rounding tolerance (fraction of printed meters, not absolute). */
 const LABEL_ROUND_TOL_FRAC = 0.05;
 
@@ -82,12 +94,21 @@ function partitionLinearRuns(postNumbers, junctionSet, connections) {
   const runs = [];
 
   function extendChain(run, start, prev) {
+    const inRun = new Set(run);
     let current = start;
     let back = prev;
     while (true) {
       const neighbors = [...(adj.get(current) ?? [])].filter((n) => n !== back);
-      const next = neighbors.find((n) => !usedEdges.has(edgeKey(current, n)));
+      // Never revisit a post already in this run: a cycle edge (Valmor's DXF
+      // topology links 2–4 alongside 2–3–4) would otherwise close the run
+      // back onto its start, making arc-monotonicity unsatisfiable for a
+      // CORRECT assignment. The closing edge is left for the junction loop
+      // below, which checks it as its own two-post arm.
+      const next = neighbors.find(
+        (n) => !usedEdges.has(edgeKey(current, n)) && !inRun.has(n),
+      );
       if (next == null) break;
+      inRun.add(next);
       usedEdges.add(edgeKey(current, next));
       run.push(next);
       back = current;
@@ -319,16 +340,30 @@ export function evaluateAcceptBar({
   const residual = applyResidualGate(shape, anchor, {
     allPostNumbers: posts.map((p) => p.number),
   });
-  // Accept on "trust" OR "fallback"; demote only on "fail" (or no decision).
-  // The anchor sub-score measures DWG-vs-PDF disagreement, which has a floor
-  // set by the PDF's own georeferencing error — a floor no correct solve can
-  // beat (Valmor's best-case is ~16.6 m, inside the 10–20 m fallback band).
-  // Requiring "trust" here demanded the solver pass a bar the production
-  // graph-walk output itself never meets, so level-0 could never activate.
-  // "fallback" is the gate's own "usable with caution" verdict; wrong solves
-  // are still rejected by the hard "fail" band, the topology gate below, the
-  // anchor hard-pin, and the per-route txt-accuracy gates in CI.
-  if (residual.gateDecision == null || residual.gateDecision === "fail") {
+  // The ACCEPT shape score excludes invented-source edges (jumpback-refill,
+  // inferred-label): their meters are heuristic refills, not printed labels —
+  // a correct solve scores relError ≈ 11 on LC's 20→21 jumpback (29.8 printed
+  // across a 380 m numbering jump). The full-residual solverScore above keeps
+  // them for downstream confidence tiering.
+  const trustedShape = computeResiduals(
+    coords,
+    (distances ?? []).filter((d) => !INVENTED_DISTANCE_SOURCES.has(d.source)),
+  );
+  // Acceptance is SHAPE-driven (median relError of solver spans vs printed
+  // labels), not anchor-driven. The anchor sub-score measures DWG-vs-PDF
+  // disagreement; on routes where the PDF placement itself is deformed
+  // (LC: ~80 m page-seam drift) a CORRECT solve inherits the PDF's error as
+  // its anchor gap, so any anchor-based veto makes acceptance impossible
+  // exactly where the solver is most needed. The wrong-solve risks the
+  // anchor term guarded against are covered by: the shape bar below (a
+  // one-pole-shifted assignment breaks span lengths), the topology gate
+  // (monotonicity + hub degree), the post-1 hard-pin (a rigid offset cannot
+  // include the pinned anchor), and the per-route txt-accuracy gates in CI.
+  // The full residual (incl. anchor) still flows downstream as solverScore,
+  // where the confidence gate uses BOTH sub-scores for tiering — acceptance
+  // here never inflates the route's confidence tier.
+  const shapeMedian = trustedShape?.medianRelError;
+  if (shapeMedian == null || shapeMedian >= SOLVER_SHAPE_ACCEPT) {
     return { ok: false, reason: "residual-gate", solverScore: residual };
   }
 
@@ -351,19 +386,31 @@ export function evaluateAcceptBar({
   return { ok: true, solverScore: residual };
 }
 
+/** Distance sources INVENTED by heuristics rather than read from a physical
+ * label on that span. Their meters can be arbitrarily wrong (LC 20→21
+ * jumpback-refill prints 29.8 across a 380 m numbering jump), so the
+ * dead-reckoning magnitude prefers the PDF's drawn span for them. */
+const INVENTED_DISTANCE_SOURCES = new Set(["jumpback-refill", "inferred-label"]);
+
 function buildDistanceMap(distances) {
   const map = new Map();
   for (const d of distances ?? []) {
     if (d.meters > 0 && !Number.isNaN(d.meters)) {
-      map.set(`${d.from}-${d.to}`, d.meters);
-      map.set(`${d.to}-${d.from}`, d.meters);
+      const entry = { meters: d.meters, source: d.source ?? null };
+      map.set(`${d.from}-${d.to}`, entry);
+      map.set(`${d.to}-${d.from}`, entry);
     }
   }
   return map;
 }
 
 function getPrintedMeters(distMap, a, b) {
-  return distMap.get(`${a}-${b}`) ?? null;
+  return distMap.get(`${a}-${b}`)?.meters ?? null;
+}
+
+function isInventedDistance(distMap, a, b) {
+  const source = distMap.get(`${a}-${b}`)?.source;
+  return source != null && INVENTED_DISTANCE_SOURCES.has(source);
 }
 
 function buildConnAdj(posts, connections) {
@@ -379,6 +426,16 @@ function buildConnAdj(posts, connections) {
   return connAdj;
 }
 
+/** Hop depth assigned to posts predicted from their PDF absolute position
+ * (no chain reaches them). The PDF's absolute georeferencing error can be
+ * hundreds of meters (LC 21–31 rigid offset), so these need the widest
+ * prune window WR-04 can give. */
+const PDF_ABSOLUTE_FALLBACK_HOPS = 20;
+
+/** Snap-chain margin: the nearest DXF node must be this much closer than the
+ * runner-up before the chain position locks onto it. */
+const SNAP_MARGIN = 1.5;
+
 function propagatePredictedPositions({
   posts,
   connections,
@@ -389,31 +446,131 @@ function propagatePredictedPositions({
   adjacencyGraph,
   regionPosts,
   spanTolM,
+  pdfUtmByPost,
+  postIndex,
+  routeTopologyNeighbors,
 }) {
   const postSet = new Set(posts.map((p) => p.number));
   const predicted = new Map([[anchorPostNum, { x: anchorPos.x, y: anchorPos.y }]]);
   const parent = new Map([[anchorPostNum, null]]);
-  // Hop depth from the anchor. Colinear dead-reckoning accumulates angular
-  // error with each hop, so the prune window is later widened proportionally
-  // (WR-04) to avoid pruning the true DXF node on routes that turn.
+  // Hop depth from the anchor. Dead-reckoning accumulates angular error with
+  // each hop, so the prune window is later widened proportionally (WR-04) to
+  // avoid pruning the true DXF node on routes that turn.
   const hops = new Map([[anchorPostNum, 0]]);
 
   const connAdj = buildConnAdj(posts, connections);
-  const queue = [anchorPostNum];
-  const visited = new Set([anchorPostNum]);
+  // Augment with DXF-topology route edges (e.g. the real spur entry 7→21):
+  // the PDF connection list only links consecutive numbers, so a branch head
+  // is otherwise reached through a numbering jump whose distance is invented.
+  if (routeTopologyNeighbors?.size) {
+    for (const [a, nbs] of routeTopologyNeighbors) {
+      if (!postSet.has(a)) continue;
+      for (const b of nbs) {
+        if (!postSet.has(b) || Math.abs(b - a) <= 1) continue;
+        if (!connAdj.has(a)) connAdj.set(a, []);
+        if (!connAdj.has(b)) connAdj.set(b, []);
+        if (!connAdj.get(a).includes(b)) connAdj.get(a).push(b);
+        if (!connAdj.get(b).includes(a)) connAdj.get(b).push(a);
+      }
+    }
+  }
+
+  // Snap-chain: lock the chain position onto a DXF node when one is clearly
+  // nearest, so dead-reckoning drift resets to zero at every confident hop
+  // instead of accumulating. Ambiguous neighborhoods (junction clusters,
+  // parallel streets) are left unsnapped — the prune window still covers them.
+  const snapR = Math.max(2 * spanTolM, 10);
+  const snapToNode = (pt) => {
+    if (!postIndex) return pt;
+    const raw = postIndex.search({
+      minX: pt.x - snapR * SNAP_MARGIN,
+      minY: pt.y - snapR * SNAP_MARGIN,
+      maxX: pt.x + snapR * SNAP_MARGIN,
+      maxY: pt.y + snapR * SNAP_MARGIN,
+    });
+    let best = null;
+    let bestD = Infinity;
+    let secondD = Infinity;
+    for (const node of raw) {
+      const d = Math.hypot(node.x - pt.x, node.y - pt.y);
+      if (d < bestD) {
+        secondD = bestD;
+        bestD = d;
+        best = node;
+      } else if (d < secondD) {
+        secondD = d;
+      }
+    }
+    if (!best || bestD > snapR) return pt;
+    if (secondD < bestD * SNAP_MARGIN) return pt; // ambiguous — do not lock
+    return { x: best.x, y: best.y };
+  };
+
+  // Uncertainty-weighted Dijkstra (not FIFO BFS): each post is settled along
+  // the LOWEST-uncertainty chain from the anchor. A trusted printed hop costs
+  // 1; an invented/unlabeled hop costs 1 + d/medianSpan, so a short topology
+  // arm (junction→spur head, ~30 m) beats a 400 m numbering-jump edge, and a
+  // long trusted chain beats both. FIFO order let the spur's jumpback edge
+  // reach the spine BACKWARD before the forward chain arrived (LC 15–20).
+  const medianSpanM = Math.max(1, spanTolM / 0.15); // SPAN_TOL_FRAC of medianPDF
+  const uncertainty = new Map([[anchorPostNum, 0]]);
+  const queue = [{ post: anchorPostNum, u: 0 }];
+  const visited = new Set();
 
   while (queue.length) {
-    const current = queue.shift();
+    let bestIdx = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].u < queue[bestIdx].u) bestIdx = i;
+    }
+    const { post: current } = queue.splice(bestIdx, 1)[0];
+    if (visited.has(current)) continue;
+    visited.add(current);
     const curPos = predicted.get(current);
     for (const neighbor of connAdj.get(current) ?? []) {
       if (visited.has(neighbor)) continue;
-      const d = getPrintedMeters(distMap, current, neighbor);
+      const printed = getPrintedMeters(distMap, current, neighbor);
+
+      // Per-hop displacement from the PDF's own drawn geometry: the PDF is
+      // calibrated to UTM, so the vector between two posts' PDF positions
+      // carries the street's true local bearing (turns included) even when
+      // its absolute placement has drifted. Colinear continuation — the old
+      // fallback below — assumes straight streets and diverges on real routes.
+      const pdfCur = pdfUtmByPost?.get(current);
+      const pdfNext = pdfUtmByPost?.get(neighbor);
+      let pdfDx = 0;
+      let pdfDy = 0;
+      let pdfDist = 0;
+      if (pdfCur && pdfNext) {
+        pdfDx = pdfNext.x - pdfCur.x;
+        pdfDy = pdfNext.y - pdfCur.y;
+        pdfDist = Math.hypot(pdfDx, pdfDy);
+      }
+
+      // Magnitude: the printed label is the most precise signal and — after
+      // the DWG-path label repairs (split-span merge, bifurcation revert) —
+      // trustworthy wherever it came from a physical label. Fall back to the
+      // PDF drawn span only when the label is missing (the chain must not
+      // break) or the source is an invented heuristic (jumpback-refill,
+      // inferred-label) whose meters can be arbitrarily wrong.
+      const trustedPrinted =
+        printed != null && !isInventedDistance(distMap, current, neighbor);
+      let d = printed;
+      if (pdfDist > 0 && !trustedPrinted) {
+        d = pdfDist;
+      }
       if (d == null) continue;
+
+      const hopCost = trustedPrinted ? 1 : 1 + d / medianSpanM;
+      const nextU = (uncertainty.get(current) ?? 0) + hopCost;
+      if (nextU >= (uncertainty.get(neighbor) ?? Infinity)) continue;
 
       let dirX = 1;
       let dirY = 0;
 
-      if (current === anchorPostNum) {
+      if (pdfDist > 0) {
+        dirX = pdfDx / pdfDist;
+        dirY = pdfDy / pdfDist;
+      } else if (current === anchorPostNum) {
         const neighbors = adjacencyGraph.get(anchorIdx) ?? new Set();
         let bestNode = null;
         let bestDiff = Infinity;
@@ -445,21 +602,36 @@ function propagatePredictedPositions({
         }
       }
 
-      predicted.set(neighbor, {
-        x: curPos.x + dirX * d,
-        y: curPos.y + dirY * d,
-      });
+      predicted.set(
+        neighbor,
+        snapToNode({
+          x: curPos.x + dirX * d,
+          y: curPos.y + dirY * d,
+        }),
+      );
       parent.set(neighbor, current);
-      hops.set(neighbor, (hops.get(current) ?? 0) + 1);
-      visited.add(neighbor);
-      queue.push(neighbor);
+      // Window growth follows accumulated uncertainty, not raw hop count, so
+      // posts past an unlabeled/invented hop get the wider window they need.
+      hops.set(neighbor, Math.ceil(nextU));
+      uncertainty.set(neighbor, nextU);
+      queue.push({ post: neighbor, u: nextU });
     }
   }
 
   for (const p of posts) {
     if (!predicted.has(p.number)) {
-      predicted.set(p.number, { x: anchorPos.x, y: anchorPos.y });
-      hops.set(p.number, hops.get(p.number) ?? 0);
+      // No chain reaches this post. The PDF absolute position (with a wide
+      // window) is a far better prior than the old anchor-position fallback,
+      // which put the prediction at post 1 with the NARROWEST window — a
+      // guaranteed coverage miss for every post past a chain break.
+      const pdf = pdfUtmByPost?.get(p.number);
+      if (pdf) {
+        predicted.set(p.number, { x: pdf.x, y: pdf.y });
+        hops.set(p.number, PDF_ABSOLUTE_FALLBACK_HOPS);
+      } else {
+        predicted.set(p.number, { x: anchorPos.x, y: anchorPos.y });
+        hops.set(p.number, hops.get(p.number) ?? 0);
+      }
     }
   }
 
@@ -546,6 +718,318 @@ function spanFitCost(postNum, colNode, predicted, distMap, connAdj) {
   return sum;
 }
 
+/**
+ * Route graph for the topology gate (D-10 monotonicity runs). The PDF
+ * connection list links consecutive numbers even across numbering jumps
+ * (LC 20→21 spans 380 m of street; the spur physically hangs off post 7), so
+ * partitioning runs over it makes a correct solve look arc-backward. Drop
+ * invented-source connections the DXF topology does not corroborate and
+ * re-attach any orphaned endpoint through its topology arm.
+ */
+function buildGateConnections(connections, distMap, routeTopologyNeighbors, postSet) {
+  if (!routeTopologyNeighbors?.size) return connections ?? [];
+  const conns = [];
+  const seen = new Set();
+  const keyOf = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+  const push = (from, to) => {
+    const k = keyOf(from, to);
+    if (seen.has(k)) return;
+    seen.add(k);
+    conns.push({ from, to });
+  };
+  const dropped = [];
+  for (const c of connections ?? []) {
+    if (!postSet.has(c.from) || !postSet.has(c.to)) continue;
+    const nonConsecutive = Math.abs(c.from - c.to) > 1;
+    const topoAdj =
+      routeTopologyNeighbors.get(c.from)?.has(c.to) ||
+      routeTopologyNeighbors.get(c.to)?.has(c.from);
+    const hasTrustedMeters =
+      getPrintedMeters(distMap, c.from, c.to) != null &&
+      !isInventedDistance(distMap, c.from, c.to);
+    // Non-consecutive connections are route shortcuts the PDF pass invented
+    // (numbering jumps, skip edges with no label at all). Unless the DXF
+    // topology corroborates the link or a trusted printed label sits on it,
+    // they corrupt the run partition (double-backs, cycles, orphaned tails).
+    if (nonConsecutive && !topoAdj && !hasTrustedMeters) {
+      dropped.push(c);
+      continue;
+    }
+    if (isInventedDistance(distMap, c.from, c.to) && !topoAdj) {
+      dropped.push(c);
+      continue;
+    }
+    push(c.from, c.to);
+  }
+  // Re-attach via DXF topology arms: an endpoint that lost a jump link gets
+  // its real arm instead (LC: dropping 20→21 attaches the spur head as 7→21).
+  for (const c of dropped) {
+    for (const n of [c.from, c.to]) {
+      for (const nb of routeTopologyNeighbors.get(n) ?? []) {
+        if (!postSet.has(nb) || Math.abs(nb - n) <= 1) continue;
+        push(nb, n);
+      }
+    }
+  }
+  return conns;
+}
+
+/**
+ * Single-source Dijkstra over the DXF region cable graph: arc distance from
+ * startIdx to every reachable node. One pass per run replaces O(candidates)
+ * point-to-point cableSpanAlongPath calls.
+ */
+function cableArcsFrom(startIdx, adjacencyGraph, regionPosts) {
+  const dist = new Map([[startIdx, 0]]);
+  const pq = [{ idx: startIdx, d: 0 }];
+  const settled = new Set();
+  while (pq.length) {
+    let best = 0;
+    for (let i = 1; i < pq.length; i++) {
+      if (pq[i].d < pq[best].d) best = i;
+    }
+    const { idx, d } = pq.splice(best, 1)[0];
+    if (settled.has(idx)) continue;
+    settled.add(idx);
+    for (const neighbor of adjacencyGraph.get(idx) ?? []) {
+      if (settled.has(neighbor)) continue;
+      const nd =
+        d +
+        Math.hypot(
+          regionPosts[neighbor].x - regionPosts[idx].x,
+          regionPosts[neighbor].y - regionPosts[idx].y,
+        );
+      if (nd < (dist.get(neighbor) ?? Infinity)) {
+        dist.set(neighbor, nd);
+        pq.push({ idx: neighbor, d: nd });
+      }
+    }
+  }
+  return dist;
+}
+
+/**
+ * Per-run Viterbi refinement of the munkres assignment (D-N2-01 precedent).
+ *
+ * The Hungarian cost is per-post (prediction distance + local span fit), so a
+ * systematic prediction drift makes it pick poles shifted down-street — it
+ * cannot weigh CHAIN consistency. The Viterbi pass re-assigns each linear run
+ * as a whole: transition cost = capped |node span − expected span| (printed
+ * label, else PDF drawn span), a no-backtrack constraint along the PDF street
+ * bearing, a weak prediction-prior emission, AND the D-10 arc-monotonicity
+ * invariant enforced as a hard transition constraint (the same check the
+ * post-hoc topology gate applies). The arc constraint is what resolves the
+ * LC 9–11 zone: there the printed labels are crossed AND the drawing is
+ * drawn out of route order, so labels + drawing agree on a self-consistent
+ * WRONG story whose only tell is that it walks BACKWARD along the DXF cable
+ * arc. Only the real pole spacing+ordering can arbitrate, and it lives here.
+ *
+ * Mutates assignmentByPost in place; a run that cannot be chained (empty
+ * candidate layer) keeps its munkres assignment.
+ */
+function refineAssignmentsByViterbi({
+  sortedPosts,
+  assignmentByPost,
+  prunedByPost,
+  predicted,
+  distMap,
+  pdfUtmByPost,
+  gateConnections,
+  junctionSet,
+  adjacencyGraph,
+  regionPosts,
+  postToIdx,
+  spanTolM,
+}) {
+  const postNumbers = sortedPosts.map((p) => p.number);
+  const runs = partitionLinearRuns(postNumbers, junctionSet, gateConnections);
+  const monotonicTol = spanTolM ?? 0;
+
+  // Cost of an assignment along a run under the same model the DP optimizes —
+  // used to keep the BETTER of munkres-vs-Viterbi per run, so a run whose
+  // chain evidence is weak (untrusted entry edges, noise arms) can never make
+  // the assignment worse than the Hungarian baseline. An arc-backward chain
+  // costs Infinity: it is exactly what the topology gate will demote on, so
+  // a monotonic Viterbi chain must always replace it.
+  const runCost = (run, nodeOf, arcOf) => {
+    let cost = 0;
+    let prevArc = arcOf ? arcOf(nodeOf(run[0])) : null;
+    for (let i = 1; i < run.length; i++) {
+      const a = nodeOf(run[i - 1]);
+      const b = nodeOf(run[i]);
+      if (!a || !b) return Infinity;
+      if (arcOf) {
+        const arc = arcOf(b);
+        if (arc == null) {
+          // Different cable component — the gate restarts its chain here; we
+          // drop the comparison baseline rather than fail a correct solve.
+          prevArc = null;
+        } else {
+          if (prevArc != null && arc < prevArc - monotonicTol) return Infinity;
+          prevArc = arc;
+        }
+      }
+      const printed = getPrintedMeters(distMap, run[i - 1], run[i]);
+      const trusted =
+        printed != null && !isInventedDistance(distMap, run[i - 1], run[i]);
+      let d = trusted ? printed : null;
+      if (d == null) {
+        const pdfA = pdfUtmByPost?.get(run[i - 1]);
+        const pdfB = pdfUtmByPost?.get(run[i]);
+        if (pdfA && pdfB) d = Math.hypot(pdfB.x - pdfA.x, pdfB.y - pdfA.y);
+      }
+      const span = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d != null) cost += Math.min(Math.abs(span - d), VITERBI_SPAN_CAP);
+      const pred = predicted.get(run[i]);
+      if (pred) {
+        cost += VITERBI_EMISSION_W * Math.hypot(b.x - pred.x, b.y - pred.y);
+      }
+    }
+    return cost;
+  };
+
+  for (const run of runs) {
+    if (run.length < 2) continue;
+    const startAssigned = assignmentByPost.get(run[0]);
+    if (!startAssigned) continue;
+    // Arc positions along the DXF cable graph, measured from this run's
+    // start node — the D-10 monotonicity frame.
+    const startIdx = postToIdx?.get(startAssigned);
+    const arcs =
+      startIdx != null && adjacencyGraph && regionPosts
+        ? cableArcsFrom(startIdx, adjacencyGraph, regionPosts)
+        : null;
+    const arcOf = arcs
+      ? (node) => {
+          if (!node) return null;
+          const i = postToIdx.get(node);
+          return i == null ? null : (arcs.get(i) ?? null);
+        }
+      : null;
+    // A run with no trusted printed span anywhere has zero chain evidence
+    // (e.g. the single-hop artifact arm a crossing fuses into the topology);
+    // refining it could only echo noise.
+    const hasTrustedEvidence = run.some(
+      (n, i) =>
+        i > 0 &&
+        getPrintedMeters(distMap, run[i - 1], n) != null &&
+        !isInventedDistance(distMap, run[i - 1], n),
+    );
+    if (!hasTrustedEvidence) continue;
+
+    let prevStates = [{ node: startAssigned, cost: 0, back: null }];
+    const layers = [prevStates];
+    let broken = false;
+
+    for (let i = 1; i < run.length; i++) {
+      const postNum = run[i];
+      const prevNum = run[i - 1];
+      const cands = prunedByPost.get(postNum) ?? [];
+      if (!cands.length) {
+        broken = true;
+        break;
+      }
+      const printed = getPrintedMeters(distMap, prevNum, postNum);
+      const trusted =
+        printed != null && !isInventedDistance(distMap, prevNum, postNum);
+      let d = trusted ? printed : null;
+      let bearing = null;
+      const pdfA = pdfUtmByPost?.get(prevNum);
+      const pdfB = pdfUtmByPost?.get(postNum);
+      if (pdfA && pdfB) {
+        const vx = pdfB.x - pdfA.x;
+        const vy = pdfB.y - pdfA.y;
+        const vd = Math.hypot(vx, vy);
+        if (vd > 0) {
+          // Constrain direction only when the PDF geometry corroborates the
+          // printed span (within 30%). A corrupt drawn position (LC post 11:
+          // PDF span 92 m vs printed 18.7 m) yields a bearing that would
+          // FORBID the true transition and force the chain onto wrong poles.
+          const corroborated =
+            d == null || Math.abs(vd - d) <= 0.3 * Math.max(vd, d);
+          if (corroborated) bearing = { x: vx / vd, y: vy / vd };
+          if (d == null) d = vd;
+        }
+      }
+      const pred = predicted.get(postNum);
+
+      const layer = [];
+      for (const node of cands) {
+        const arcNode = arcOf ? arcOf(node) : null;
+        let best = null;
+        for (let s = 0; s < prevStates.length; s++) {
+          const ps = prevStates[s];
+          const span = Math.hypot(node.x - ps.node.x, node.y - ps.node.y);
+          if (span < 0.5) continue; // node reuse within the run
+          // D-10 arc-monotonicity as a hard transition constraint: the chain
+          // may never walk backward along the DXF cable arc. This is the only
+          // signal that rejects a wrong story the labels AND the drawing both
+          // tell (LC 9–11). Nodes in another cable component (arc null) are
+          // unconstrained, mirroring the gate's chain-restart behavior.
+          if (arcNode != null && arcOf) {
+            const arcPrev = arcOf(ps.node);
+            if (arcPrev != null && arcNode < arcPrev - monotonicTol) continue;
+          }
+          if (bearing) {
+            const dot =
+              (node.x - ps.node.x) * bearing.x +
+              (node.y - ps.node.y) * bearing.y;
+            // No-backtrack along the street; small negative slack tolerates
+            // bearing noise from imperfect PDF placement.
+            if (dot < -0.2 * span) continue;
+          }
+          const spanCost =
+            d != null ? Math.min(Math.abs(span - d), VITERBI_SPAN_CAP) : 0;
+          const total = ps.cost + spanCost;
+          if (!best || total < best.total) best = { total, back: s };
+        }
+        if (!best) continue;
+        const emit = pred
+          ? VITERBI_EMISSION_W * Math.hypot(node.x - pred.x, node.y - pred.y)
+          : 0;
+        layer.push({ node, cost: best.total + emit, back: best.back });
+      }
+      if (!layer.length) {
+        broken = true;
+        break;
+      }
+      layers.push(layer);
+      prevStates = layer;
+    }
+
+    if (broken || layers.length !== run.length) continue;
+
+    let idx = 0;
+    for (let s = 1; s < prevStates.length; s++) {
+      if (prevStates[s].cost < prevStates[idx].cost) idx = s;
+    }
+    const viterbiPath = new Map([[run[0], startAssigned]]);
+    for (let i = layers.length - 1; i >= 1; i--) {
+      const st = layers[i][idx];
+      viterbiPath.set(run[i], st.node);
+      idx = st.back;
+    }
+
+    const currentCost = runCost(run, (n) => assignmentByPost.get(n), arcOf);
+    const viterbiCost = runCost(run, (n) => viterbiPath.get(n), arcOf);
+    if (viterbiCost >= currentCost) continue;
+    for (const [n, node] of viterbiPath) assignmentByPost.set(n, node);
+  }
+}
+
+/** Junctions per DXF topology: cable degree ≥3 with a non-consecutive arm. */
+function deriveJunctionsFromTopology(routeTopologyNeighbors, postSet) {
+  const out = new Set();
+  for (const [n, nbs] of routeTopologyNeighbors ?? []) {
+    if (!postSet.has(n)) continue;
+    const inRoute = [...nbs].filter((b) => postSet.has(b));
+    if (inRoute.length >= 3 && inRoute.some((b) => Math.abs(b - n) > 1)) {
+      out.add(n);
+    }
+  }
+  return out;
+}
+
 function buildPartialCoords(sortedPosts, assignmentByPost, zoneExpected) {
   const coords = [];
   for (const p of sortedPosts) {
@@ -595,8 +1079,10 @@ export function solveGlobalGraphAlignment({
   gpsByPostNumber,
   junctions,
   authoritativeDegreeByPost,
+  routeTopologyNeighbors,
   testAssignments,
   _testAssignments,
+  debugSink,
 }) {
   const forcedAssignments = testAssignments ?? _testAssignments;
   const t0 = performance.now();
@@ -659,6 +1145,15 @@ export function solveGlobalGraphAlignment({
   const anchorIdx = postToIndex.get(anchorBest);
   const anchorPostNum = sortedPosts[0]?.number ?? 1;
 
+  // PDF post positions in UTM — the prediction prior for dead-reckoning
+  // bearings and for posts unreachable through the printed-distance chain.
+  const pdfUtmByPost = new Map();
+  for (const [num, gps] of gpsByPostNumber ?? new Map()) {
+    if (gps?.lat == null || gps?.lon == null) continue;
+    const u = latLonToUtm(gps.lat, gps.lon);
+    pdfUtmByPost.set(num, { x: u.easting, y: u.northing });
+  }
+
   const distMap = buildDistanceMap(distances);
   const { predicted, hops } = propagatePredictedPositions({
     posts: sortedPosts,
@@ -670,6 +1165,9 @@ export function solveGlobalGraphAlignment({
     adjacencyGraph: graph,
     regionPosts,
     spanTolM,
+    pdfUtmByPost,
+    postIndex: tree,
+    routeTopologyNeighbors,
   });
 
   const prunedByPost = pruneCandidates({
@@ -685,6 +1183,20 @@ export function solveGlobalGraphAlignment({
     prunedByPost,
     sortedPosts,
   );
+
+  if (debugSink) {
+    Object.assign(debugSink, {
+      tolerances,
+      anchorPostNum,
+      anchorBest,
+      anchorDist,
+      predicted,
+      hops,
+      prunedByPost,
+      sortedPosts,
+      columnCount: columnNodes.length,
+    });
+  }
 
   if (columnNodes.length === 0) {
     return { ok: false, reason: "coverage", elapsedMs: performance.now() - t0, warnings };
@@ -750,6 +1262,27 @@ export function solveGlobalGraphAlignment({
   const assignmentByPost = forcedAssignments ?? new Map();
   const assignedRows = new Set();
 
+  const postSet = new Set(sortedPosts.map((p) => p.number));
+  const gateConnections = buildGateConnections(
+    connections,
+    distMap,
+    routeTopologyNeighbors,
+    postSet,
+  );
+  const junctionSet = normalizeJunctionSet(
+    junctions ?? deriveJunctionsFromTopology(routeTopologyNeighbors, postSet),
+  );
+  if (debugSink) {
+    debugSink.gate = {
+      junctions: [...junctionSet].sort((a, b) => a - b),
+      runs: partitionLinearRuns(
+        sortedPosts.map((p) => p.number),
+        junctionSet,
+        gateConnections,
+      ),
+    };
+  }
+
   if (!forcedAssignments) {
     for (const [y, x] of munkresAssignments) {
       assignedRows.add(y);
@@ -760,6 +1293,12 @@ export function solveGlobalGraphAlignment({
       // could collide with a legitimately high real cost.
       const isForcedAnchor = y === anchorRow && x === anchorCol;
       if (!isForcedAnchor && realCosts[y][x] == null) {
+        if (debugSink) {
+          debugSink.coverageFailure = {
+            kind: "sentinel-assignment",
+            post: sortedPosts[y].number,
+          };
+        }
         return {
           ok: false,
           reason: "coverage",
@@ -776,7 +1315,32 @@ export function solveGlobalGraphAlignment({
       assignmentByPost.set(postNum, columnNodes[x]);
     }
 
+    if (assignedRows.size === nRows) {
+      refineAssignmentsByViterbi({
+        sortedPosts,
+        assignmentByPost,
+        prunedByPost,
+        predicted,
+        distMap,
+        pdfUtmByPost,
+        gateConnections,
+        junctionSet,
+        adjacencyGraph: graph,
+        regionPosts,
+        postToIdx: postToIndex,
+        spanTolM,
+      });
+    }
+
     if (assignedRows.size < nRows) {
+      if (debugSink) {
+        debugSink.coverageFailure = {
+          kind: "unassigned-rows",
+          posts: sortedPosts
+            .filter((_, ri) => !assignedRows.has(ri))
+            .map((p) => p.number),
+        };
+      }
       return {
         ok: false,
         reason: "coverage",
@@ -805,8 +1369,8 @@ export function solveGlobalGraphAlignment({
     gpsByPostNumber,
     posts: sortedPosts,
     assignments: assignmentByPost,
-    connections,
-    junctions,
+    connections: gateConnections,
+    junctions: junctionSet,
     adjacencyGraph: graph,
     regionPosts,
     postToIdx: postToIndex,

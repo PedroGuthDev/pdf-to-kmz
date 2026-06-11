@@ -346,8 +346,27 @@ describe("solveGlobalGraphAlignment — D-05 accept bar", () => {
     };
   }
 
-  it("demotes when residual gate fails (hard anchor band)", () => {
+  it("accepts despite a hard-fail anchor band — anchor gap is the PDF's own georef error", () => {
+    // Acceptance is SHAPE-driven: the anchor sub-score measures DWG-vs-PDF
+    // disagreement, whose floor is the PDF's own georeferencing error (LC's
+    // correct solve inherits ~90 m of PDF seam drift). The solve is pinned at
+    // the user-provided post-1 GPS, so a uniform PDF offset must not veto it.
+    // The full residual (incl. the anchor "fail") still surfaces downstream
+    // as solverScore for confidence tiering.
     const inputs = makeSolverInputsWithGps({ gpsOffsetM: 500 });
+    const result = solveGlobalGraphAlignment(inputs);
+    assert.equal(result.ok, true);
+    assert.equal(result.solverScore?.gateDecision, "fail");
+    assert.equal(result.coords.length, 3);
+  });
+
+  it("demotes when the shape sub-score fails (printed spans misfit solved nodes)", () => {
+    // Printed labels 2x the real DXF spacing: whatever nodes the solver
+    // lands on, |span - printed|/printed stays >> SOLVER_SHAPE_ACCEPT, so
+    // level-0 must demote (reason residual-gate) rather than ship a solve
+    // whose chain contradicts the printed evidence.
+    const inputs = makeSolverInputsWithGps({ gpsOffsetM: 0 });
+    for (const d of inputs.distances) d.meters = SPAN * 2;
     const result = solveGlobalGraphAlignment(inputs);
     assert.equal(result.ok, false);
     assert.equal(result.reason, "residual-gate");
