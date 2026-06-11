@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import "fake-indexeddb/auto";
 import { parsePdf } from "../parser/pdf-parser.js";
 import { calculateCoordinatesWithDwg } from "../parser/dwg/coordinate-calculator-dwg.js";
+import { parseDxfText } from "../parser/dwg/dxf-loader.js";
 import { latLonToUtm } from "../parser/geo/utm-calibrator.js";
 import {
   buildRegionBundle,
@@ -87,8 +88,25 @@ async function main() {
   );
   if (parsed.error) throw new Error(`parsePdf: ${parsed.error}`);
 
-  const raw = JSON.parse(readFileSync(route.dwgRegionPath, "utf8"));
-  const bundle = buildRegionBundle(route.regionId, raw.posts ?? [], raw.cableEdges ?? []);
+  // `--dxf <path>`: bypass the curated region fixture and ingest a REAL city
+  // DXF exactly like the browser does (full Poste/Trecho layers; the cascade
+  // crops to the route bbox itself). Reproduces browser-vs-fixture divergence.
+  const dxfFlag = process.argv.indexOf("--dxf");
+  let bundle;
+  if (dxfFlag !== -1 && process.argv[dxfFlag + 1]) {
+    const dxfPath = path.resolve(ROOT, process.argv[dxfFlag + 1]);
+    console.log(`ingesting real DXF: ${dxfPath}`);
+    const dxf = parseDxfText(readFileSync(dxfPath, "utf8"));
+    bundle = buildRegionBundle(route.regionId, dxf.posts ?? [], dxf.cableEdges ?? []);
+    bundle.primaryCableEdges = dxf.primaryCableEdges ?? [];
+    console.log(
+      `  DXF posts=${dxf.posts.length} cableEdges=${dxf.cableEdges.length} primary=${dxf.primaryCableEdges.length}`,
+    );
+  } else {
+    const raw = JSON.parse(readFileSync(route.dwgRegionPath, "utf8"));
+    bundle = buildRegionBundle(route.regionId, raw.posts ?? [], raw.cableEdges ?? []);
+    if (raw.primaryCableEdges) bundle.primaryCableEdges = raw.primaryCableEdges;
+  }
   const library = createFixtureLibrary(bundle);
 
   const sink = {};

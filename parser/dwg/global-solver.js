@@ -249,6 +249,18 @@ export function checkTopologyGate({
   }
 
   const monotonicTol = tolerances?.spanTolM ?? 0;
+
+  // Uniqueness: two route posts can never share one DXF pole. The Hungarian
+  // guarantees this, but downstream refinement may not; a collided chain
+  // still fits span data on uniform streets, so it must hard-demote here.
+  const seenNodes = new Set();
+  for (const postNum of postNumbers) {
+    const node = assignments.get(postNum);
+    if (!node) continue;
+    if (seenNodes.has(node)) return { ok: false, reason: "collision" };
+    seenNodes.add(node);
+  }
+
   const runs = partitionLinearRuns(postNumbers, junctionSet, connections);
 
   for (let runIdx = 0; runIdx < runs.length; runIdx++) {
@@ -892,6 +904,15 @@ function refineAssignmentsByViterbi({
     if (run.length < 2) continue;
     const startAssigned = assignmentByPost.get(run[0]);
     if (!startAssigned) continue;
+    // Uniqueness frame: nodes held by posts OUTSIDE this run are off-limits —
+    // the Hungarian guarantees one-pole-one-post and the refinement must
+    // preserve it (per-run DP otherwise re-grabbed spine nodes for the spur:
+    // LC-on-Palhoca assigned posts 10+12, 22+24, 28+31 identical nodes).
+    const runSet = new Set(run);
+    const usedOutsideRun = new Set();
+    for (const [pn, node] of assignmentByPost) {
+      if (node && !runSet.has(pn)) usedOutsideRun.add(node);
+    }
     // Arc positions along the DXF cable graph, measured from this run's
     // start node — the D-10 monotonicity frame.
     const startIdx = postToIdx?.get(startAssigned);
@@ -924,7 +945,9 @@ function refineAssignmentsByViterbi({
     for (let i = 1; i < run.length; i++) {
       const postNum = run[i];
       const prevNum = run[i - 1];
-      const cands = prunedByPost.get(postNum) ?? [];
+      const cands = (prunedByPost.get(postNum) ?? []).filter(
+        (n) => !usedOutsideRun.has(n),
+      );
       if (!cands.length) {
         broken = true;
         break;
@@ -1009,6 +1032,10 @@ function refineAssignmentsByViterbi({
       viterbiPath.set(run[i], st.node);
       idx = st.back;
     }
+
+    // The DP's span<0.5 check only blocks CONSECUTIVE reuse; reject any path
+    // that lands two run posts on one node (one pole = one post).
+    if (new Set(viterbiPath.values()).size !== viterbiPath.size) continue;
 
     const currentCost = runCost(run, (n) => assignmentByPost.get(n), arcOf);
     const viterbiCost = runCost(run, (n) => viterbiPath.get(n), arcOf);

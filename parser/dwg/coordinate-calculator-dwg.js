@@ -469,10 +469,15 @@ export async function calculateCoordinatesWithDwg(
     const postsForTopo = (pdfResult.posts ?? routePosts).filter(
       (p) => p.lat != null && p.lon != null,
     );
-    const cableEdgesForTopo = [
-      ...(croppedRegion.cableEdges ?? regionEdges ?? []),
-      ...(croppedRegion.primaryCableEdges ?? []),
-    ];
+    // SECONDARY cables only (cable-topology.js design contract): the route
+    // strings the distribution network. Primary trunk polylines run past
+    // poles the route skips, so contracting them yields false post-to-post
+    // adjacency — on the real Palhoca DXF the trunk made LC post 2 read as a
+    // junction (2–4 "adjacent" because deformed post 3 missed attachR),
+    // which kept the false bifurcation 2→4 alive and broke the whole 4–12
+    // chain. Curated fixtures never had primaries, which is why gates stayed
+    // green while browser runs against full city DXFs diverged.
+    const cableEdgesForTopo = croppedRegion.cableEdges ?? regionEdges ?? [];
     const { neighborsByPost } = buildCableTopologyMaps(
       postsForTopo.length ? postsForTopo : routePosts,
       cableEdgesForTopo,
@@ -558,10 +563,8 @@ export async function calculateCoordinatesWithDwg(
   // per-network corrections). At branch points post numbering + distance labels are
   // ambiguous; the cable polylines encode the real connectivity. Falls back to the
   // label-based connections when the cable can't be read (no GPS / no cable layer).
-  const cableEdgesAll = [
-    ...(croppedRegion.cableEdges ?? regionEdges ?? []),
-    ...(croppedRegion.primaryCableEdges ?? []),
-  ];
+  // Secondary only — same false-adjacency reasoning as cableEdgesForTopo above.
+  const cableEdgesAll = croppedRegion.cableEdges ?? regionEdges ?? [];
   const cableTopo = deriveCableTopology(dwgPosts, cableEdgesAll, {
     zone: zoneExpected,
   });
