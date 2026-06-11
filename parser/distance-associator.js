@@ -3272,3 +3272,59 @@ export function mergeSplitSpanLabels(posts, distItems, distances, warnings) {
 // arc-monotonicity constraint in refineAssignmentsByViterbi
 // (global-solver.js), where the real pole spacing — not the drawing —
 // arbitrates.
+
+/**
+ * SOLVER-ONLY pass: demote window-refine values that duplicate an adjacent
+ * span's printed value.
+ *
+ * One physical Distância_Poste label feeds one span. When refineSequentialWindows
+ * re-assigns labels and the result leaves the SAME value (0.1 m print precision)
+ * on two spans that share a post, the window-refine copy is a steal — there is
+ * only one label item with that value near that post cluster (LC: 8→9 = 34.1
+ * legacy + 9→10 = 34.1 window-refine; the "34,1" physically belongs to 10→11
+ * per ground truth, see 260603-jk7). Distant repeats stay untouched — distinct
+ * spans legitimately print equal values (LC 1→2 and 3→4 both 18.8) — and only
+ * the window-refine side of the pair is demoted; the greedy/legacy edge keeps
+ * its claim.
+ *
+ * Demotion sets source "window-refine-duplicate", which the solver treats as
+ * invented: dead-reckoning and the Viterbi fall back to the PDF drawn span
+ * instead of trusting a stolen value. This is what lets the DXF pole spacing
+ * out-vote the self-consistent wrong story at LC posts 9–11 (the swapped
+ * labels AND the out-of-order drawing both point at a real non-route pole
+ * 34 m down-cable; only de-trusting the stolen 34.1 breaks the tie).
+ *
+ * @returns {boolean} true if any edge was demoted.
+ */
+export function demoteDuplicateWindowRefineLabels(distances, warnings) {
+  if (!distances?.length) return false;
+  const consec = distances.filter((d) => {
+    if (d.meters == null || d.meters <= 0) return false;
+    return Math.abs(d.from - d.to) === 1;
+  });
+  let changed = false;
+  for (const e of consec) {
+    if (e.source !== "window-refine") continue;
+    const lo = Math.min(e.from, e.to);
+    const hi = Math.max(e.from, e.to);
+    const duplicate = consec.find((o) => {
+      if (o === e) return false;
+      if (Math.abs(o.meters - e.meters) >= 0.05) return false;
+      const oLo = Math.min(o.from, o.to);
+      const oHi = Math.max(o.from, o.to);
+      // Must share a post (adjacent span) — one label cannot sit near both.
+      if (oHi !== lo && oLo !== hi) return false;
+      // The keeper must itself be a direct claim, not an invented refill.
+      return o.source !== "jumpback-refill" && o.source !== "inferred-label";
+    });
+    if (!duplicate) continue;
+    warnings.push(
+      `[distance-assoc] Window-refine duplicate demoted: ${lo}→${hi} = ${e.meters} ` +
+        `repeats adjacent ${Math.min(duplicate.from, duplicate.to)}→${Math.max(duplicate.from, duplicate.to)} ` +
+        `(${duplicate.source}) — one label, two claims; solver falls back to drawn span`,
+    );
+    e.source = "window-refine-duplicate";
+    changed = true;
+  }
+  return changed;
+}

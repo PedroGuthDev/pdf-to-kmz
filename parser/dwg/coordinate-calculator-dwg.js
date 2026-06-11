@@ -4,6 +4,7 @@ import {
   applyTopologyBranchArmRehome,
   revertFalseBifurcationsByTopology,
   mergeSplitSpanLabels,
+  demoteDuplicateWindowRefineLabels,
 } from "../distance-associator.js";
 import { buildCablesByPage } from "../cable-builder.js";
 
@@ -514,6 +515,7 @@ export async function calculateCoordinatesWithDwg(
     // route entirely). The repaired meters feed the level-0 solver only; the
     // PDF placement and the walker keep their original, proven behavior.
     mergeSplitSpanLabels(posts, distItems, solverDistances, warnings);
+    demoteDuplicateWindowRefineLabels(solverDistances, warnings);
   }
 
   const cascade = runDwgPairingCascade({

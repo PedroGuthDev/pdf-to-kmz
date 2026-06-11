@@ -400,9 +400,14 @@ export function evaluateAcceptBar({
 
 /** Distance sources INVENTED by heuristics rather than read from a physical
  * label on that span. Their meters can be arbitrarily wrong (LC 20→21
- * jumpback-refill prints 29.8 across a 380 m numbering jump), so the
- * dead-reckoning magnitude prefers the PDF's drawn span for them. */
-const INVENTED_DISTANCE_SOURCES = new Set(["jumpback-refill", "inferred-label"]);
+ * jumpback-refill prints 29.8 across a 380 m numbering jump; a window-refine
+ * duplicate is a value stolen from the adjacent span), so the dead-reckoning
+ * magnitude prefers the PDF's drawn span for them. */
+const INVENTED_DISTANCE_SOURCES = new Set([
+  "jumpback-refill",
+  "inferred-label",
+  "window-refine-duplicate",
+]);
 
 function buildDistanceMap(distances) {
   const map = new Map();
