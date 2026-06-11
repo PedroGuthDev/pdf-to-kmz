@@ -66,7 +66,7 @@ Each task was committed atomically:
 1. **Task 1: Build txt → ground-truth JSON importer with outlier exclusion** - `0f2e4c4` (feat)
 2. **Task 2: Wire Siriu position gate + Siriu junction oracle into test:gate** - `e328ca0` (feat)
 
-**Plan metadata:** `6183564` (docs: complete plan)
+**Plan metadata:** `831a92f` (docs: complete plan)
 
 ## Files Created/Modified
 - `tools/import-ground-truth-txt.mjs` - Parses txt files, excludes outliers, writes four ground-truth JSON fixtures
