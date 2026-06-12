@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * João Born txt GPS accuracy gate (D-01/D-03) — SOFT FENCE (Phase 8).
+ * João Born txt GPS accuracy gate (D-01/D-03) — HARD FENCE.
  *
  * Runs the full DWG cascade against txt-derived ground truth (34 posts; post 35
- * excluded in 07-01). Prints the full tier histogram and lists bad-tier posts to
- * stderr, but exits 0 regardless — deferred to Phase 8 — soft fence.
+ * excluded in 07-01). Zero bad-tier (>15 m) floor enforced since the Phase 8
+ * global solver + front-label street-order remap landed (2.8 m mean on both
+ * the fixture region and real Palhoca.dxf).
  *
  * Run: node tools/run-joaoborn-txt-accuracy-gate.mjs
  */
@@ -24,7 +25,6 @@ runTxtAccuracyGate({
   dwgRegionPath: path.join(FIXTURES, "joaoborn-dwg-region.json"),
   groundTruthPath: path.join(FIXTURES, "joaoborn-ground-truth.json"),
   regionId: "joaoborn",
-  softFence: true,
 }).catch((e) => {
   console.error(e);
   process.exit(1);

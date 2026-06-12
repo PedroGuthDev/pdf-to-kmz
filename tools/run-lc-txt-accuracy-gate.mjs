@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Luiz Carolino txt GPS accuracy gate (D-01/D-03) — SOFT FENCE (Phase 8).
+ * Luiz Carolino txt GPS accuracy gate (D-01/D-03) — HARD FENCE.
  *
  * Runs the full DWG cascade and prints the full tier histogram (all posts
- * measured and reported). Posts 21–31 (~179 m rigid offset) are excluded from
- * the exit rule via _meta.scope. All remaining bad-tier posts are listed to
- * stderr but this gate exits 0 regardless — deferred to Phase 8 — soft fence.
+ * measured and reported). Zero bad-tier (>15 m) floor enforced on all 31
+ * posts: the Phase 8 global solver resolved the posts 21–31 ~179 m rigid
+ * offset that the old soft fence scoped out (1.0 m mean / 2.0 m max now).
  *
  * Run: node tools/run-lc-txt-accuracy-gate.mjs
  */
@@ -19,10 +19,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const FIXTURES = path.join(ROOT, "parser", "__tests__", "fixtures");
 
-// Mirrors luizcarolino-post-positions-truth.json _meta.scope — absolute-position
-// block deferred to Phase 8 solver; still measured, not counted toward exit(1).
-const EXCLUDED_POSTS = new Set(Array.from({ length: 11 }, (_, i) => i + 21));
-
 runTxtAccuracyGate({
   routeLabel: "Luiz Carolino",
   pdfPath: path.join(
@@ -32,9 +28,6 @@ runTxtAccuracyGate({
   dwgRegionPath: path.join(FIXTURES, "luizcarolino-dwg-region.json"),
   groundTruthPath: path.join(FIXTURES, "luizcarolino-ground-truth.json"),
   regionId: "luizcarolino",
-  excludedPosts: EXCLUDED_POSTS,
-  excludedNote: "deferred to Phase 8 — soft fence",
-  softFence: true,
 }).catch((e) => {
   console.error(e);
   process.exit(1);
