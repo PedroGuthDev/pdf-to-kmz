@@ -383,7 +383,10 @@
         margin-top: var(--space-xs);
       }
 
-      .post-read-grid .panel {
+      /* Direct children only — a descendant selector here also hits nested
+         panels like #calcNotices inside #coordForm and blows them up to the
+         card's full height (overflowing onto the Etapa 3 controls). */
+      .post-read-grid > .panel {
         margin: 0;
         height: 100%;
       }
