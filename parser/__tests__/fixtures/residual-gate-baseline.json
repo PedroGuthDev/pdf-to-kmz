@@ -1,10 +1,10 @@
 {
-  "updated": "2026-06-11",
+  "updated": "2026-06-12",
   "decisions": {
     "siriu": "fail",
-    "valmor": "fallback",
-    "joaoborn": "fail",
-    "luizcarolino": "fail",
+    "valmor": "trust",
+    "joaoborn": "trust",
+    "luizcarolino": "trust",
     "lc-mustfail": "fail"
   },
   "solverPaths": {

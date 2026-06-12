@@ -620,9 +620,9 @@ export async function parsePdf(arrayBuffer, hooks = {}) {
     for (const batch of pendingOcrBatches) {
       const pageNum = batch.circles[0]?.pageNum;
       if (!calibratedPageSet.has(pageNum)) {
-        userWarnings.push(
-          `Página ${pageNum}: folha ignorada na leitura de números dos postes (não é folha de detalhe calibrada).`,
-        );
+        // Expected behavior for overview/legend sheets — dev log only, not a
+        // user-facing notice (it flooded "Avisos da leitura do PDF" with one
+        // line per non-detail page on every PDF).
         warnings.push(
           `Page ${pageNum}: skipped post OCR — not a viewport-calibrated route detail page`,
         );

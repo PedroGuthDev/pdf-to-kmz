@@ -14,7 +14,7 @@ import {
   pairPostsAgainstRegion,
 } from "./region-pairing.js";
 import { pairPostsByGraphWalk } from "./graph-walker.js";
-import { solveGlobalGraphAlignment } from "./global-solver.js";
+import { solveGlobalGraphAlignment, INVENTED_DISTANCE_SOURCES } from "./global-solver.js";
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate, ANCHOR_FALLBACK_M } from "./residual-gate.js";
@@ -45,7 +45,7 @@ export function noRegionError(lat, lon, regions) {
 /**
  * User-facing notices after route calculation (main UI, not developer tools).
  *
- * @param {{ posts?: Array<{ source?: string }>, dwgStatus?: string, dwgRegionId?: string, dwgNoRegion?: { code?: string, nearest?: { name?: string, distanceKm?: number } } | null }} result
+ * @param {{ posts?: Array<{ source?: string }>, dwgStatus?: string, dwgRegionId?: string, dwgNoRegion?: { code?: string, nearest?: { name?: string, distanceKm?: number } } | null, dwgConfidence?: { postTiers?: Array<{ postNumber: number, tier: string }> } | null }} result
  * @returns {string[]}
  */
 export function buildCalcUserWarnings(result) {
@@ -93,6 +93,24 @@ export function buildCalcUserWarnings(result) {
     notices.push(
       `Somente ${dwgCount} de ${total} postes usam coordenadas do DXF; os demais permanecem no PDF.`,
     );
+  }
+
+  // Per-post confidence call-outs (tiers no longer recolor the KMZ icons, so
+  // the MED/LOW posts are listed here instead — labels only, no numeric %).
+  const tiers = result?.dwgConfidence?.postTiers ?? [];
+  const lowPosts = tiers
+    .filter((t) => t.tier === "LOW")
+    .map((t) => t.postNumber);
+  const medPosts = tiers
+    .filter((t) => t.tier === "MED")
+    .map((t) => t.postNumber);
+  if (lowPosts.length > 0) {
+    notices.push(
+      `Postes com confiança BAIXA: ${lowPosts.join(", ")} — revise a posição destes postes no KMZ antes de liberar.`,
+    );
+  }
+  if (medPosts.length > 0) {
+    notices.push(`Postes com confiança MÉDIA: ${medPosts.join(", ")}.`);
   }
 
   return notices;
@@ -591,19 +609,34 @@ export async function calculateCoordinatesWithDwg(
   // Truth-free residual gate (D-01, pure judge): rate the assembled route with
   // two independent sub-scores and attach a confidence verdict. This NEVER
   // mutates posts/connections/coordinates — it only measures. The solver path
-  // is scored against the repaired distance view it solved with; walker paths
-  // keep the pristine labels their baselines were locked on.
+  // is scored against the repaired distance view it solved with — minus the
+  // invented-source edges (jumpback-refill / inferred-label / window-refine-
+  // duplicate), whose meters are heuristic refills, not printed labels: a
+  // correct solve scores relError ≈ 11 on LC's 20→21 jumpback and would be
+  // tiered LOW by fiction. Walker paths keep the pristine labels their
+  // baselines were locked on.
+  const isSolverPath = cascade.dwgPath === "global-solve";
   const shape = computeResiduals(
     cascade.coords,
-    cascade.dwgPath === "global-solve" ? solverDistances : distances,
+    isSolverPath
+      ? solverDistances.filter((d) => !INVENTED_DISTANCE_SOURCES.has(d.source))
+      : distances,
   );
   const anchor = computeAnchorGap(cascade.coords, gpsByPostNumber);
-  // dwgConfidence carries `overall` (D-08) + per-post sub-scores (D-06) from the gate.
-  successResult.dwgConfidence = applyResidualGate(shape, anchor);
+  // dwgConfidence carries `overall` (D-08) + per-post sub-scores (D-06) from the
+  // gate. On an ACCEPTED solve the anchor sub-score is advisory: the coords are
+  // surveyed DXF nodes (post-1 pinned, topology-gated), so DWG-vs-PDF gaps
+  // measure PDF deformation, not route quality — tiering on them marked every
+  // post of a ~1 m-true-error route LOW (see residual-gate.js anchorAdvisory).
+  successResult.dwgConfidence = applyResidualGate(shape, anchor, {
+    anchorAdvisory: isSolverPath,
+  });
 
   // D-09: surface a `diverged-at-post` warning for the worst anchor gap when it
   // crosses the fallback band — a read-only lookup over the already-computed
   // anchor.perPost (no new math). The post with the maximum gapM is reported.
+  // Solver path included: there the warning documents WHERE the PDF placement
+  // drifts furthest from the accepted solve (diagnostic, dev warning list only).
   let worstGapPost = null;
   for (const p of anchor?.perPost ?? []) {
     if (worstGapPost == null || p.gapM > worstGapPost.gapM) worstGapPost = p;

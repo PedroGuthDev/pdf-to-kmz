@@ -1,5 +1,5 @@
 import { mergeOptions, resolveStyleColors } from "./kmz-defaults.js";
-import { tierStyleId, tierStyleBlock, TIER_LABEL_PT } from "./dwg/tier-styles.js";
+import { TIER_LABEL_PT } from "./dwg/tier-styles.js";
 
 /**
  * @param {string} str
@@ -269,7 +269,6 @@ export function buildKml(posts, connections, options = {}) {
   for (const t of options.postTiers ?? []) {
     tierByPost.set(t.postNumber, t);
   }
-  const hasTiers = tierByPost.size > 0;
 
   // Render-boundary normalization: drop spurious chords / gap-bridges the DWG
   // geometry path emits (see normalizeConnections). All downstream rendering —
@@ -333,20 +332,10 @@ export function buildKml(posts, connections, options = {}) {
     `<Style id="routeLine"><LineStyle><color>${colors.lineColorKml}</color><width>${merged.lineWidth}</width></LineStyle></Style>`,
   ];
 
-  // D-01: when tiers are supplied, emit the four traffic-light tier Style blocks
-  // (#postPoint stays as the fallback for posts without a tier entry). The icon
-  // href and label conventions mirror the #postPoint template.
-  if (hasTiers) {
-    const iconHref = escapeXml(merged.iconHref);
-    for (const tier of ["HIGH", "MED", "LOW", "UNRESOLVABLE"]) {
-      parts.push(
-        tierStyleBlock(tier, iconHref, {
-          labelColorKml: colors.labelColorKml,
-          labelScale: merged.labelScale,
-        }),
-      );
-    }
-  }
+  // Confidence tiers no longer recolor icons (user decision 2026-06-12): every
+  // placemark uses the customization #postPoint style. Tier info stays in the
+  // balloon description + ExtendedData; the MED/LOW post list is surfaced in
+  // the HTML calc notices instead (buildCalcUserWarnings).
 
   for (const post of posts) {
     if (!hasGps(post)) {
@@ -366,8 +355,8 @@ export function buildKml(posts, connections, options = {}) {
     const desc = tp
       ? `Confiança: ${TIER_LABEL_PT[tp.tier]} — ${latLon}`
       : latLon;
-    // D-01: reference the post's own tier style; fall back to #postPoint.
-    const styleId = tp ? `#${tierStyleId(tp.tier)}` : "#postPoint";
+    // Icons always follow the user customization style (no tier recoloring).
+    const styleId = "#postPoint";
 
     parts.push(
       "<Placemark>",

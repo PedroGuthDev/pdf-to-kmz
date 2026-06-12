@@ -7,8 +7,12 @@
  *   1. Luiz Carolino must-fail fixture (posts 21-31) → gateDecision "fail" caused
  *      by the ANCHOR sub-score (shape median ~12.8% alone would NOT fail;
  *      anchor p95 ~301 m >> 20 m fails it). This is the ACC-03 success criterion.
- *   2. Valmor (cleanest known route, anchor p95 ~16.6 m in the 10-20 m band) →
- *      gateDecision "fallback".
+ *      The fixture is scored in STRICT mode (no anchorAdvisory) — it locks the
+ *      walker-path mechanism that caught the original rigid offset.
+ *   2. Valmor (cleanest known route, accepted by the global solver) →
+ *      gateDecision "trust": on an accepted solve the anchor sub-score is
+ *      advisory (it measures PDF deformation, not route quality — see
+ *      residual-gate.js anchorAdvisory), so the verdict is shape-driven.
  *   3. No route crashes the gate — every route returns a defined gateDecision
  *      (Siriu/João Born legitimately "fail" by anchor; that is not a false-fail
  *      because their real DWG anchor gaps are 100s of metres).
@@ -99,10 +103,11 @@ async function main() {
     );
   }
 
-  // Assertion 2: Valmor (cleanest known route) → "fallback" (anchor in 10-20 m band).
-  if (observed.valmor && observed.valmor.gateDecision !== "fallback") {
+  // Assertion 2: Valmor (cleanest known route, global-solve accepted) → "trust"
+  // (shape-driven verdict; anchor is advisory on the accepted solver path).
+  if (observed.valmor && observed.valmor.gateDecision !== "trust") {
     failures.push(
-      `valmor: expected gateDecision "fallback" (anchor ~16.6 m in 10-20 m band), got "${observed.valmor.gateDecision}"`,
+      `valmor: expected gateDecision "trust" (accepted solve, shape median ~0.2%), got "${observed.valmor.gateDecision}"`,
     );
   }
 
@@ -202,7 +207,7 @@ async function main() {
   }
 
   console.log(
-    `PASS — LC must-fail → fail (anchor sub-score); valmor → fallback; ` +
+    `PASS — LC must-fail → fail (anchor sub-score); valmor → trust; ` +
       `${Object.keys(observed).length} decision(s) locked. No route crashed the gate.`,
   );
 }

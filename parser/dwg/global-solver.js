@@ -371,9 +371,10 @@ export function evaluateAcceptBar({
   // one-pole-shifted assignment breaks span lengths), the topology gate
   // (monotonicity + hub degree), the post-1 hard-pin (a rigid offset cannot
   // include the pinned anchor), and the per-route txt-accuracy gates in CI.
-  // The full residual (incl. anchor) still flows downstream as solverScore,
-  // where the confidence gate uses BOTH sub-scores for tiering — acceptance
-  // here never inflates the route's confidence tier.
+  // The full residual (incl. anchor) still flows downstream as solverScore
+  // diagnostics. The calculator's confidence tiering applies the SAME
+  // shape-driven reasoning (anchorAdvisory) to an accepted solve — see
+  // residual-gate.js — so per-post tiers are not dragged LOW by PDF drift.
   const shapeMedian = trustedShape?.medianRelError;
   if (shapeMedian == null || shapeMedian >= SOLVER_SHAPE_ACCEPT) {
     return { ok: false, reason: "residual-gate", solverScore: residual };
@@ -402,8 +403,10 @@ export function evaluateAcceptBar({
  * label on that span. Their meters can be arbitrarily wrong (LC 20→21
  * jumpback-refill prints 29.8 across a 380 m numbering jump; a window-refine
  * duplicate is a value stolen from the adjacent span), so the dead-reckoning
- * magnitude prefers the PDF's drawn span for them. */
-const INVENTED_DISTANCE_SOURCES = new Set([
+ * magnitude prefers the PDF's drawn span for them. Exported: the calculator's
+ * downstream confidence tiering excludes them too (a correct solve must not be
+ * tiered LOW by a heuristic refill's fictional meters). */
+export const INVENTED_DISTANCE_SOURCES = new Set([
   "jumpback-refill",
   "inferred-label",
   "window-refine-duplicate",

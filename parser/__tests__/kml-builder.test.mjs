@@ -230,7 +230,7 @@ describe("buildKml", () => {
     assert.ok(Array.isArray(stats.warnings));
   });
 
-  it("emits four tier styles and references each post's own tier styleUrl (D-01/D-05)", () => {
+  it("tiered posts keep the customization #postPoint style — no tier recolor styles (user decision 2026-06-12)", () => {
     const posts = [
       { number: 1, lat: 1, lon: 1 },
       { number: 2, lat: 2, lon: 2 },
@@ -240,15 +240,17 @@ describe("buildKml", () => {
       { postNumber: 2, tier: "MED", shapeResidualM: 8.4, anchorGapM: 12.3 },
     ];
     const { kml } = buildKml(posts, [], { postTiers });
-    // all four tier style blocks present
-    assert.match(kml, /<Style id="tierHigh">/);
-    assert.match(kml, /<Style id="tierMed">/);
-    assert.match(kml, /<Style id="tierLow">/);
-    assert.match(kml, /<Style id="tierUnresolvable">/);
-    // HIGH post references #tierHigh and carries the Portuguese tier line
+    // no tier style blocks are emitted
+    assert.doesNotMatch(kml, /<Style id="tierHigh">/);
+    assert.doesNotMatch(kml, /<Style id="tierMed">/);
+    assert.doesNotMatch(kml, /<Style id="tierLow">/);
+    assert.doesNotMatch(kml, /<Style id="tierUnresolvable">/);
+    // every placemark uses #postPoint; the Portuguese tier line stays in the balloon
     const p1 = kml.match(/<Placemark>[\s\S]*?Poste 01[\s\S]*?<\/Placemark>/)[0];
-    assert.match(p1, /<styleUrl>#tierHigh<\/styleUrl>/);
+    assert.match(p1, /<styleUrl>#postPoint<\/styleUrl>/);
     assert.match(p1, /Confiança: ALTA/);
+    const p2 = kml.match(/<Placemark>[\s\S]*?Poste 02[\s\S]*?<\/Placemark>/)[0];
+    assert.match(p2, /<styleUrl>#postPoint<\/styleUrl>/);
   });
 
   it("emits ExtendedData with tier + meters + source (D-04)", () => {
@@ -277,7 +279,7 @@ describe("buildKml", () => {
     assert.doesNotMatch(kml, /%/);
   });
 
-  it("renders an UNRESOLVABLE post WITH coordinates (red marker, not dropped) (D-11)", () => {
+  it("renders an UNRESOLVABLE post WITH coordinates (flagged in balloon, not dropped) (D-11)", () => {
     const posts = [{ number: 7, lat: -27.6, lon: -48.6 }];
     const postTiers = [
       { postNumber: 7, tier: "UNRESOLVABLE", shapeResidualM: null, anchorGapM: null },
@@ -285,7 +287,7 @@ describe("buildKml", () => {
     const { kml, stats } = buildKml(posts, [], { postTiers });
     assert.equal(stats.placemarkCount, 1);
     const pm = kml.match(/<Placemark>[\s\S]*?Poste 07[\s\S]*?<\/Placemark>/)[0];
-    assert.match(pm, /<styleUrl>#tierUnresolvable<\/styleUrl>/);
+    assert.match(pm, /<styleUrl>#postPoint<\/styleUrl>/);
     assert.match(pm, /Confiança: NÃO RESOLVIDO/);
     // it has a coordinate so it is NOT in the unresolved-no-coord list
     assert.deepEqual(stats.unresolvedNoCoord, []);

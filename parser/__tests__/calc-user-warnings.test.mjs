@@ -57,5 +57,47 @@ assert(
   "partial DXF count",
 );
 
+// MED/LOW confidence posts are listed as user notices (tiers no longer recolor
+// the KMZ icons — user decision 2026-06-12).
+const tiered = buildCalcUserWarnings({
+  dwgStatus: "global-solve",
+  dwgRegionId: "Palhoca",
+  posts: posts85,
+  dwgConfidence: {
+    postTiers: [
+      { postNumber: 1, tier: "HIGH" },
+      { postNumber: 4, tier: "MED" },
+      { postNumber: 10, tier: "LOW" },
+      { postNumber: 11, tier: "LOW" },
+    ],
+  },
+});
+assert(
+  tiered.some((w) => /confiança BAIXA: 10, 11/.test(w)),
+  "LOW posts listed",
+);
+assert(
+  tiered.some((w) => /confiança MÉDIA: 4/.test(w)),
+  "MED posts listed",
+);
+assert(
+  !tiered.some((w) => /%/.test(w)),
+  "no percent sign in tier notices",
+);
+
+assert(
+  buildCalcUserWarnings({
+    dwgStatus: "global-solve",
+    posts: posts85,
+    dwgConfidence: {
+      postTiers: [
+        { postNumber: 1, tier: "HIGH" },
+        { postNumber: 2, tier: "HIGH" },
+      ],
+    },
+  }).length === 0,
+  "all-HIGH tiers — no tier notice",
+);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

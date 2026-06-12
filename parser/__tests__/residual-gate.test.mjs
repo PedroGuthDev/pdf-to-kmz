@@ -314,6 +314,69 @@ describe("applyResidualGate — two-gate decision + per-post tiers", () => {
     assert.equal(r.overall, "med"); // worst material tier is HIGH but gate didn't trust → "med"
   });
 
+  it("anchorAdvisory: anchor hard-fail neither vetoes trust nor drags posts out of HIGH (solver path)", () => {
+    // The LC global-solve picture: shape near-perfect (coords are surveyed DXF
+    // nodes matching printed labels), but the PDF placement is ~80 m deformed →
+    // huge anchor gaps. Advisory mode must rate this trust/HIGH.
+    const r = applyResidualGate(
+      {
+        medianRelError: 0.003,
+        perEdge: [
+          { from: 1, to: 2, relError: 0.01, residualM: 0.5 },
+          { from: 2, to: 3, relError: 0.02, residualM: 0.8 },
+        ],
+      },
+      {
+        p95GapM: 89.7, // would be gateDecision "fail" in strict mode
+        perPost: [
+          { postNumber: 1, gapM: 0.6 },
+          { postNumber: 2, gapM: 80 },
+          { postNumber: 3, gapM: 85 },
+        ],
+      },
+      { anchorAdvisory: true },
+    );
+    assert.equal(r.gateDecision, "trust");
+    assert.ok(r.postTiers.every((t) => t.tier === "HIGH"));
+    assert.equal(r.overall, "high");
+    // anchor gaps stay surfaced as diagnostics
+    assert.equal(r.postTiers.find((t) => t.postNumber === 2).anchorGapM, 80);
+  });
+
+  it("anchorAdvisory: a bad shape edge still forces LOW, and a no-edge post caps at MED", () => {
+    const r = applyResidualGate(
+      {
+        medianRelError: 0.003,
+        perEdge: [
+          { from: 1, to: 2, relError: 0.01, residualM: 0.5 },
+          { from: 2, to: 3, relError: 0.6, residualM: 25 }, // bad label fit → LOW
+        ],
+      },
+      {
+        p95GapM: 3,
+        perPost: [
+          { postNumber: 1, gapM: 1 },
+          { postNumber: 2, gapM: 1 },
+          { postNumber: 3, gapM: 1 },
+          { postNumber: 9, gapM: 1 }, // anchor-only post: no label evidence → MED, never HIGH
+        ],
+      },
+      { anchorAdvisory: true },
+    );
+    assert.equal(r.postTiers.find((t) => t.postNumber === 2).tier, "LOW");
+    assert.equal(r.postTiers.find((t) => t.postNumber === 3).tier, "LOW");
+    assert.equal(r.postTiers.find((t) => t.postNumber === 9).tier, "MED");
+  });
+
+  it("anchorAdvisory: shape hard-fail still fails the route gate", () => {
+    const r = applyResidualGate(
+      { medianRelError: 0.4, perEdge: [] },
+      { p95GapM: 2, perPost: [] },
+      { anchorAdvisory: true },
+    );
+    assert.equal(r.gateDecision, "fail");
+  });
+
   it("HIGH only when both per-post sub-scores pass; a single bad edge forces away from HIGH", () => {
     const r = applyResidualGate(
       {

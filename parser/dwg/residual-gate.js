@@ -153,13 +153,24 @@ export function computeAnchorGap(coords, gpsByPostNumber) {
  * @param {{ meanGapM: number|null, p95GapM: number|null,
  *           perPost: Array<{ postNumber: number, gapM: number }> }} anchor
  *   Output of `computeAnchorGap`.
- * @param {{ allPostNumbers?: Iterable<number> }} [thresholds] Optional caller
- *   hints. Numeric thresholds live as named constants per D-05; the only
- *   honoured field today is `allPostNumbers` — the full post universe. Any post
- *   listed there that has neither an incident edge nor an anchor entry is
- *   reported as UNRESOLVABLE (fail-loud: a post the route declares but the gate
- *   cannot score is flagged, never silently omitted — RESEARCH Pattern 3,
- *   "0 paired coord → UNRESOLVABLE").
+ * @param {{ allPostNumbers?: Iterable<number>, anchorAdvisory?: boolean }} [thresholds]
+ *   Optional caller hints. Numeric thresholds live as named constants per D-05.
+ *   `allPostNumbers` — the full post universe. Any post listed there that has
+ *   neither an incident edge nor an anchor entry is reported as UNRESOLVABLE
+ *   (fail-loud: a post the route declares but the gate cannot score is flagged,
+ *   never silently omitted — RESEARCH Pattern 3, "0 paired coord → UNRESOLVABLE").
+ *   `anchorAdvisory` — when true, the anchor sub-score is DIAGNOSTIC ONLY: it is
+ *   still surfaced per post as `anchorGapM` but neither vetoes "trust" nor
+ *   forces a post out of HIGH / into LOW. This is the global-solver mode: there
+ *   the coords are surveyed DXF nodes pinned to the user GPS at post 1, and the
+ *   anchor gap measures how deformed the PDF placement is (LC: ~80 m page-seam
+ *   drift on a route whose true error is ~1 m) — punishing the solve for
+ *   disagreeing with a worse reference. The wrong-solve risks the anchor term
+ *   guarded against on walker paths are covered on the solver path by the
+ *   shape bands here plus the solver's own accept bar (topology gate, post-1
+ *   hard-pin, uniqueness) — same reasoning as `evaluateAcceptBar` in
+ *   global-solver.js. Default false: walker paths keep the original two-gate
+ *   behavior (the anchor term is what caught the LC 21–31 rigid offset).
  * @returns {{
  *   gateDecision: "trust"|"fallback"|"fail",
  *   shapeFidelity: object,
@@ -170,6 +181,7 @@ export function computeAnchorGap(coords, gpsByPostNumber) {
  * }}
  */
 export function applyResidualGate(shape, anchor, thresholds = {}) {
+  const anchorAdvisory = thresholds.anchorAdvisory === true;
   const median = shape?.medianRelError;
   const p95Gap = anchor?.p95GapM;
 
@@ -178,11 +190,16 @@ export function applyResidualGate(shape, anchor, thresholds = {}) {
   const shapeFails = median != null && median >= SHAPE_FALLBACK;
   const anchorFails = p95Gap != null && p95Gap >= ANCHOR_FAIL_M;
 
-  const gateDecision = (shapePasses && anchorPasses)
-    ? "trust"
-    : (shapeFails || anchorFails)
-      ? "fail"
-      : "fallback";
+  // Advisory mode: the route gate is shape-driven; the anchor term cannot veto
+  // trust nor fail the route (it measures DWG-vs-PDF disagreement, which on the
+  // solver path is dominated by PDF deformation — see the param doc above).
+  const gateDecision = anchorAdvisory
+    ? (shapePasses ? "trust" : shapeFails ? "fail" : "fallback")
+    : (shapePasses && anchorPasses)
+      ? "trust"
+      : (shapeFails || anchorFails)
+        ? "fail"
+        : "fallback";
 
   // Per-post incident-edge index: a post is incident on an edge as EITHER endpoint.
   const incidentRel = new Map();   // postNumber → max incident relError (TIER source — unchanged)
@@ -219,10 +236,18 @@ export function applyResidualGate(shape, anchor, thresholds = {}) {
     } else {
       const shapeScore = hasEdge ? incidentRel.get(postNumber) : null;
       const anchorScore = hasAnchor ? anchorByPost.get(postNumber) : null;
-      const high = (shapeScore != null && shapeScore < SHAPE_TRUST)
-        && (anchorScore != null && anchorScore < ANCHOR_TRUST_M);
-      const low = (shapeScore != null && shapeScore >= SHAPE_FALLBACK)
-        || (anchorScore != null && anchorScore >= ANCHOR_FALLBACK_M);
+      // Advisory mode: tiers come from label evidence alone — a post whose
+      // incident spans reproduce the printed labels is HIGH regardless of how
+      // far the (deformed) PDF placement sits; a post with NO labelled edge can
+      // only reach MED (anchor disagreement is not placement evidence).
+      const high = anchorAdvisory
+        ? (shapeScore != null && shapeScore < SHAPE_TRUST)
+        : (shapeScore != null && shapeScore < SHAPE_TRUST)
+          && (anchorScore != null && anchorScore < ANCHOR_TRUST_M);
+      const low = anchorAdvisory
+        ? (shapeScore != null && shapeScore >= SHAPE_FALLBACK)
+        : (shapeScore != null && shapeScore >= SHAPE_FALLBACK)
+          || (anchorScore != null && anchorScore >= ANCHOR_FALLBACK_M);
       tier = high ? "HIGH" : low ? "LOW" : "MED";
     }
     // D-06: surface the raw per-post sub-score METERS alongside the tier label.
