@@ -18,6 +18,7 @@ import { solveGlobalGraphAlignment, INVENTED_DISTANCE_SOURCES } from "./global-s
 import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js";
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate, ANCHOR_FALLBACK_M } from "./residual-gate.js";
+import { repairMissingPoles } from "./virtual-pole-repair.js";
 import { haversineMeters } from "../geo/utm-calibrator.js";
 
 
@@ -146,6 +147,18 @@ export function formatDwgWarning(w) {
     }
     case "dwg-pair-collision":
       return `DWG: colisão de INSERT no poste ${o.at_post}. Usando só PDF.`;
+    case "dwg-virtual-pole-repair": {
+      const posts = Array.isArray(o.posts) ? o.posts.join(", ") : "?";
+      const virt = Array.isArray(o.virtual_posts) ? o.virtual_posts : [];
+      const virtTxt = virt.length
+        ? ` Poste(s) ${virt.join(", ")} reposicionado(s) como poste projetado (sem correspondente na base DXF).`
+        : "";
+      return (
+        `DXF: postes ${posts} reajustados pela geometria do cabo projetado ` +
+        `(resíduo ${o.cost_before_m}m → ${o.cost_after_m}m).` +
+        virtTxt
+      );
+    }
     case "dwg-missing-distance":
       return `DWG: distância ausente ${o.from}→${o.to}.`;
     case "dwg-graph-walk-fail": {
@@ -564,6 +577,26 @@ export async function calculateCoordinatesWithDwg(
     };
     fallbackResult.userWarnings = buildCalcUserWarnings(fallbackResult);
     return fallbackResult;
+  }
+
+  // Virtual-pole repair (solver path only): a projected NEW pole exists only
+  // as a Cabo Projetado bend in the PDF, never in the DXF base, so the solver
+  // shoehorns its printed-span chain onto wrong neighbors (Bibi Ferreira posts
+  // 3–4). Re-place grossly misfitting interior posts from the cable-kink
+  // geometry; applied only when it removes most of the local span misfit.
+  if (cascade.dwgPath === "global-solve") {
+    const repair = repairMissingPoles({
+      coords: cascade.coords,
+      distances: solverDistances,
+      inventedSources: INVENTED_DISTANCE_SOURCES,
+      routePosts,
+      pageTransforms: pdfResult.pageTransforms,
+      cablePaths: opts?.cablePaths,
+      postIndex,
+      zone: zoneExpected,
+      warnings,
+    });
+    if (repair.changed) cascade.coords = repair.coords;
   }
 
   const coordByPost = new Map(cascade.coords.map((c) => [c.postNumber, c]));

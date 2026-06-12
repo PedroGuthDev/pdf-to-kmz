@@ -2286,5 +2286,7 @@ export function calculateCoordinates(
     }
   }
 
-  return { posts: sorted, connections, walkConnections, warnings };
+  // pageTransforms: viewport→UTM calibration per page, consumed by the DWG
+  // virtual-pole repair (projected-cable kinks must enter the same frame as posts).
+  return { posts: sorted, connections, walkConnections, warnings, pageTransforms };
 }
