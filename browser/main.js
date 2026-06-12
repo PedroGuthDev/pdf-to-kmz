@@ -622,6 +622,7 @@ async function handlePdfFile(file) {
     pageDimensions: result.pageDimensions,
     distanceLabelItems: result.distanceLabelItems,
     posteRawCentroids: result.posteRawCentroids,
+    cablePaths: result.cablePaths,
   };
 
   coordForm.style.display = "block";
@@ -842,6 +843,7 @@ calcBtn.addEventListener("click", async () => {
     viewportBoxes: currentParseData.viewportBoxes,
     pageDimensions: currentParseData.pageDimensions,
     distanceLabelItems: currentParseData.distanceLabelItems,
+    cablePaths: currentParseData.cablePaths,
     ...(lastParsed ? { lastPostGps: lastParsed } : {}),
   });
   let result;
@@ -1127,6 +1129,7 @@ async function runReferenceCompare(twoAnchors) {
     pageDimensions: currentParseData.pageDimensions,
     distanceLabelItems: currentParseData.distanceLabelItems,
     posteRawCentroids: currentParseData.posteRawCentroids,
+    cablePaths: currentParseData.cablePaths,
     ...(lastPostGps ? { lastPostGps } : {}),
   });
   let calcResult;
