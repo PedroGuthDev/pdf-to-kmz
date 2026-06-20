@@ -218,6 +218,68 @@ function bboxArea(b) {
   return dLat * dLon;
 }
 
+/** True when a stored manifest already carries a parsed post index (legacy uploads). */
+export function manifestHasPostData(manifest) {
+  return (
+    Array.isArray(manifest?.posts) &&
+    manifest.posts.length > 0 &&
+    manifest.rbushDump != null
+  );
+}
+
+/** Metadata-only manifest for cloud Blob (DXF source is re-parsed on hydrate). */
+export function cloudManifestFromRecord(record) {
+  return {
+    id: record.id,
+    name: record.name,
+    uploadedAt: record.uploadedAt,
+    crs: record.crs,
+    bboxUtm: record.bboxUtm,
+    bboxLatLon: record.bboxLatLon,
+    parserVersion: record.parserVersion,
+    manifestKind: "cloud-metadata-v1",
+  };
+}
+
+async function buildRecordFromDxfText(id, name, dxfText, dxfBlob, uploadedAt) {
+  let { posts, cableEdges, primaryCableEdges, rbushDump, extmin, extmax } =
+    await runParse(dxfText);
+
+  const zone = DEFAULT_CRS.zone;
+  const geo = resolveGeoreference(extmin, extmax, posts, zone);
+  const { scale, confidence, scaledExtmin, scaledExtmax, bboxLatLon } = geo;
+
+  if (scale !== 1) {
+    posts = scalePosts(posts, scale);
+    cableEdges = scaleCableEdges(cableEdges, scale);
+    primaryCableEdges = scaleCableEdges(primaryCableEdges, scale);
+    rbushDump = buildPostIndex(posts).toJSON();
+  }
+
+  const crs = { ...DEFAULT_CRS, confidence };
+  const bboxUtm = {
+    minE: scaledExtmin.x,
+    maxE: scaledExtmax.x,
+    minN: scaledExtmin.y,
+    maxN: scaledExtmax.y,
+  };
+
+  return {
+    id,
+    name: name ?? id,
+    uploadedAt: uploadedAt ?? Date.now(),
+    crs,
+    bboxUtm,
+    bboxLatLon,
+    posts,
+    cableEdges,
+    primaryCableEdges,
+    rbushDump,
+    sourceDxf: dxfText.length <= MAX_SOURCE_DXF_STORE_BYTES ? dxfBlob : null,
+    parserVersion: PARSER_VERSION,
+  };
+}
+
 export function createRegionLibrary(idbFactory = null) {
   return {
     async addRegion(name, dxfBlob) {
@@ -227,42 +289,29 @@ export function createRegionLibrary(idbFactory = null) {
       }
 
       const dxfText = await dxfBlob.text();
-      let { posts, cableEdges, primaryCableEdges, rbushDump, extmin, extmax } =
-        await runParse(dxfText);
+      const record = await buildRecordFromDxfText(name, name, dxfText, dxfBlob, Date.now());
 
-      const zone = DEFAULT_CRS.zone;
-      const geo = resolveGeoreference(extmin, extmax, posts, zone);
-      const { scale, confidence, scaledExtmin, scaledExtmax, bboxLatLon } = geo;
+      const db = await openRegionsDb(idbFactory);
+      await db.put("regions", record);
+      db.close?.();
+      return record;
+    },
 
-      if (scale !== 1) {
-        posts = scalePosts(posts, scale);
-        cableEdges = scaleCableEdges(cableEdges, scale);
-        primaryCableEdges = scaleCableEdges(primaryCableEdges, scale);
-        rbushDump = buildPostIndex(posts).toJSON();
+    /** Parse a cloud DXF blob and persist the full region locally (hydrate path). */
+    async loadRegionFromDxfBlob(id, dxfBlob, meta = {}) {
+      if (!id || typeof id !== "string") throw new Error("Region id is required.");
+      if (!dxfBlob || typeof dxfBlob.text !== "function") {
+        throw new Error("DXF blob is required.");
       }
 
-      const crs = { ...DEFAULT_CRS, confidence };
-      const bboxUtm = {
-        minE: scaledExtmin.x,
-        maxE: scaledExtmax.x,
-        minN: scaledExtmin.y,
-        maxN: scaledExtmax.y,
-      };
-
-      const record = {
-        id: name,
-        name,
-        uploadedAt: Date.now(),
-        crs,
-        bboxUtm,
-        bboxLatLon,
-        posts,
-        cableEdges,
-        primaryCableEdges,
-        rbushDump,
-        sourceDxf: dxfText.length <= MAX_SOURCE_DXF_STORE_BYTES ? dxfBlob : null,
-        parserVersion: PARSER_VERSION,
-      };
+      const dxfText = await dxfBlob.text();
+      const record = await buildRecordFromDxfText(
+        id,
+        meta.name ?? id,
+        dxfText,
+        dxfBlob,
+        meta.uploadedAt,
+      );
 
       const db = await openRegionsDb(idbFactory);
       await db.put("regions", record);

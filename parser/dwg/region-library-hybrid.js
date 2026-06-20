@@ -1,4 +1,8 @@
 import { createDxfCloudClient } from "./dxf-cloud-client.js";
+import {
+  cloudManifestFromRecord,
+  manifestHasPostData,
+} from "./region-library.js";
 
 function bboxArea(b) {
   if (!b) return Infinity;
@@ -16,33 +20,6 @@ function pickRegionByGps(regions, lat, lon) {
   if (!hits.length) return null;
   hits.sort((a, b) => bboxArea(a.bboxLatLon) - bboxArea(b.bboxLatLon));
   return hits[0];
-}
-
-function manifestFromRecord(record) {
-  const {
-    crs,
-    bboxUtm,
-    bboxLatLon,
-    posts,
-    cableEdges,
-    rbushDump,
-    parserVersion,
-    uploadedAt,
-    id,
-    name,
-  } = record;
-  return {
-    crs,
-    bboxUtm,
-    bboxLatLon,
-    posts,
-    cableEdges,
-    rbushDump,
-    parserVersion,
-    uploadedAt,
-    id,
-    name,
-  };
 }
 
 function mergeRegionLists(cloudList, localList) {
@@ -89,7 +66,7 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
         await cloudClient.uploadRegion({
           name: record.id,
           dxfFile: dxfBlob,
-          manifest: manifestFromRecord(record),
+          manifest: cloudManifestFromRecord(record),
         });
       } catch (err) {
         console.warn("[dxf-cloud] upload failed:", err);
@@ -137,13 +114,23 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
         if (!manifest) return null;
 
         const sourceDxf = await cloudClient.fetchDxfBlob(id);
-
-        await localLibrary.importRegionFromManifest(manifest, sourceDxf);
+        if (sourceDxf) {
+          await localLibrary.loadRegionFromDxfBlob(id, sourceDxf, {
+            name: manifest.name,
+            uploadedAt: manifest.uploadedAt,
+          });
+        } else if (manifestHasPostData(manifest)) {
+          await localLibrary.importRegionFromManifest(manifest, null);
+        } else {
+          throw new Error(
+            `Cloud region "${id}" has no DXF blob and no parsed post index in manifest.`,
+          );
+        }
         return localLibrary.getRegionWithIndex(id);
       } catch (err) {
         console.warn("[dxf-cloud] hydrate failed:", err);
+        throw err;
       }
-      return null;
     },
 
     async deleteRegion(name) {

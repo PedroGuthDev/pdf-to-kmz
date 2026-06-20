@@ -291,13 +291,10 @@ if (dxfFileInput) {
     }
 
     try {
-      await regionLibrary.addRegion(name, file);
+      const record = await regionLibrary.addRegion(name, file);
       await refreshDxfRegionSelect(name);
       if (dxfUploadStatus) {
-        const cloud = regionLibrary.cloudEnabled
-          ? " e enviada para a nuvem"
-          : "";
-        dxfUploadStatus.textContent = `Região "${name}" carregada${cloud}.`;
+        dxfUploadStatus.textContent = `Região "${name}" carregada localmente (${record.posts?.length ?? 0} postes DXF).`;
         dxfUploadStatus.style.color = "var(--success)";
       }
       await updateDxfCloudBanner();
