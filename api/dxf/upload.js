@@ -1,9 +1,9 @@
 import { handleUpload } from "@vercel/blob/client";
 
 import { requireWriteAuth } from "../../lib/dxf-cloud-auth.js";
+import { DXF_REGION_PREFIX } from "../../lib/dxf-cloud-paths.js";
 import {
   CLIENT_DXF_MAX_BYTES,
-  DXF_REGION_PREFIX,
   isBlobConfigured,
 } from "../../lib/dxf-cloud-store.js";
 

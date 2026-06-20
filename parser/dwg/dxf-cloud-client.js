@@ -101,13 +101,24 @@ export function createDxfCloudClient(options = {}) {
       }
 
       if (dxfFile && size > INLINE_DXF_MAX_BYTES) {
-        const blob = await upload(pathname, dxfFile, {
-          access: "private",
-          handleUploadUrl: apiUrl("/api/dxf/upload", baseUrl),
-          headers: authHeaders(getApiSecret),
-          multipart: size > 5 * 1024 * 1024,
-          contentType: "application/dxf",
-        });
+        let blob;
+        try {
+          blob = await upload(pathname, dxfFile, {
+            access: "private",
+            handleUploadUrl: apiUrl("/api/dxf/upload", baseUrl),
+            headers: authHeaders(getApiSecret),
+            multipart: size > 5 * 1024 * 1024,
+            contentType: "application/dxf",
+          });
+        } catch (err) {
+          const detail = String(err?.message ?? err);
+          if (/client token/i.test(detail)) {
+            throw new Error(
+              `${detail} (verifique se /api/dxf/upload está a responder — redeploy recente?)`,
+            );
+          }
+          throw err;
+        }
         return registerRegion({
           name,
           manifest,
