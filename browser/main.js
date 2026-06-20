@@ -242,9 +242,21 @@ async function updateDxfCloudBanner() {
   }
   const ok = await regionLibrary.refreshCloudStatus();
   if (ok) {
-    dxfCloudStatus.textContent =
-      "Nuvem: biblioteca DXF sincronizada (ficheiros privados no Blob).";
-    dxfCloudStatus.style.color = "var(--success)";
+    let count = 0;
+    try {
+      count = (await regionLibrary.listRegions()).length;
+    } catch {
+      count = 0;
+    }
+    if (count === 0) {
+      dxfCloudStatus.textContent =
+        "Nuvem conectada, mas nenhuma região registada. Ficheiros colocados só no painel Blob não aparecem aqui — use «Carregar região DXF» abaixo (ou registe o blob com tools/register-blob-region.mjs).";
+      dxfCloudStatus.style.color = "var(--warning)";
+    } else {
+      dxfCloudStatus.textContent =
+        `Nuvem: ${count} região(ões) DXF disponível(eis) (ficheiros privados no Blob).`;
+      dxfCloudStatus.style.color = "var(--success)";
+    }
   } else {
     dxfCloudStatus.textContent =
       "Nuvem indisponível (Blob não configurado) — só cache local neste browser.";
@@ -252,8 +264,12 @@ async function updateDxfCloudBanner() {
   }
 }
 
-refreshDxfRegionSelect().catch(() => {});
-updateDxfCloudBanner().catch(() => {});
+async function refreshDxfLibraryUi(preferId = null) {
+  await refreshDxfRegionSelect(preferId);
+  await updateDxfCloudBanner();
+}
+
+refreshDxfLibraryUi().catch(() => {});
 
 // ── DWG DXF upload handler ────────────────────────────────────────────────
 if (dxfUploadBtn && dxfFileInput) {
@@ -292,12 +308,11 @@ if (dxfFileInput) {
 
     try {
       const record = await regionLibrary.addRegion(name, file);
-      await refreshDxfRegionSelect(name);
+      await refreshDxfLibraryUi(name);
       if (dxfUploadStatus) {
         dxfUploadStatus.textContent = `Região "${name}" carregada localmente (${record.posts?.length ?? 0} postes DXF).`;
         dxfUploadStatus.style.color = "var(--success)";
       }
-      await updateDxfCloudBanner();
     } catch (err) {
       const msg = String(err?.message ?? err);
       if (dxfUploadStatus) {
