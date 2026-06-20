@@ -1,6 +1,7 @@
 import { upload } from "@vercel/blob/client";
 
 import {
+  CLIENT_DXF_MAX_BYTES,
   INLINE_DXF_MAX_BYTES,
   regionDxfBlobPath,
 } from "../../lib/dxf-cloud-paths.js";
@@ -12,13 +13,32 @@ function apiUrl(path, base = DEFAULT_BASE) {
   return `${root}${path}`;
 }
 
+function formatMb(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function authHeaders(getApiSecret) {
+  const secret = getApiSecret?.()?.trim() ?? "";
+  if (!secret) return {};
+  return { Authorization: `Bearer ${secret}` };
+}
+
 export function createDxfCloudClient(options = {}) {
   const baseUrl = options.baseUrl ?? "";
+  const getApiSecret = options.getApiSecret;
+
+  function fetchHeaders(extra = {}) {
+    return {
+      "Content-Type": "application/json",
+      ...authHeaders(getApiSecret),
+      ...extra,
+    };
+  }
 
   async function registerRegion({ name, manifest, dxfText, dxfPathname }) {
     const res = await fetch(apiUrl("/api/dxf/regions", baseUrl), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: fetchHeaders(),
       body: JSON.stringify({ name, manifest, dxfText, dxfPathname }),
     });
     if (!res.ok) {
@@ -74,10 +94,17 @@ export function createDxfCloudClient(options = {}) {
         dxfFile?.size ??
         (typeof dxfText === "string" ? new TextEncoder().encode(dxfText).length : 0);
 
+      if (size > CLIENT_DXF_MAX_BYTES) {
+        throw new Error(
+          `DXF demasiado grande (${formatMb(size)}; limite ${formatMb(CLIENT_DXF_MAX_BYTES)}).`,
+        );
+      }
+
       if (dxfFile && size > INLINE_DXF_MAX_BYTES) {
         const blob = await upload(pathname, dxfFile, {
           access: "private",
           handleUploadUrl: apiUrl("/api/dxf/upload", baseUrl),
+          headers: authHeaders(getApiSecret),
           multipart: size > 5 * 1024 * 1024,
           contentType: "application/dxf",
         });
@@ -101,7 +128,7 @@ export function createDxfCloudClient(options = {}) {
     async deleteRegion(id) {
       const res = await fetch(
         apiUrl(`/api/dxf/regions?id=${encodeURIComponent(id)}`, baseUrl),
-        { method: "DELETE" }
+        { method: "DELETE", headers: authHeaders(getApiSecret) },
       );
       if (!res.ok) throw new Error(`Cloud delete failed (${res.status})`);
       return res.json();

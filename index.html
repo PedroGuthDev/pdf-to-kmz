@@ -652,6 +652,19 @@
         abrir o mesmo deploy.
       </p>
       <p id="dxfCloudStatus" class="hint" style="margin: 0 0 var(--space-xs)"></p>
+      <details style="margin: 0 0 var(--space-sm)">
+        <summary class="hint">Autenticação da nuvem (opcional)</summary>
+        <label for="dxfApiSecret">Chave API (DXF_API_SECRET)</label>
+        <input
+          type="password"
+          id="dxfApiSecret"
+          placeholder="Só necessário se o deploy exigir chave"
+          autocomplete="off"
+        />
+        <p class="hint" style="margin: 4px 0 0">
+          Deixe vazio se o administrador não configurou DXF_API_SECRET na Vercel.
+        </p>
+      </details>
       <label for="dxfRegionSelect">Região ativa</label>
       <select id="dxfRegionSelect" aria-describedby="dxfRegionSelectHint">
         <option value="">Automático (por GPS do poste 1)</option>

@@ -60,7 +60,10 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
 
     async addRegion(name, dxfBlob) {
       const record = await localLibrary.addRegion(name, dxfBlob);
-      if (!(await ensureCloud())) return record;
+      if (!(await ensureCloud())) {
+        record.cloudSync = { ok: false, skipped: true };
+        return record;
+      }
 
       try {
         await cloudClient.uploadRegion({
@@ -68,8 +71,11 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
           dxfFile: dxfBlob,
           manifest: cloudManifestFromRecord(record),
         });
+        record.cloudSync = { ok: true };
       } catch (err) {
+        const msg = String(err?.message ?? err);
         console.warn("[dxf-cloud] upload failed:", err);
+        record.cloudSync = { ok: false, error: msg };
       }
       return record;
     },
@@ -145,7 +151,7 @@ export function createHybridRegionLibrary(localLibrary, cloudClient) {
   };
 }
 
-export function createDefaultHybridRegionLibrary(localLibrary) {
-  const cloud = createDxfCloudClient();
+export function createDefaultHybridRegionLibrary(localLibrary, options = {}) {
+  const cloud = createDxfCloudClient(options);
   return createHybridRegionLibrary(localLibrary, cloud);
 }

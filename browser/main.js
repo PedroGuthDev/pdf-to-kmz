@@ -21,7 +21,19 @@ import {
   buildPageTransforms,
 } from "../parser/geo/utm-calibrator.js";
 
-const regionLibrary = createDefaultHybridRegionLibrary(createRegionLibrary());
+const DXF_API_SECRET_KEY = "pdf-to-kmz.dxfApiSecret";
+
+function getDxfApiSecret() {
+  try {
+    return localStorage.getItem(DXF_API_SECRET_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+const regionLibrary = createDefaultHybridRegionLibrary(createRegionLibrary(), {
+  getApiSecret: getDxfApiSecret,
+});
 
 // ── Debug helpers ──────────────────────────────────────────────────────────
 const debugSection = document.getElementById("debugSection");
@@ -157,6 +169,7 @@ const dxfRegionName = document.getElementById("dxfRegionName");
 const dxfRegionSelect = document.getElementById("dxfRegionSelect");
 const dxfUploadStatus = document.getElementById("dxfUploadStatus");
 const dxfCloudStatus = document.getElementById("dxfCloudStatus");
+const dxfApiSecretInput = document.getElementById("dxfApiSecret");
 const coordWarning = document.getElementById("coordWarning");
 const secondAnchorToggle = document.getElementById("secondAnchorToggle");
 const secondAnchorPanel = document.getElementById("secondAnchorPanel");
@@ -271,6 +284,45 @@ async function refreshDxfLibraryUi(preferId = null) {
 
 refreshDxfLibraryUi().catch(() => {});
 
+if (dxfApiSecretInput) {
+  dxfApiSecretInput.value = getDxfApiSecret();
+  dxfApiSecretInput.addEventListener("change", () => {
+    const value = dxfApiSecretInput.value.trim();
+    if (value) localStorage.setItem(DXF_API_SECRET_KEY, value);
+    else localStorage.removeItem(DXF_API_SECRET_KEY);
+  });
+}
+
+function formatDxfUploadStatus(record, name) {
+  const posts = record.posts?.length ?? 0;
+  const sync = record.cloudSync;
+  if (sync?.ok) {
+    return {
+      text: `Região "${name}" sincronizada na nuvem (${posts} postes DXF).`,
+      color: "var(--success)",
+    };
+  }
+  if (sync?.skipped) {
+    return {
+      text: `Região "${name}" carregada só neste browser (nuvem indisponível; ${posts} postes).`,
+      color: "var(--warning)",
+    };
+  }
+  if (sync?.error) {
+    const hint = sync.error.includes("Unauthorized")
+      ? " Preencha a chave API abaixo se o deploy usa DXF_API_SECRET."
+      : "";
+    return {
+      text: `Região "${name}" carregada localmente (${posts} postes), mas a nuvem falhou: ${sync.error}.${hint}`,
+      color: "var(--warning)",
+    };
+  }
+  return {
+    text: `Região "${name}" carregada localmente (${posts} postes DXF).`,
+    color: "var(--success)",
+  };
+}
+
 // ── DWG DXF upload handler ────────────────────────────────────────────────
 if (dxfUploadBtn && dxfFileInput) {
   dxfUploadBtn.addEventListener("click", () => dxfFileInput.click());
@@ -310,8 +362,9 @@ if (dxfFileInput) {
       const record = await regionLibrary.addRegion(name, file);
       await refreshDxfLibraryUi(name);
       if (dxfUploadStatus) {
-        dxfUploadStatus.textContent = `Região "${name}" carregada localmente (${record.posts?.length ?? 0} postes DXF).`;
-        dxfUploadStatus.style.color = "var(--success)";
+        const status = formatDxfUploadStatus(record, name);
+        dxfUploadStatus.textContent = status.text;
+        dxfUploadStatus.style.color = status.color;
       }
     } catch (err) {
       const msg = String(err?.message ?? err);
