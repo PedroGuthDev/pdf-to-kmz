@@ -149,12 +149,22 @@ export function refineGpsAtSheetBreakCorridor(
   let fixed = 0;
   const distMap = opts.distMap ?? null;
 
+  // The anchor page (the page holding post #1) is GPS-pinned around the user
+  // anchor: post #1 must never move. Reflecting that page across a downstream
+  // sheet-break chord would throw post #1 (and the whole calibrated page) ~200 m
+  // off the anchor — corrupting the route and starving the DWG solver of a
+  // usable prior. Never reflect the anchor page; the heuristic is meant for
+  // downstream detail sheets whose origins floated in the global label fit.
+  const anchorPost = list.find((p) => p.number === 1) ?? list[0];
+  const anchorPage = anchorPost?.pageNum ?? 1;
+
   for (let i = 1; i < list.length; i++) {
     const prev = list[i - 1];
     const curr = list[i];
     const prevPage = prev.pageNum ?? 1;
     const currPage = curr.pageNum ?? 1;
     if (prevPage === currPage) continue;
+    if (currPage === anchorPage) continue;
     if (prev.lat == null || curr.lat == null) continue;
     if (fixedPages.has(currPage)) continue;
 

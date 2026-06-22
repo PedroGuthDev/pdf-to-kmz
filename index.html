@@ -740,6 +740,21 @@
             id="gpsInputLast"
             placeholder="-27.659066, -48.702999"
           />
+          <label for="sheetAnchorsInput" style="margin-top: 0.75rem"
+            >Âncoras por folha (opcional) — uma por linha:
+            <code>poste: lat, lon</code></label
+          >
+          <textarea
+            id="sheetAnchorsInput"
+            rows="4"
+            placeholder="20: -27.850644, -48.602637&#10;46: -27.849584, -48.600120&#10;55: -27.850274, -48.598900"
+            style="width: 100%; font-family: monospace; resize: vertical"
+          ></textarea>
+          <p class="hint" style="font-size: 0.85em; color: var(--ink-muted)">
+            Em projetos com várias folhas de detalhe, cada folha pode estar
+            deslocada. Forneça o GPS de um poste por folha para fixá-la
+            (dois postes por folha corrigem também rotação).
+          </p>
         </div>
         <div class="btn-row">
           <button type="button" id="calcBtn" class="btn-primary">

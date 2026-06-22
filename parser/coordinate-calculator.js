@@ -79,6 +79,8 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
   if (transforms.size < 2 || !sortedPosts?.length || !distMap?.size) return 0;
 
   const sorted = [...sortedPosts].sort((a, b) => a.number - b.number);
+  // Anchor page (post #1) is GPS-pinned — never re-derive its origin downstream.
+  const anchorPage = (sorted.find((p) => p.number === 1) ?? sorted[0])?.pageNum;
   const pdfBearing = (from, to) => {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -93,7 +95,8 @@ function lockPageOriginsAtSheetBreaksFromPriorProjection(
     if (
       prev.pageNum == null ||
       curr.pageNum == null ||
-      prev.pageNum === curr.pageNum
+      prev.pageNum === curr.pageNum ||
+      curr.pageNum === anchorPage
     ) {
       continue;
     }
@@ -153,6 +156,11 @@ function lockSheetBreaksFromChainedGps(transforms, sorted, distMap, warnings) {
   if (transforms.size < 2 || !sorted?.length || !distMap?.size)
     return relockedPages;
 
+  // The anchor page (post #1's page) is pinned to the user GPS — never re-lock it
+  // from a downstream chain, or zigzag routes that re-enter the anchor sheet will
+  // throw post #1 off its anchor (see route-corridor anchor-page guard).
+  const anchorPage = (sorted.find((p) => p.number === 1) ?? sorted[0])?.pageNum;
+
   const pdfBearing = (from, to) => {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -167,6 +175,7 @@ function lockSheetBreaksFromChainedGps(transforms, sorted, distMap, warnings) {
       prev.pageNum == null ||
       curr.pageNum == null ||
       prev.pageNum === curr.pageNum ||
+      curr.pageNum === anchorPage ||
       prev.lat == null ||
       curr.lat == null
     ) {
@@ -223,6 +232,8 @@ function lockFirstSheetBreakFromChainedGps(
   distMap,
   warnings,
 ) {
+  // Anchor page (post #1) is GPS-pinned — never re-derive its origin downstream.
+  const anchorPage = (sorted.find((p) => p.number === 1) ?? sorted[0])?.pageNum;
   const pdfBearing = (from, to) => {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -236,6 +247,7 @@ function lockFirstSheetBreakFromChainedGps(
       prev.pageNum == null ||
       curr.pageNum == null ||
       prev.pageNum === curr.pageNum ||
+      curr.pageNum === anchorPage ||
       prev.lat == null ||
       curr.lat == null
     ) {
@@ -1907,13 +1919,17 @@ export function calculateCoordinates(
       augDistMapForSeams?.size
     ) {
       const list = [...sorted].sort((a, b) => a.number - b.number);
+      // Anchor page (post #1) is GPS-pinned — never nudge it, even when the route
+      // zigzags back into it across a sheet break.
+      const nudgeAnchorPage = (list.find((p) => p.number === 1) ?? list[0])
+        ?.pageNum;
       const incomingPages = new Set();
       for (let i = 1; i < list.length; i++) {
         const prev = list[i - 1];
         const curr = list[i];
         const pPrev = prev.pageNum ?? 1;
         const pCurr = curr.pageNum ?? 1;
-        if (pPrev !== pCurr) incomingPages.add(pCurr);
+        if (pPrev !== pCurr && pCurr !== nudgeAnchorPage) incomingPages.add(pCurr);
       }
 
       const rmseBefore = labelDistanceRmse(

@@ -900,6 +900,34 @@ calcBtn.addEventListener("click", async () => {
     coordWarning.style.display = "block";
   }
 
+  // Read optional per-sheet anchors ("poste: lat, lon" per line). On tiled
+  // multi-sheet routes each detail sheet can be offset independently; pinning a
+  // post per sheet corrects its placement.
+  const sheetAnchorsRaw = document.getElementById("sheetAnchorsInput")?.value ?? "";
+  const sheetAnchors = [];
+  const badAnchorLines = [];
+  for (const line of sheetAnchorsRaw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const m = trimmed.match(/^(\d+)\s*[:=]\s*(.+)$/);
+    const coord = m ? parseCoordinateInput(m[2]) : null;
+    if (m && coord) {
+      sheetAnchors.push({
+        postNumber: Number(m[1]),
+        lat: coord.lat,
+        lon: coord.lon,
+      });
+    } else {
+      badAnchorLines.push(trimmed);
+    }
+  }
+  if (badAnchorLines.length > 0) {
+    coordWarning.textContent =
+      `Âncoras por folha ignoradas (formato inválido): ${badAnchorLines.join("; ")}. ` +
+      "Use «poste: lat, lon».";
+    coordWarning.style.display = "block";
+  }
+
   // Deep clone to avoid mutating the original parse result on multiple runs
   const postsCopy = JSON.parse(JSON.stringify(currentParseData.posts));
 
@@ -910,6 +938,7 @@ calcBtn.addEventListener("click", async () => {
     distanceLabelItems: currentParseData.distanceLabelItems,
     cablePaths: currentParseData.cablePaths,
     ...(lastParsed ? { lastPostGps: lastParsed } : {}),
+    ...(sheetAnchors.length > 0 ? { sheetAnchors } : {}),
   });
   let result;
   try {

@@ -19,7 +19,119 @@ import { deriveCableTopology, buildCableTopologyMaps } from "./cable-topology.js
 import { cropRegionToBbox, routeUtmBbox } from "./region-crop.js";
 import { computeResiduals, computeAnchorGap, applyResidualGate, ANCHOR_FALLBACK_M } from "./residual-gate.js";
 import { repairMissingPoles } from "./virtual-pole-repair.js";
-import { haversineMeters } from "../geo/utm-calibrator.js";
+import { haversineMeters, latLonToUtm, utmToLatLon } from "../geo/utm-calibrator.js";
+
+/**
+ * Per-sheet (multi-anchor) correction. On tiled multi-sheet route drawings each
+ * detail sheet is placed in the PDF with its own independent UTM origin error
+ * (MAR ABERTO: pages 4/5/6 sit 130–200 m off). A single post-1 anchor pins only
+ * the anchor sheet, so the solver's PDF prior for every other sheet is hundreds
+ * of metres off and it pairs posts to the wrong DXF nodes.
+ *
+ * Each user-supplied `{ postNumber, lat, lon }` pins its sheet: we rigid-shift
+ * every post on that page so the anchored post lands on its true GPS. Rotation
+ * and scale come from the global UTM grid (already correct to a few metres over
+ * a single sheet), so a translation lock is enough to bring the prior inside the
+ * solver's candidate windows. Opt-in via `opts.sheetAnchors` — no anchors means
+ * byte-identical behaviour (the gated routes never pass this option).
+ *
+ * @param {Array<{ number: number, lat: number|null, lon: number|null, pageNum?: number }>} pdfPosts
+ * @param {Array<{ postNumber: number, lat: number, lon: number }>} sheetAnchors
+ * @param {string[]} warnings
+ */
+export function applySheetAnchors(pdfPosts, sheetAnchors, warnings) {
+  if (!Array.isArray(sheetAnchors) || sheetAnchors.length === 0) return;
+  const byNum = new Map(pdfPosts.map((p) => [p.number, p]));
+
+  // Group valid anchors by the sheet (page) of their post.
+  /** @type {Map<number, Array<{ cur: {x,y}, tru: {x,y}, postNumber: number }>>} */
+  const byPage = new Map();
+  let zone = null;
+  for (const a of sheetAnchors) {
+    if (
+      !a ||
+      typeof a.postNumber !== "number" ||
+      typeof a.lat !== "number" ||
+      typeof a.lon !== "number"
+    ) {
+      continue;
+    }
+    const post = byNum.get(a.postNumber);
+    if (!post || post.lat == null || post.lon == null || post.pageNum == null) {
+      warnings.push(
+        `[sheet-anchor] post ${a.postNumber} not found / unplaced — anchor ignored.`,
+      );
+      continue;
+    }
+    const cur = latLonToUtm(post.lat, post.lon);
+    const tru = latLonToUtm(a.lat, a.lon);
+    zone = tru.zone;
+    if (!byPage.has(post.pageNum)) byPage.set(post.pageNum, []);
+    byPage.get(post.pageNum).push({
+      cur: { x: cur.easting, y: cur.northing },
+      tru: { x: tru.easting, y: tru.northing },
+      postNumber: a.postNumber,
+    });
+  }
+
+  for (const [pageNum, anchors] of byPage) {
+    let apply; // (UTM x,y) -> corrected (UTM x,y)
+    let mode;
+    if (anchors.length >= 2) {
+      // 2-point similarity (rotation + uniform scale + translation): corrects
+      // intra-sheet rotation/scale drift that a single-point translation can't.
+      const [A, B] = anchors;
+      const dxC = B.cur.x - A.cur.x;
+      const dyC = B.cur.y - A.cur.y;
+      const denom = dxC * dxC + dyC * dyC;
+      if (denom < 1e-6) {
+        // Degenerate (two anchors at same spot) → fall back to translation on A.
+        const dE = A.tru.x - A.cur.x;
+        const dN = A.tru.y - A.cur.y;
+        apply = (x, y) => ({ x: x + dE, y: y + dN });
+        mode = `translation (degenerate 2-pt) at post ${A.postNumber}`;
+      } else {
+        const dxT = B.tru.x - A.tru.x;
+        const dyT = B.tru.y - A.tru.y;
+        // s*cosθ = u, s*sinθ = v  from  truΔ = R·curΔ
+        const u = (dxC * dxT + dyC * dyT) / denom;
+        const v = (dxC * dyT - dyC * dxT) / denom;
+        apply = (x, y) => {
+          const rx = x - A.cur.x;
+          const ry = y - A.cur.y;
+          return {
+            x: A.tru.x + u * rx - v * ry,
+            y: A.tru.y + v * rx + u * ry,
+          };
+        };
+        const scale = Math.hypot(u, v);
+        const rotDeg = (Math.atan2(v, u) * 180) / Math.PI;
+        mode = `similarity at posts ${A.postNumber}+${B.postNumber} (scale ${scale.toFixed(4)}, rot ${rotDeg.toFixed(2)}°)`;
+      }
+    } else {
+      const A = anchors[0];
+      const dE = A.tru.x - A.cur.x;
+      const dN = A.tru.y - A.cur.y;
+      if (!Number.isFinite(dE) || !Number.isFinite(dN)) continue;
+      apply = (x, y) => ({ x: x + dE, y: y + dN });
+      mode = `translation at post ${A.postNumber} (${Math.hypot(dE, dN).toFixed(1)} m)`;
+    }
+
+    let shifted = 0;
+    for (const p of pdfPosts) {
+      if (p.pageNum !== pageNum || p.lat == null || p.lon == null) continue;
+      const u = latLonToUtm(p.lat, p.lon);
+      const c = apply(u.easting, u.northing);
+      const ll = utmToLatLon(c.x, c.y, zone);
+      p.lat = ll.lat;
+      p.lon = ll.lon;
+      shifted++;
+    }
+    warnings.push(
+      `[sheet-anchor] page ${pageNum} pinned — ${mode}; ${shifted} post(s) corrected.`,
+    );
+  }
+}
 
 
 /** @param {number} lat @param {number} lon @param {Array<{ name?: string, bboxLatLon?: { minLat: number, maxLat: number, minLon: number, maxLon: number } }>} regions */
@@ -430,6 +542,13 @@ export async function calculateCoordinatesWithDwg(
     cableSegments,
     opts,
   );
+
+  // Per-sheet anchors (multi-anchor): pin each detail sheet to a user GPS so the
+  // solver prior (gpsByPostNumber, below) lands inside its candidate windows on
+  // tiled multi-sheet routes whose sheets drift independently. Opt-in.
+  if (Array.isArray(opts?.sheetAnchors) && opts.sheetAnchors.length > 0) {
+    applySheetAnchors(pdfResult.posts ?? [], opts.sheetAnchors, warnings);
+  }
   // Prefer walkConnections: the full consecutive topology snapshotted before
   // finalizeBifurcationConnections prunes branch-return/jumpback edges for KMZ
   // rendering. The graph-walk iterates posts in numeric order and needs an entry
